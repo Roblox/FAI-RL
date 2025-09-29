@@ -18,27 +18,7 @@ from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
 from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
 from .rewards.format_rewards import structured_xml_reward_func
-
-
-SYSTEM_PROMPT = """
-Respond in the following format:
-
-<reasoning>
-...
-</reasoning>
-<answer>
-...
-</answer>
-"""
-
-XML_COT_FORMAT = """\
-<reasoning>
-{reasoning}
-</reasoning>
-<answer>
-{answer}
-</answer>
-"""
+from .templates.gsm8k_template import GSM8KTemplate
 
 
 class GSPOTrainer(BaseTrainer):
@@ -100,24 +80,10 @@ class GSPOTrainer(BaseTrainer):
                 # Math dataset format (GSM8K style)
                 self.logger.info(f"Processing as math dataset with Q&A format")
                 
-                # Format the dataset for training
+                # Use the GSM8K template for formatting
                 def format_example(example):
-                    prompt = example[prompt_col]
-                    answer = example[answer_col]
-                    
-                    # Extract final answer for this specific example (assuming GSM8K format with ####)
-                    final_answer = answer.split('####')[-1].strip() if '####' in answer else answer.strip()
-                    
-                    training_prompt = [
-                        {'role': 'system', 'content': SYSTEM_PROMPT}, 
-                        {'role': 'user', 'content': 'What is the largest single-digit prime number?'},
-                        {'role': 'assistant', 'content': XML_COT_FORMAT.format(
-                            reasoning="9 is divisible by 3 and 8 is divisible by 2, but 7 is prime.",
-                            answer="7"
-                        )},
-                        {'role': 'user', 'content': prompt}
-                    ]
-                    return {'prompt': training_prompt, 'answer': final_answer}
+                    return GSM8KTemplate.format_example(example, prompt_col, answer_col)
+                
                 processed_dataset = dataset.map(format_example)
             else:
                 raise ValueError(f"Dataset {dataset_info.name} doesn't have expected columns. "

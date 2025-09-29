@@ -1,0 +1,32 @@
+evaluation:
+  model_path: "models/YOUR_MODEL_OUTPUT/YOUR_CHECKPOINT"
+  output_file: "outputs/YOUR_EVALUATION_OUTPUT.csv"
+
+  # Dataset column configuration
+  dataset_name: "cais/mmlu"
+  dataset_subset: "all"
+  output_type: "multiple_choice"
+  dataset_split: "test"
+  dataset_columns: ["question", "choices", "answer"]
+  ground_truth_column: "answer"
+  
+  # Use a special prompt template that will be post-processed
+  system_prompt: |
+    Question: {question}
+    Choose the best option and respond only with the letter of your choice.
+    
+    {choices}
+    
+    Please respond **only in valid JSON format** with the following keys:
+    {{
+      "answer": "<the letter of the chosen option, e.g., A, B, C, D>"
+    }}
+
+    Let's think step by step.
+  
+  # Generation parameters
+  temperature: 1.0
+  top_p: 0.9
+  max_new_tokens: 2000
+  do_sample: true
+ 

@@ -1,5 +1,6 @@
 from typing import List
 import logging
+from . import reward_function
 
 def extract_answer(completion, logger=None) -> str:
     """Extracts the answer from XML-formatted text."""
@@ -26,6 +27,7 @@ def extract_answer(completion, logger=None) -> str:
         return ""
 
 
+@reward_function
 def exact_match_reward_func(completions: List[str], answer, **kwargs) -> List[float]:
     """Reward function that matches extracted answers with ground truth."""
     rewards = []
@@ -37,6 +39,7 @@ def exact_match_reward_func(completions: List[str], answer, **kwargs) -> List[fl
     return rewards
 
 
+@reward_function
 def digit_reward_func(completions: List[str], **kwargs) -> List[float]:
     """Calculates reward if the extracted response is a digit."""
     logger = kwargs.get('logger', None)

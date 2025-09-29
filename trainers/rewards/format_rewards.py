@@ -1,6 +1,8 @@
 from typing import List
 import logging
+from . import reward_function
 
+@reward_function
 def structured_xml_reward_func(completions: List[str], **kwargs) -> List[float]:
     """Calculates reward based on XML tag counts."""
     contents = [completion[0]["content"] for completion in completions]

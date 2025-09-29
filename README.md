@@ -41,12 +41,12 @@ Train a model using DPO, GRPO, or GSPO:
 ```bash
 # Single GPU training
 ./scripts/run_training.sh \
-    --config configs/training/dpo/llama3_3B_Inst.yaml \
+    --config configs/training/dpo/llama3_3B_recipe.yaml \
     --num-gpus 1
 
 # Multi-GPU training (8 GPUs)
 ./scripts/run_training.sh \
-    --config configs/training/gspo/llama3_3B_Inst.yaml \
+    --config configs/training/dpo/llama3_3B_recipe.yaml \
     --num-gpus 8 \
     --nohup  # Run in background
 ```
@@ -58,11 +58,11 @@ Generate responses from your trained models:
 ```bash
 # Run inference on trained model
 ./scripts/run_inference.sh \
-    --config configs/inference/llama3_3B_inference.yaml
+    --config configs/inference/llama3_3B_recipe.yaml
 
 # Run inference with debug mode
 ./scripts/run_inference.sh \
-    --config configs/inference/llama3_3B_inference.yaml \
+    --config configs/inference/llama3_3B_recipe.yaml \
     --debug
 ```
 
@@ -73,11 +73,11 @@ Evaluate model performance on benchmarks:
 ```bash
 # Evaluate on MMLU benchmark
 ./scripts/run_evaluation.sh \
-    --config configs/evaluation/mmlu/qwen3_4B_evaluation.yaml
+    --config configs/evaluation/mmlu/llama3_3B_recipe.yaml
 
 # Evaluate with debug output
 ./scripts/run_evaluation.sh \
-    --config configs/evaluation/mmlu/qwen3_4B_evaluation.yaml \
+    --config configs/evaluation/mmlu/llama3_3B_recipe.yaml \
     --debug
 ```
 
@@ -92,9 +92,9 @@ FAI-RL/
 ├── inference/                 # Inference components
 ├── evaluations/               # Evaluation system
 ├── configs/                   # Configuration files
-│   ├── evaluation/            # Evaluation configurations
-│   ├── inference/             # Inference configurations
 │   ├── training/              # Training configurations
+│   ├── inference/             # Inference configurations
+│   ├── evaluation/            # Evaluation configurations
 │   └── deepspeed/             # DeepSpeed ZeRO configurations
 ├── utils/                     # Utility modules
 ├── scripts/                   # Scripts

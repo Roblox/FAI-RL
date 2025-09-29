@@ -4,7 +4,7 @@ import wandb
 import re
 from datasets import load_dataset, Dataset, concatenate_datasets
 from trl import GRPOConfig as GSPOConfig
-from trl import GRPOConfig, GRPOTrainer as TRLGRPOTrainer
+from trl import GRPOTrainer as TRLGSPOTrainer
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional, List
@@ -178,7 +178,7 @@ class GSPOTrainer(BaseTrainer):
         """Initialize the GSPO trainer."""
         training_args = self.setup_training_args()
 
-        self.trainer = TRLGRPOTrainer(
+        self.trainer = TRLGSPOTrainer(
             model=self.model,
             reward_funcs=[
                 exact_match_reward_func,

@@ -7,10 +7,10 @@ Comprehensive model evaluation system that leverages the inference pipeline to a
 **Run evaluation**:
 ```bash
 # Basic evaluation
-./scripts/run_evaluation.sh --config configs/evaluation/mmlu/llama3_3B_evaluation.yaml
+./scripts/run_evaluation.sh --config configs/evaluation/mmlu/llama3_3B_recipe.yaml
 
 # With debug logging
-./scripts/run_evaluation.sh --config configs/evaluation/mmlu/llama3_3B_evaluation.yaml --debug
+./scripts/run_evaluation.sh --config configs/evaluation/mmlu/llama3_3B_recipe.yaml --debug
 ```
 
 ## 🔧 Configuration

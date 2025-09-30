@@ -7,13 +7,13 @@ Inference system supporting both local model inference.
 **Run inference**:
 ```bash
 # Basic inference
-./scripts/run_inference.sh --config configs/inference/llama3_3B_inference.yaml
+./scripts/run_inference.sh --config configs/inference/llama3_3B_recipe.yaml
 
 # Background execution
-./scripts/run_inference.sh --config configs/inference/llama3_3B_inference.yaml --nohup
+./scripts/run_inference.sh --config configs/inference/llama3_3B_recipe.yaml --nohup
 
 # With debug logging
-./scripts/run_inference.sh --config configs/inference/llama3_3B_inference.yaml --debug
+./scripts/run_inference.sh --config configs/inference/llama3_3B_recipe.yaml --debug
 ```
 
 ## 🔧 Configuration

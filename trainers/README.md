@@ -7,13 +7,13 @@ Training implementations supporting DPO (Direct Preference Optimization), GRPO (
 **Run training**:
 ```bash
 # Single-GPU Training
-./scripts/run_training.sh --config configs/training/dpo/llama3_3B_Inst.yaml --num-gpus 1
+./scripts/run_training.sh --config configs/training/dpo/llama3_3B_recipe.yaml --num-gpus 1
 
 # Multi-GPU Training (8 GPUs)
-./scripts/run_training.sh --config configs/training/dpo/llama3_3B_Inst.yaml --num-gpus 8
+./scripts/run_training.sh --config configs/training/dpo/llama3_3B_recipe.yaml --num-gpus 8
 
 # Background execution
-./scripts/run_training.sh --config configs/training/dpo/llama3_3B_Inst.yaml --num-gpus 4 --nohup
+./scripts/run_training.sh --config configs/training/dpo/llama3_3B_recipe.yaml --num-gpus 4 --nohup
 ```
 
 **Script Usage:**

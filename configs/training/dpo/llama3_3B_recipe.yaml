@@ -59,4 +59,4 @@ wandb:
   project: "YOUR_PROJECT"
   entity: "YOUR_ENTITY"
   name: "YOUR_NAME"
-  tags: ["dpo", "llama3", "3B-Inst", "hh-rlhf", "coconot"]
+  tags: ["DPO", "llama3", "3B-Inst", "hh-rlhf", "coconot"]

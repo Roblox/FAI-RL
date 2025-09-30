@@ -58,4 +58,4 @@ wandb:
   project: "YOUR_PROJECT"
   entity: "YOUR_ENTITY"
   name: "YOUR_NAME"
-  tags: ["grpo", "llama3", "3B-Inst", "gsm8k"]
+  tags: ["GRPO", "llama3", "3B-Inst", "GSM8K", "OpenMathInstruct-2"]

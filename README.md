@@ -1,4 +1,4 @@
-# FAI-RL: Reinforcement Learning Fine-tuning Library
+# FAI-RL: Framework for Aligned and Interactive Reinforcement Learning
 
 A modular, production-ready library designed for **easy training, inference, and evaluation** of language models using reinforcement learning methods. Currently supports 
 - DPO (Direct Preference Optimization),

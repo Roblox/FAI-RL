@@ -25,7 +25,7 @@ class GSM8KTemplate:
     """Template for formatting GSM8K math dataset examples."""
     
     @staticmethod
-    def format_example(example, prompt_col="question", answer_col="answer"):
+    def format_for_training(example, prompt_col="question", answer_col="answer"):
         """
         Format a GSM8K example for training.
         

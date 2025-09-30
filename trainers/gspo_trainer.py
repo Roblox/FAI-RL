@@ -77,14 +77,9 @@ class GSPOTrainer(BaseTrainer):
 
             # Handle different dataset formats
             if dataset_info.name == "openai/gsm8k":
-                # Math dataset format (GSM8K style)
-                self.logger.info(f"Processing as math dataset with Q&A format")
-                
-                # Use the GSM8K template for formatting
-                def format_example(example):
-                    return GSM8KTemplate.format_example(example, prompt_col, answer_col)
-                
-                processed_dataset = dataset.map(format_example)
+                processed_dataset = dataset.map(
+                    lambda example: GSM8KTemplate.format_for_training(example, prompt_col, answer_col)
+                )
             else:
                 raise ValueError(f"Dataset {dataset_info.name} doesn't have expected columns. "
                                f"Expected either ('{prompt_col}', '{answer_col}') or '{prompt_col}'")

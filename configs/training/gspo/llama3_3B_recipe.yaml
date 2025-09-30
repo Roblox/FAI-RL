@@ -7,12 +7,16 @@ model:
   use_flash_attention: false
 
 data:
-  datasets:
+  datasets: # YOUR TRAINING DATASET
     - name: "openai/gsm8k"
       subset: "main"
       split: "train"
       prompt_column: "question"
       answer_column: "answer"
+    - name: "nvidia/OpenMathInstruct-2"
+      split: "train_1M"
+      prompt_column: "problem"
+      answer_column: "expected_answer"
   max_length: 2048
   max_prompt_length: 1024
   remove_unused_columns: false

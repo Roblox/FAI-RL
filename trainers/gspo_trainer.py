@@ -19,7 +19,7 @@ from utils.logging_utils import setup_logging
 from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
 from .rewards.format_rewards import structured_xml_reward_func
 from .templates.gsm8k_template import GSM8KTemplate
-
+from .templates.openmathinstruct_template import OpenMathInstructTemplate
 
 class GSPOTrainer(BaseTrainer):
     """GSPO (Group Sequence Policy Optimization) trainer implementation."""
@@ -79,6 +79,10 @@ class GSPOTrainer(BaseTrainer):
             if dataset_info.name == "openai/gsm8k":
                 processed_dataset = dataset.map(
                     lambda example: GSM8KTemplate.format_for_training(example, prompt_col, answer_col)
+                )
+            elif dataset_info.name == "nvidia/OpenMathInstruct-2":
+                processed_dataset = dataset.map(
+                    lambda example: OpenMathInstructTemplate.format_for_training(example, prompt_col, answer_col)
                 )
             else:
                 raise ValueError(f"Dataset {dataset_info.name} doesn't have expected columns. "

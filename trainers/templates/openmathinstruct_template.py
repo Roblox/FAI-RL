@@ -1,4 +1,4 @@
-"""GSM8K dataset formatting template."""
+"""OpenMathInstruct dataset formatting template."""
 
 SYSTEM_PROMPT = """
 Respond in the following format:
@@ -21,13 +21,13 @@ XML_COT_FORMAT = """\
 """
 
 
-class GSM8KTemplate:
-    """Template for formatting GSM8K math dataset examples."""
+class OpenMathInstructTemplate:
+    """Template for formatting OpenMathInstruct math dataset examples."""
     
     @staticmethod
     def format_for_training(example, prompt_col="question", answer_col="answer"):
         """
-        Format a GSM8K example for training.
+        Format a OpenMathInstruct example for training.
         
         Args:
             example: Dataset example containing question and answer
@@ -40,9 +40,6 @@ class GSM8KTemplate:
         prompt = example[prompt_col]
         answer = example[answer_col]
         
-        # Extract final answer for this specific example (assuming GSM8K format with ####)
-        final_answer = answer.split('####')[-1].strip() if '####' in answer else answer.strip()
-        
         training_prompt = [
             {'role': 'system', 'content': SYSTEM_PROMPT}, 
             {'role': 'user', 'content': 'What is the largest single-digit prime number?'},
@@ -52,5 +49,5 @@ class GSM8KTemplate:
             )},
             {'role': 'user', 'content': prompt}
         ]
-        return {'prompt': training_prompt, 'answer': final_answer}
+        return {'prompt': training_prompt, 'answer': answer}
     

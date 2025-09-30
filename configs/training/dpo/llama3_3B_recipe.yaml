@@ -12,6 +12,10 @@ data:
       split: "train"
       chosen_column: "chosen"
       rejected_column: "rejected"
+    - name: "trl-lib/ultrafeedback_binarized"
+      split: "train"
+      chosen_column: "chosen"
+      rejected_column: "rejected"
     - name: "allenai/coconot"
       subset: "pref"
       split: "train"
@@ -59,4 +63,4 @@ wandb:
   project: "YOUR_PROJECT"
   entity: "YOUR_ENTITY"
   name: "YOUR_NAME"
-  tags: ["DPO", "llama3", "3B-Inst", "hh-rlhf", "coconot"]
+  tags: ["DPO", "llama3", "3B-Inst", "hh-rlhf", "ultrafeedback", "coconot"]

@@ -51,6 +51,11 @@ class GRPOTrainer(BaseTrainer):
         # Set pad token if not present
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.tokenizer.padding_side = "left"
+
+        # Set pad token if not present
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         self.logger.info("Model and tokenizer loaded successfully")
 

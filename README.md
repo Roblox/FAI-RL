@@ -17,11 +17,11 @@ Follow these steps to set up the FAI-RL library on your local machine. The first
 
 ```bash
 # Clone the repository
-git clone https://github.rbx.com/Roblox/FAI-RL.git
+git clone https://github.com/Roblox/FAI-RL.git
 cd FAI-RL
 
 # Create virtual environment
-python -m venv venv_rl_library
+python -m venv venv_fai_rl
 source venv_rl_library/bin/activate
 
 # Install dependencies
@@ -31,7 +31,7 @@ pip install -r requirements.txt
 #### Next runs
 
 ```bash
-source venv_rl_library/bin/activate
+source venv_fai_rl/bin/activate
 ```
 
 ### Training

@@ -55,6 +55,11 @@ class DPOTrainer(BaseTrainer):
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.tokenizer.padding_side = "left"
+        self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+
+        # Resize embeddings for both models
+        self.model.resize_token_embeddings(len(self.tokenizer))
+        self.ref_model.resize_token_embeddings(len(self.tokenizer))
 
         # Set pad token if not present
         if self.tokenizer.pad_token is None:

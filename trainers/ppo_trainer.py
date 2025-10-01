@@ -1,9 +1,14 @@
 import os, sys
 import torch
 import wandb
+from accelerate import PartialState
 from datasets import load_dataset, Dataset, concatenate_datasets
-from trl import PPOConfig, PPOTrainer as TRLPPOTrainer, AutoModelForCausalLMWithValueHead
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from trl import PPOConfig, PPOTrainer as TRLPPOTrainer
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    AutoModelForSequenceClassification,
+)
 from typing import Optional, List
 import numpy as np
 
@@ -27,47 +32,69 @@ class PPOTrainer(BaseTrainer):
         super().__init__(config)
         self.trainer = None
         self.model = None
-        self.ref_model = None
+        self.ref_policy = None
+        self.value_model = None
+        self.reward_model = None
         self.tokenizer = None
         self.train_dataset = None
+        self.eval_dataset = None
 
     def setup_model(self):
-        """Load model and tokenizer with value head for PPO."""
+        """Load models and tokenizer for PPO."""
         self.logger.info(f"Loading model: {self.config.model.base_model_name}")
 
         # Convert string dtype to torch dtype
         torch_dtype = getattr(torch, self.config.model.torch_dtype)
+        
+        model_kwargs = dict(
+            torch_dtype=torch_dtype,
+            low_cpu_mem_usage=self.config.model.low_cpu_mem_usage,
+        )
 
         # Load tokenizer first
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.config.model.base_model_name
+            self.config.model.base_model_name,
+            padding_side="left",
         )
 
         # Set pad token if not present
         if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.tokenizer.padding_side = "left"
-
-        # Load model with value head for PPO
-        self.model = AutoModelForCausalLMWithValueHead.from_pretrained(
+            self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        
+        # Load policy model (main model for generation)
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.config.model.base_model_name,
-            torch_dtype=torch_dtype,
-            low_cpu_mem_usage=self.config.model.low_cpu_mem_usage,
+            **model_kwargs
         )
-
+        
         # Load reference model (for KL penalty in PPO)
-        self.ref_model = AutoModelForCausalLM.from_pretrained(
-            self.config.model.base_model_name,
-            torch_dtype=torch_dtype,
-            low_cpu_mem_usage=self.config.model.low_cpu_mem_usage,
+        self.ref_policy = AutoModelForCausalLM.from_pretrained(
+            self.config.model.value_model_name,
+            **model_kwargs
+        )
+        
+        # Load value model (for advantage estimation)
+        self.value_model = AutoModelForSequenceClassification.from_pretrained(
+            self.config.model.value_model_name,
+            num_labels=1,
+            **model_kwargs
+        )
+        
+        # Load reward model (for computing rewards)
+        self.reward_model = AutoModelForSequenceClassification.from_pretrained(
+            self.config.model.value_model_name,
+            num_labels=1,
+            **model_kwargs
         )
 
         # Resize embeddings if tokenizer was modified
-        if len(self.tokenizer) != self.model.pretrained_model.config.vocab_size:
-            self.model.pretrained_model.resize_token_embeddings(len(self.tokenizer))
-            self.ref_model.resize_token_embeddings(len(self.tokenizer))
+        if len(self.tokenizer) != self.model.config.vocab_size:
+            self.model.resize_token_embeddings(len(self.tokenizer))
+            self.ref_policy.resize_token_embeddings(len(self.tokenizer))
+            self.value_model.resize_token_embeddings(len(self.tokenizer))
+            self.reward_model.resize_token_embeddings(len(self.tokenizer))
 
-        self.logger.info("Model with value head and tokenizer loaded successfully")
+        self.logger.info("Models and tokenizer loaded successfully")
 
     def setup_data(self):
         """Load and prepare training datasets."""
@@ -95,13 +122,13 @@ class PPOTrainer(BaseTrainer):
                     # Extract ground truth answer
                     answer = example[answer_col]
                     final_answer = answer.split('####')[-1].strip() if '####' in answer else answer.strip()
-                    return {"query": query, "ground_truth": final_answer}
+                    return {"prompt": query, "ground_truth": final_answer}
                 processed_dataset = dataset.map(process_gsm8k)
                 
             elif dataset_info.name == "nvidia/OpenMathInstruct-2":
                 def process_openmath(example):
                     query = OpenMathInstructTemplate.format_prompt_only(example, prompt_col, answer_col)
-                    return {"query": query, "ground_truth": example[answer_col]}
+                    return {"prompt": query, "ground_truth": example[answer_col]}
                 processed_dataset = dataset.map(process_openmath)
             else:
                 raise ValueError(f"Dataset {dataset_info.name} doesn't have expected columns. "
@@ -113,89 +140,101 @@ class PPOTrainer(BaseTrainer):
 
         # Combine all datasets
         if len(datasets) == 1:
-            self.train_dataset = datasets[0]
+            combined_dataset = datasets[0]
         else:
-            self.train_dataset = concatenate_datasets(datasets)
+            combined_dataset = concatenate_datasets(datasets)
 
-        self.logger.info(f"Total dataset loaded with {total_examples} examples from {len(datasets)} datasets")
+        # Split into train and eval
+        eval_samples = min(100, len(combined_dataset) // 10)
+        self.train_dataset = combined_dataset.select(range(len(combined_dataset) - eval_samples))
+        self.eval_dataset = combined_dataset.select(range(len(combined_dataset) - eval_samples, len(combined_dataset)))
+
+        self.logger.info(f"Total dataset: {total_examples} examples from {len(datasets)} datasets")
+        self.logger.info(f"Train: {len(self.train_dataset)}, Eval: {len(self.eval_dataset)}")
+        
+        # Pre-tokenize datasets
+        self.train_dataset = self.prepare_dataset(self.train_dataset)
+        self.eval_dataset = self.prepare_dataset(self.eval_dataset)
+
+    def prepare_dataset(self, dataset):
+        """Pre-tokenize the dataset before training; only collate during training"""
+        def tokenize(element):
+            outputs = self.tokenizer(
+                element["prompt"],
+                padding=False,
+            )
+            return {"input_ids": outputs["input_ids"]}
+
+        # Compute that only on the main process for faster data processing
+        with PartialState().local_main_process_first():
+            tokenized_dataset = dataset.map(
+                tokenize,
+                batched=True,
+                remove_columns=dataset.column_names,
+                num_proc=1,
+            )
+        
+        return tokenized_dataset
 
     def setup_training_args(self) -> PPOConfig:
         """Create PPO training configuration."""
-        # Set report_to based on wandb configuration
-        report_to = ["wandb"] if self.config.wandb.enabled else []
-        
-        return PPOConfig(
-            # Basic training parameters
-            learning_rate=self.config.training.learning_rate,
-            batch_size=self.config.training.per_device_train_batch_size,
-            mini_batch_size=max(1, self.config.training.per_device_train_batch_size // 2),
-            gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
-            ppo_epochs=getattr(self.config.training, 'ppo_epochs', 4),
+        # Map our config to PPOConfig parameters
+        ppo_config = PPOConfig(
+            # Output and logging
+            output_dir=self.config.training.output_dir,
+            run_name=self.config.training.run_name,
             
-            # PPO specific parameters
-            init_kl_coef=getattr(self.config.training, 'init_kl_coef', 0.2),
-            target_kl=getattr(self.config.training, 'target_kl', 6.0),
-            adap_kl_ctrl=getattr(self.config.training, 'adap_kl_ctrl', True),
+            # Model paths (use same model for all if not specified separately)
+            model_name=self.config.model.base_model_name,
+            reward_model_path=self.config.model.base_model_name,
+            sft_model_path=self.config.model.base_model_name,
+            
+            # Training hyperparameters
+            learning_rate=self.config.training.learning_rate,
+            per_device_train_batch_size=self.config.training.per_device_train_batch_size,
+            gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
+            total_episodes=getattr(self.config.training, 'max_steps', 10000),
+            num_ppo_epochs=getattr(self.config.training, 'ppo_epochs', 4),
+            
+            # PPO algorithm parameters
             gamma=getattr(self.config.training, 'gamma', 1.0),
             lam=getattr(self.config.training, 'lam', 0.95),
             cliprange=getattr(self.config.training, 'cliprange', 0.2),
             cliprange_value=getattr(self.config.training, 'cliprange_value', 0.2),
             vf_coef=getattr(self.config.training, 'vf_coef', 0.1),
+            max_grad_norm=getattr(self.config.training, 'max_grad_norm', 1.0),
             
-            # Generation parameters
-            max_length=self.config.data.max_length,
+            # Sampling parameters
             temperature=getattr(self.config.training, 'temperature', 1.0),
-            top_k=getattr(self.config.training, 'top_k', 0),
-            top_p=getattr(self.config.training, 'top_p', 1.0),
-            do_sample=getattr(self.config.training, 'do_sample', True),
             
             # Training configuration
-            max_grad_norm=getattr(self.config.training, 'max_grad_norm', 1.0),
             seed=getattr(self.config.training, 'seed', 0),
+            logging_steps=getattr(self.config.training, 'logging_steps', 10),
+            save_steps=getattr(self.config.training, 'save_steps', 500),
             
-            # Logging and saving
-            log_with=report_to,
+            # Optimization
+            bf16=getattr(self.config.training, 'bf16', True),
+            gradient_checkpointing=getattr(self.config.training, 'gradient_checkpointing', True),
             
-            # Optimization flags
-            use_score_scaling=getattr(self.config.training, 'use_score_scaling', False),
-            use_score_norm=getattr(self.config.training, 'use_score_norm', False),
-            score_clip=getattr(self.config.training, 'score_clip', None),
+            # Dataset processing
+            dataset_num_proc=1,
         )
-
-    def compute_rewards(self, queries: List[str], responses: List[str], ground_truths: List[str]) -> List[float]:
-        """Compute rewards for generated completions using reward functions."""
-        # Apply reward functions
-        try:
-            # Use exact match reward with ground truth
-            rewards = exact_match_reward_func(responses, ground_truths, logger=self.logger)
-                
-            # Add format reward as bonus
-            format_rewards = structured_xml_reward_func(responses, logger=self.logger)
-            
-            # Add digit reward as bonus
-            digit_rewards = digit_reward_func(
-                [[{"content": resp}] for resp in responses], logger=self.logger
-            )
-            
-            # Combine rewards
-            final_rewards = [r + f + d for r, f, d in zip(rewards, format_rewards, digit_rewards)]
-            
-        except Exception as e:
-            self.logger.warning(f"Error computing rewards: {e}. Using default rewards.")
-            final_rewards = [0.0] * len(responses)
         
-        return final_rewards
+        return ppo_config
 
     def setup_trainer(self):
         """Initialize the PPO trainer."""
         training_args = self.setup_training_args()
 
         self.trainer = TRLPPOTrainer(
-            config=training_args,
+            args=training_args,
+            processing_class=self.tokenizer,
             model=self.model,
-            ref_model=self.ref_model,
-            tokenizer=self.tokenizer,
-            dataset=self.train_dataset,
+            ref_model=self.ref_policy,
+            reward_model=self.reward_model,
+            value_model=self.value_model,
+            train_dataset=self.train_dataset,
+            eval_dataset=self.eval_dataset,
         )
 
         self.logger.info("PPO trainer initialized")
@@ -209,39 +248,11 @@ class PPOTrainer(BaseTrainer):
         self.setup_data()
         self.setup_trainer()
 
-        # Use TRL's built-in training loop instead of manual implementation
-        for batch in self.trainer.dataloader:
-            query_tensors = batch["input_ids"]
-            
-            # Generate responses
-            response_tensors, ref_log_probs = self.trainer.generate(
-                query_tensors, 
-                return_prompt=False,
-                length_sampler=lambda: self.config.data.max_length - self.config.data.max_prompt_length,
-                **{
-                    "temperature": getattr(self.config.training, 'temperature', 1.0),
-                    "top_p": getattr(self.config.training, 'top_p', 1.0),
-                    "do_sample": getattr(self.config.training, 'do_sample', True),
-                }
-            )
-            
-            # Decode for reward computation
-            queries = self.tokenizer.batch_decode(query_tensors, skip_special_tokens=True)
-            responses = self.tokenizer.batch_decode(response_tensors, skip_special_tokens=True)
-            
-            # Get ground truth answers from batch
-            ground_truths = batch.get("ground_truth", [""] * len(queries))
-            
-            # Compute rewards
-            rewards = self.compute_rewards(queries, responses, ground_truths)
-            rewards = [torch.tensor(r, dtype=torch.float) for r in rewards]
-            
-            # PPO step
-            stats = self.trainer.step(query_tensors, response_tensors, rewards)
-            
-            # Log stats
-            self.trainer.log_stats(stats, batch, rewards)
+        # Run training - the trainer handles everything internally
+        self.trainer.train()
 
+        # Final save
+        self.save_model()
         self.logger.info("PPO training completed successfully")
 
     def save_model(self, output_path: Optional[str] = None):
@@ -250,9 +261,8 @@ class PPOTrainer(BaseTrainer):
             output_path = self.config.training.output_dir
 
         if self.trainer is not None:
-            # Save the model without the value head for inference
-            self.trainer.model.pretrained_model.save_pretrained(output_path)
-            self.tokenizer.save_pretrained(output_path)
+            # Save using trainer's save method
+            self.trainer.save_model(output_path)
             self.logger.info(f"Model saved to {output_path}")
         else:
             self.logger.warning("No trained model to save")

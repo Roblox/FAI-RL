@@ -1,5 +1,6 @@
 model:
   base_model_name: "meta-llama/Llama-3.2-3B-Instruct"
+  value_model_name: "EleutherAI/pythia-160m"
   torch_dtype: "bfloat16"
   low_cpu_mem_usage: true
   load_in_8bit: false

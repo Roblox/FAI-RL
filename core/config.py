@@ -13,6 +13,7 @@ class ModelConfig:
     load_in_8bit: bool = False
     load_in_4bit: bool = False
     use_flash_attention: bool = False
+    value_model_name: Optional[str] = None  # For PPO: value and reward models
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -22,6 +23,7 @@ class ModelConfig:
             "load_in_8bit": self.load_in_8bit,
             "load_in_4bit": self.load_in_4bit,
             "use_flash_attention": self.use_flash_attention,
+            "value_model_name": self.value_model_name,
         }
 
 

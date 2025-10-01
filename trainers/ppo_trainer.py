@@ -252,5 +252,6 @@ class PPOTrainer(BaseTrainer):
         self.trainer.train()
 
         # Final save
+        self.trainer.save_model(self.config.training.output_dir)
         self.logger.info("PPO training completed successfully")
 

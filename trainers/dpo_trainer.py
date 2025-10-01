@@ -176,4 +176,6 @@ class DPOTrainer(BaseTrainer):
         # Train the model
         self.trainer.train()
 
-        self.logger.info("Training completed successfully")
+        # Final save
+        self.trainer.save_model(self.config.training.output_dir)
+        self.logger.info("DPO training completed successfully")

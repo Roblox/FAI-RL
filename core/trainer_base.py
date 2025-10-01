@@ -3,6 +3,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Optional
 import wandb
+import torch
 
 from .config import ExperimentConfig
 
@@ -21,6 +22,11 @@ class BaseTrainer(ABC):
         self.logger = setup_logging(self.__class__.__name__)
         self.local_rank = int(os.environ.get("LOCAL_RANK", -1))
         self.is_main_process = self.local_rank == -1 or self.local_rank == 0
+
+        # Set CUDA device for distributed training to avoid NCCL warnings
+        if self.local_rank != -1 and torch.cuda.is_available():
+            torch.cuda.set_device(self.local_rank)
+            self.logger.info(f"Set CUDA device to GPU {self.local_rank} for this process")
 
         # Initialize wandb if enabled and on main process
         if self.is_main_process and self.config.wandb.enabled:

@@ -126,7 +126,6 @@ class PPOTrainer(BaseTrainer):
         
         return PPOConfig(
             # Basic training parameters
-            model_name=self.config.model.base_model_name,
             learning_rate=self.config.training.learning_rate,
             batch_size=self.config.training.per_device_train_batch_size,
             mini_batch_size=max(1, self.config.training.per_device_train_batch_size // 2),

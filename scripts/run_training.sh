@@ -1,5 +1,5 @@
 #!/bin/bash
-# scripts/run_training.sh - Unified training script for DPO and GRPO
+# scripts/run_training.sh - Unified training script for DPO, GRPO, GSPO, and PPO
 
 set -e  # Exit on any error
 
@@ -91,8 +91,8 @@ if [ -z "$ALGORITHM" ]; then
 fi
 
 # Validate algorithm
-if [[ "$ALGORITHM" != "dpo" && "$ALGORITHM" != "grpo" && "$ALGORITHM" != "gspo" ]]; then
-    echo "Error: Algorithm in config must be 'dpo' or 'grpo' or 'gspo', found: $ALGORITHM"
+if [[ "$ALGORITHM" != "dpo" && "$ALGORITHM" != "grpo" && "$ALGORITHM" != "gspo" && "$ALGORITHM" != "ppo" ]]; then
+    echo "Error: Algorithm in config must be 'dpo', 'grpo', 'gspo', or 'ppo', found: $ALGORITHM"
     exit 1
 fi
 

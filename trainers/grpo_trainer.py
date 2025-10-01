@@ -56,7 +56,6 @@ class GRPOTrainer(BaseTrainer):
 
         # Resize embeddings for both models
         self.model.resize_token_embeddings(len(self.tokenizer))
-        self.ref_model.resize_token_embeddings(len(self.tokenizer))
 
         self.logger.info("Model and tokenizer loaded successfully")
 

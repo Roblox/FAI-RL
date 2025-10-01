@@ -8,6 +8,7 @@ from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     AutoModelForSequenceClassification,
+    BitsAndBytesConfig,
 )
 from typing import Optional, List
 import numpy as np
@@ -46,10 +47,26 @@ class PPOTrainer(BaseTrainer):
         # Convert string dtype to torch dtype
         torch_dtype = getattr(torch, self.config.model.torch_dtype)
         
+        # Create quantization config
+        quantization_config = None
+        if self.config.model.load_in_8bit:
+            quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+        elif self.config.model.load_in_4bit:
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch_dtype,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+            )
+        
         model_kwargs = dict(
             torch_dtype=torch_dtype,
             low_cpu_mem_usage=self.config.model.low_cpu_mem_usage,
         )
+        
+        if quantization_config is not None:
+            model_kwargs["quantization_config"] = quantization_config
+            model_kwargs["device_map"] = "auto"
 
         # Load tokenizer first
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -88,11 +105,11 @@ class PPOTrainer(BaseTrainer):
         )
 
         # Resize embeddings if tokenizer was modified
-        if len(self.tokenizer) != self.model.config.vocab_size:
-            self.model.resize_token_embeddings(len(self.tokenizer))
-            self.ref_policy.resize_token_embeddings(len(self.tokenizer))
-            self.value_model.resize_token_embeddings(len(self.tokenizer))
-            self.reward_model.resize_token_embeddings(len(self.tokenizer))
+        # if len(self.tokenizer) != self.model.config.vocab_size:
+        #     self.model.resize_token_embeddings(len(self.tokenizer))
+        #     self.ref_policy.resize_token_embeddings(len(self.tokenizer))
+        #     self.value_model.resize_token_embeddings(len(self.tokenizer))
+        #     self.reward_model.resize_token_embeddings(len(self.tokenizer))
 
         self.logger.info("Models and tokenizer loaded successfully")
 
@@ -111,32 +128,9 @@ class PPOTrainer(BaseTrainer):
             else:
                 dataset = load_dataset(dataset_info.name, split=dataset_info.split)
 
-            # Get column names from config with defaults for math datasets
-            prompt_col = getattr(dataset_info, "prompt_column", "question")
-            answer_col = getattr(dataset_info, "answer_column", "answer")
-
-            # Handle different dataset formats - PPO needs both query and ground truth answer
-            if dataset_info.name == "openai/gsm8k":
-                def process_gsm8k(example):
-                    query = GSM8KTemplate.format_prompt_only(example, prompt_col, answer_col)
-                    # Extract ground truth answer
-                    answer = example[answer_col]
-                    final_answer = answer.split('####')[-1].strip() if '####' in answer else answer.strip()
-                    return {"prompt": query, "ground_truth": final_answer}
-                processed_dataset = dataset.map(process_gsm8k)
-                
-            elif dataset_info.name == "nvidia/OpenMathInstruct-2":
-                def process_openmath(example):
-                    query = OpenMathInstructTemplate.format_prompt_only(example, prompt_col, answer_col)
-                    return {"prompt": query, "ground_truth": example[answer_col]}
-                processed_dataset = dataset.map(process_openmath)
-            else:
-                raise ValueError(f"Dataset {dataset_info.name} doesn't have expected columns. "
-                               f"Expected either ('{prompt_col}', '{answer_col}') or '{prompt_col}'")
-
-            datasets.append(processed_dataset)
-            total_examples += len(processed_dataset)
-            self.logger.info(f"Loaded {len(processed_dataset)} examples from {dataset_info.name}")
+            datasets.append(dataset)
+            total_examples += len(dataset)
+            self.logger.info(f"Loaded {len(dataset)} examples from {dataset_info.name}")
 
         # Combine all datasets
         if len(datasets) == 1:
@@ -146,35 +140,38 @@ class PPOTrainer(BaseTrainer):
 
         # Split into train and eval
         eval_samples = min(100, len(combined_dataset) // 10)
-        self.train_dataset = combined_dataset.select(range(len(combined_dataset) - eval_samples))
-        self.eval_dataset = combined_dataset.select(range(len(combined_dataset) - eval_samples, len(combined_dataset)))
+        train_dataset = combined_dataset.select(range(len(combined_dataset) - eval_samples))
+        eval_dataset = combined_dataset.select(range(len(combined_dataset) - eval_samples, len(combined_dataset)))
 
         self.logger.info(f"Total dataset: {total_examples} examples from {len(datasets)} datasets")
-        self.logger.info(f"Train: {len(self.train_dataset)}, Eval: {len(self.eval_dataset)}")
+        self.logger.info(f"Train: {len(train_dataset)}, Eval: {len(eval_dataset)}")
+        
+        # Get dataset text field (default to "prompt" if not specified)
+        dataset_text_field = getattr(self.config.data, 'prompt_column', 'prompt')
+        
+        # Get num_proc from config (default to 1 if not specified)
+        dataset_num_proc = getattr(self.config.data, 'dataset_num_proc', 1)
         
         # Pre-tokenize datasets
-        self.train_dataset = self.prepare_dataset(self.train_dataset)
-        self.eval_dataset = self.prepare_dataset(self.eval_dataset)
+        with PartialState().local_main_process_first():
+            self.train_dataset = self.prepare_dataset(train_dataset, self.tokenizer, dataset_text_field, dataset_num_proc)
+            self.eval_dataset = self.prepare_dataset(eval_dataset, self.tokenizer, dataset_text_field, dataset_num_proc)
 
-    def prepare_dataset(self, dataset):
+    def prepare_dataset(self, dataset, tokenizer, dataset_text_field, dataset_num_proc):
         """Pre-tokenize the dataset before training; only collate during training"""
         def tokenize(element):
-            outputs = self.tokenizer(
-                element["prompt"],
+            outputs = tokenizer(
+                element[dataset_text_field],
                 padding=False,
             )
             return {"input_ids": outputs["input_ids"]}
 
-        # Compute that only on the main process for faster data processing
-        with PartialState().local_main_process_first():
-            tokenized_dataset = dataset.map(
-                tokenize,
-                batched=True,
-                remove_columns=dataset.column_names,
-                num_proc=1,
-            )
-        
-        return tokenized_dataset
+        return dataset.map(
+            tokenize,
+            batched=True,
+            remove_columns=dataset.column_names,
+            num_proc=dataset_num_proc,
+        )
 
     def setup_training_args(self) -> PPOConfig:
         """Create PPO training configuration."""
@@ -184,31 +181,21 @@ class PPOTrainer(BaseTrainer):
             output_dir=self.config.training.output_dir,
             run_name=self.config.training.run_name,
             
-            # Model paths (use same model for all if not specified separately)
-            model_name=self.config.model.base_model_name,
-            reward_model_path=self.config.model.base_model_name,
-            sft_model_path=self.config.model.base_model_name,
-            
             # Training hyperparameters
             learning_rate=self.config.training.learning_rate,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
             gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
-            total_episodes=getattr(self.config.training, 'max_steps', 10000),
-            num_ppo_epochs=getattr(self.config.training, 'ppo_epochs', 4),
+            total_episodes=self.config.training.max_steps if self.config.training.max_steps > 0 else 10000,
+            num_ppo_epochs=self.config.training.num_train_epochs,
             
-            # PPO algorithm parameters
+            # PPO algorithm parameters - UNCOMMENT THESE
             gamma=getattr(self.config.training, 'gamma', 1.0),
             lam=getattr(self.config.training, 'lam', 0.95),
             cliprange=getattr(self.config.training, 'cliprange', 0.2),
             cliprange_value=getattr(self.config.training, 'cliprange_value', 0.2),
             vf_coef=getattr(self.config.training, 'vf_coef', 0.1),
-            max_grad_norm=getattr(self.config.training, 'max_grad_norm', 1.0),
-            
-            # Sampling parameters
-            temperature=getattr(self.config.training, 'temperature', 1.0),
             
             # Training configuration
-            seed=getattr(self.config.training, 'seed', 0),
             logging_steps=getattr(self.config.training, 'logging_steps', 10),
             save_steps=getattr(self.config.training, 'save_steps', 500),
             

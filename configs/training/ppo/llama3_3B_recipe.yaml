@@ -1,6 +1,6 @@
 model:
   base_model_name: "meta-llama/Llama-3.2-3B-Instruct"
-  value_model_name: "EleutherAI/pythia-160m"
+  value_model_name: "meta-llama/Llama-3.2-3B-Instruct"
   torch_dtype: "bfloat16"
   low_cpu_mem_usage: true
   load_in_8bit: true
@@ -9,11 +9,11 @@ model:
 
 data:
   datasets: # YOUR TRAINING DATASET
-    - name: "openai/gsm8k"
-      subset: "main"
-      split: "train"
-      prompt_column: "question"
-      answer_column: "answer"
+    - name: "trl-internal-testing/descriptiveness-sentiment-trl-style"
+      split: "descriptiveness"
+      prompt_column: "prompt"
+      chosen_column: "chosen"
+      rejected_column: "rejected"
   max_length: 2048
   max_prompt_length: 1024
   remove_unused_columns: false
@@ -25,14 +25,13 @@ training:
   
   # Training hyperparameters
   per_device_train_batch_size: 1
-  gradient_accumulation_steps: 8  # Reduce from 16
+  gradient_accumulation_steps: 16
   learning_rate: 1.0e-6
   num_train_epochs: 3
-  max_steps: -1
+  max_steps: 10000
   warmup_steps: 50
   
   # PPO specific parameters
-  ppo_epochs: 4                             # Number of PPO epochs per batch
   init_kl_coef: 0.2                         # Initial KL coefficient
   target_kl: 6.0                            # Target KL divergence
   adap_kl_ctrl: true                        # Adaptive KL control

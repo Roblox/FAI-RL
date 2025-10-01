@@ -167,14 +167,3 @@ class GRPOTrainer(BaseTrainer):
         self.trainer.train()
 
         self.logger.info("Training completed successfully")
-
-    def save_model(self, output_path: Optional[str] = None):
-        """Save the trained model."""
-        if output_path is None:
-            output_path = self.config.training.output_dir
-
-        if self.trainer is not None:
-            self.trainer.save_model(output_path)
-            self.logger.info(f"Model saved to {output_path}")
-        else:
-            self.logger.warning("No trained model to save")

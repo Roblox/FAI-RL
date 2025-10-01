@@ -252,17 +252,5 @@ class PPOTrainer(BaseTrainer):
         self.trainer.train()
 
         # Final save
-        self.save_model()
         self.logger.info("PPO training completed successfully")
 
-    def save_model(self, output_path: Optional[str] = None):
-        """Save the trained model."""
-        if output_path is None:
-            output_path = self.config.training.output_dir
-
-        if self.trainer is not None:
-            # Save using trainer's save method
-            self.trainer.save_model(output_path)
-            self.logger.info(f"Model saved to {output_path}")
-        else:
-            self.logger.warning("No trained model to save")

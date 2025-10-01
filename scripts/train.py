@@ -11,12 +11,13 @@ from core.config import ExperimentConfig
 from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
 from trainers.gspo_trainer import GSPOTrainer
+from trainers.ppo_trainer import PPOTrainer
 from utils.logging_utils import TrainingLogger, log_system_info
 
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Train DPO, GRPO or GSPO model")
+    parser = argparse.ArgumentParser(description="Train DPO, GRPO, GSPO, or PPO model")
     parser.add_argument(
         "--config",
         type=str,
@@ -76,6 +77,8 @@ def main():
             trainer_class = GRPOTrainer
         elif algorithm == "gspo":
             trainer_class = GSPOTrainer
+        elif algorithm == "ppo":
+            trainer_class = PPOTrainer
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
             

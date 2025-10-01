@@ -14,10 +14,6 @@ data:
       split: "train"
       prompt_column: "question"
       answer_column: "answer"
-    - name: "nvidia/OpenMathInstruct-2"
-      split: "train_1M"
-      prompt_column: "problem"
-      answer_column: "expected_answer"
   max_length: 2048
   max_prompt_length: 1024
   remove_unused_columns: false

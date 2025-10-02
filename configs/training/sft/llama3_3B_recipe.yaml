@@ -43,10 +43,7 @@ training:
   dataloader_num_workers: 0
   dataloader_pin_memory: false
   dataloader_drop_last: true
-  
-  # Miscellaneous
-  save_only_model: true
-  prediction_loss_only: true
+
 
 wandb:
   enabled: true

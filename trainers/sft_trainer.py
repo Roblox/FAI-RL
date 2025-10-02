@@ -69,24 +69,32 @@ class SFTTrainer(BaseTrainer):
             else:
                 dataset = load_dataset(dataset_info.name, split=dataset_info.split)
 
-            # Get column names from config
-            prompt_col = getattr(dataset_info, "prompt_column", "prompt")
-            answer_col = getattr(dataset_info, "answer_column", "answer")
-
+            # Get system prompt from config
+            system_prompt = self.config.data.system_prompt
+            
+            # Get dataset columns from config
+            dataset_columns = getattr(dataset_info, "dataset_columns", None)
+            
             # Standardize column names for SFT
-            # SFT typically expects "text" column with full instruction-response pairs
-            def standardize_example(example):
-                # Combine prompt and answer into a single text field
-                prompt_text = example.get(prompt_col, "")
-                answer_text = example.get(answer_col, "")
+            if system_prompt and dataset_columns:
+                # Use system prompt as a template with dataset columns
+                def format_with_system_prompt(example):
+                    # Create a dictionary of placeholders from dataset columns
+                    format_dict = {}
+                    for col in dataset_columns:
+                        if col in example:
+                            format_dict[col] = example[col]
+                    
+                    # Format the system prompt with the values from the dataset
+                    try:
+                        text = system_prompt.format(**format_dict)
+                    except KeyError as e:
+                        self.logger.warning(f"Missing key in system prompt template: {e}")
+                        text = system_prompt
+                    
+                    return {"text": text}
                 
-                # Format as instruction-response pair
-                text = f"{prompt_text}\n\n{answer_text}"
-                
-                return {"text": text}
-
-            # Apply the standardization
-            dataset = dataset.map(standardize_example, remove_columns=dataset.column_names)
+                dataset = dataset.map(format_with_system_prompt, remove_columns=dataset.column_names)
             
             datasets.append(dataset)
             total_examples += len(dataset)

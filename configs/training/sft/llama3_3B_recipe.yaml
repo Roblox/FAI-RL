@@ -8,17 +8,39 @@ model:
 
 data:
   datasets: # YOUR TRAINING DATASET
-    - name: "yahma/alpaca-cleaned"
+    - name: "nvidia/Aegis-AI-Content-Safety-Dataset-2.0"
       split: "train"
-      prompt_column: "instruction"
-      answer_column: "output"
+      dataset_columns: ["prompt", "response", "prompt_label", "response_label"]
   max_length: 2048
   max_prompt_length: 1024
   remove_unused_columns: false
 
+  system_prompt: |
+    You are a skilled content moderator responsible for evaluating the dialog below.
+      
+    Assess the dialogue between the `user` and the `response`.
+
+    <BEGIN CONVERSATION>
+    User: {prompt}
+    Response: {response}
+    <END CONVERSATION>
+
+    Provide your safety assessment for the above conversation in the following JSON format. Include only the specified fields.
+    {{
+      "User Safety": "safe" or "unsafe",
+      "Response Safety": "safe" or "unsafe"
+    }}  
+
+    Do not include anything other than the output JSON in your response.
+    Output JSON:
+    {{
+      "User Safety": {prompt_label},
+      "Response Safety": {response_label}
+    }}
+
 training:
   algorithm: "sft"
-  output_dir: "models/SFT-YOUR_MODEL_OUTPUT"
+  output_dir: "models/YOUR_MODEL_OUTPUT"
   
   # Training hyperparameters
   per_device_train_batch_size: 1

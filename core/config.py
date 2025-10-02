@@ -37,6 +37,7 @@ class DatasetInfo:
     chosen_column: str = "chosen"
     rejected_column: str = "rejected"
     answer_column: str = "answer"
+    dataset_columns: Optional[List[str]] = None
 
 
 @dataclass
@@ -46,6 +47,7 @@ class DataConfig:
     max_length: int = 512
     max_prompt_length: int = 256
     remove_unused_columns: bool = False
+    system_prompt: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -58,12 +60,14 @@ class DataConfig:
                     "chosen_column": ds.chosen_column,
                     "rejected_column": ds.rejected_column,
                     "answer_column": ds.answer_column,
+                    "dataset_columns": ds.dataset_columns,
                 }
                 for ds in self.datasets
             ],
             "max_length": self.max_length,
             "max_prompt_length": self.max_prompt_length,
             "remove_unused_columns": self.remove_unused_columns,
+            "system_prompt": self.system_prompt,
         }
 
 

@@ -71,7 +71,6 @@ class DataConfig:
 class TrainingConfig:
     """Configuration for training settings."""
     output_dir: str
-    run_name: Optional[str] = None
     algorithm: Optional[str] = None
     
     # Training hyperparameters

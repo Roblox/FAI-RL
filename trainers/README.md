@@ -79,7 +79,6 @@ data:
 training:
   algorithm: "dpo"                      # Training algorithm: sft, dpo, ppo, grpo, gspo
   output_dir: "models/output"           # Directory to save trained model and checkpoints
-  run_name: "my-experiment"             # Unique identifier for this training run
   
   # Core training hyperparameters
   per_device_train_batch_size: 1        # Batch size per GPU (adjust based on GPU memory)
@@ -131,7 +130,7 @@ wandb:
   enabled: true                         # Enable W&B logging
   project: "your-project"               # W&B project name
   entity: "your-entity"                 # W&B username or team name
-  name: "your-wandb-name"               # Experiment name in W&B (defaults to run_name if not specified)
+  name: "your-wandb-name"               # Experiment name in W&B
   tags: ["your-tags"]                   # Tags for organizing experiments
 ```
 
@@ -145,7 +144,6 @@ Replace the following values for your specific use case:
   - **DPO/GRPO/GSPO/PPO**: Use `prompt_column`, `chosen_column`, and `rejected_column`
 - `training.algorithm` → choose from: `sft`, `dpo`, `ppo`, `grpo`, `gspo`
 - `training.output_dir` → your desired model output directory  
-- `training.run_name` → your unique run identifier
 - `wandb.*` → your Weights & Biases configuration (or set `enabled: false` to disable)
 
 **Algorithm-Specific Notes:**

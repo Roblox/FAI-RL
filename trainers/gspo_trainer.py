@@ -124,7 +124,6 @@ class GSPOTrainer(BaseTrainer):
             bf16=self.config.training.bf16,
             fp16=self.config.training.fp16,
             remove_unused_columns=self.config.data.remove_unused_columns,
-            run_name=self.config.training.run_name or self.config.wandb.name,
             deepspeed=self.config.training.deepspeed_config,
             dataloader_num_workers=self.config.training.dataloader_num_workers,
             gradient_checkpointing=self.config.training.gradient_checkpointing,

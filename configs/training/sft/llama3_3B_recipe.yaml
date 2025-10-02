@@ -18,21 +18,20 @@ data:
 
 training:
   algorithm: "sft"
-  output_dir: "models/YOUR_MODEL_OUTPUT"
-  run_name: "UNIQUE_ID"
+  output_dir: "models/SFT-YOUR_MODEL_OUTPUT"
   
   # Training hyperparameters
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 16
   learning_rate: 2.0e-5
-  num_train_epochs: 3
+  num_train_epochs: 1
   max_steps: -1
   warmup_steps: 100
   
   # Logging and checkpointing
   logging_steps: 5
-  save_steps: 500
-  eval_steps: 500
+  save_steps: 50
+  eval_steps: 50
   
   # Optimization settings
   bf16: true

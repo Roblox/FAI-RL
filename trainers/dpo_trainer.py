@@ -96,32 +96,10 @@ class DPOTrainer(BaseTrainer):
                     standardized["prompt"] = example[prompt_col]
                 else:
                     standardized["prompt"] = " "
-                
+                    
                 # Handle chosen and rejected - these are required
-                # Convert chat format (list of messages) to string if needed
-                chosen_value = example[chosen_col]
-                rejected_value = example[rejected_col]
-                
-                # Check if chosen/rejected are in chat format (list of dicts with role/content)
-                if isinstance(chosen_value, list) and len(chosen_value) > 0 and isinstance(chosen_value[0], dict):
-                    # Apply chat template to convert to string
-                    standardized["chosen"] = self.tokenizer.apply_chat_template(
-                        chosen_value, 
-                        tokenize=False, 
-                        add_generation_prompt=False
-                    )
-                else:
-                    standardized["chosen"] = chosen_value
-                
-                if isinstance(rejected_value, list) and len(rejected_value) > 0 and isinstance(rejected_value[0], dict):
-                    # Apply chat template to convert to string
-                    standardized["rejected"] = self.tokenizer.apply_chat_template(
-                        rejected_value, 
-                        tokenize=False, 
-                        add_generation_prompt=False
-                    )
-                else:
-                    standardized["rejected"] = rejected_value
+                standardized["chosen"] = example[chosen_col]
+                standardized["rejected"] = example[rejected_col]
                 
                 return standardized
 

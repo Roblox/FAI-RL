@@ -79,6 +79,8 @@ def main():
             trainer_class = GSPOTrainer
         elif algorithm == "ppo":
             trainer_class = PPOTrainer
+        elif algorithm == "sft":
+            trainer_class = SFTTrainer
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
             

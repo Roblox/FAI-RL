@@ -91,8 +91,8 @@ if [ -z "$ALGORITHM" ]; then
 fi
 
 # Validate algorithm
-if [[ "$ALGORITHM" != "dpo" && "$ALGORITHM" != "grpo" && "$ALGORITHM" != "gspo" && "$ALGORITHM" != "ppo" ]]; then
-    echo "Error: Algorithm in config must be 'dpo', 'grpo', 'gspo', or 'ppo', found: $ALGORITHM"
+if [[ "$ALGORITHM" != "dpo" && "$ALGORITHM" != "grpo" && "$ALGORITHM" != "gspo" && "$ALGORITHM" != "ppo" && "$ALGORITHM" != "sft" ]]; then
+    echo "Error: Algorithm in config must be 'dpo', 'grpo', 'gspo', 'ppo', or 'sft', found: $ALGORITHM"
     exit 1
 fi
 

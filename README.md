@@ -22,7 +22,7 @@ cd FAI-RL
 
 # Create virtual environment
 python -m venv venv_fai_rl
-source venv_rl_library/bin/activate
+source venv_fai_rl/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt

@@ -224,7 +224,35 @@ class PPOTrainer(BaseTrainer):
             eval_dataset=self.eval_dataset,
         )
 
+        # Monkeypatch to fix DDP config access issue
+        self._patch_trl_trainer()
+
         self.logger.info("PPO trainer initialized")
+
+    def _patch_trl_trainer(self):
+        """Patch TRL trainer to handle DDP model wrapping correctly."""
+        original_create_model_card = self.trainer.create_model_card
+        
+        def patched_create_model_card(model_name: Optional[str] = None, *args, **kwargs):
+            """Fixed version that handles DDP-wrapped models."""
+            from torch.nn.parallel import DistributedDataParallel
+            
+            # Get the actual model (unwrap DDP if needed)
+            model = self.trainer.model
+            if isinstance(model, DistributedDataParallel):
+                model = model.module
+            
+            # Temporarily replace self.trainer.model for the method call
+            original_model = self.trainer.model
+            self.trainer.model = model
+            
+            try:
+                return original_create_model_card(model_name, *args, **kwargs)
+            finally:
+                # Restore original model reference
+                self.trainer.model = original_model
+        
+        self.trainer.create_model_card = patched_create_model_card
 
     def train(self):
         """Run the PPO training process."""

@@ -179,10 +179,6 @@ class InferenceConfig:
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     column_separator: str = "\n\n"
     
-    # Per-column prefix and postfix configuration
-    column_prefixes: Dict[str, str] = field(default_factory=dict)
-    column_postfixes: Dict[str, str] = field(default_factory=dict)
-    
     # Generation parameters
     temperature: float = 1.0
     top_p: float = 0.9
@@ -221,10 +217,6 @@ class EvaluationConfig:
     # Multiple choice configuration
     output_type: str = "numerical"  # "numerical" or "multiple_choice"
     choice_labels: List[str] = field(default_factory=lambda: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
-    
-    # Per-column prefix and postfix configuration
-    column_prefixes: Dict[str, str] = field(default_factory=dict)
-    column_postfixes: Dict[str, str] = field(default_factory=dict)
     
     # Generation parameters
     temperature: float = 1.0

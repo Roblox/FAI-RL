@@ -35,15 +35,6 @@ inference:
   dataset_columns: ["persona", "prompt"]            # List of columns to concatenate as model input
   column_separator: "\n---\n"                       # String to separate multiple columns in the input
 
-  # Prompt Formatting (Optional)
-  # Add prefixes and postfixes to each column for better prompt structure
-  column_prefixes:
-    persona: "Your persona: "                       # Text to prepend before the persona column
-    prompt: "User: "                                # Text to prepend before the prompt column
-  column_postfixes:
-    persona: ""                                     # Text to append after the persona column (empty = no postfix)
-    prompt: ""                                      # Text to append after the prompt column (empty = no postfix)
-  
   # System Prompt
   # Provides context and instructions to the model
   system_prompt: |
@@ -63,7 +54,7 @@ inference:
 - **For consistent results**: Set `temperature: 0.0` and `do_sample: false`
 - **For creative generation**: Use `temperature: 0.8-1.2` with `top_p: 0.9`
 - **Memory considerations**: Reduce `max_new_tokens` if encountering memory issues
-- **Prompt engineering**: Use `column_prefixes` and `system_prompt` to improve response quality
+- **Prompt engineering**: Use `system_prompt` to improve response quality
 
 ## 📊 Output
 

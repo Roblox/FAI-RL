@@ -347,12 +347,7 @@ def run_inference(config, debug=False):
                         choice_labels = getattr(config, 'choice_labels', None)
                         column_value = format_multiple_choice_for_inference(column_value, choice_labels)
                     
-                    # Apply per-column prefix and postfix if specified
-                    prefix = config.column_prefixes.get(column, "")
-                    postfix = config.column_postfixes.get(column, "")
-                    
-                    formatted_value = prefix + column_value + postfix
-                    formatted_column_values.append(formatted_value)
+                    formatted_column_values.append(column_value)
                 else:
                     print(f"Warning: Column '{column}' not found in dataset. Available columns: {list(example.keys())}")
                     formatted_column_values.append("")  # Add empty string for missing columns
@@ -457,8 +452,6 @@ def main():
     print(f"  Dataset: {config.dataset_name}")
     print(f"  Dataset columns: {config.dataset_columns}")
     print(f"  Column separator: {repr(config.column_separator)}")
-    print(f"  Column prefixes: {config.column_prefixes}")
-    print(f"  Column postfixes: {config.column_postfixes}")
     print(f"  Output file: {config.output_file}")
     print(f"  Temperature: {config.temperature}")
     print(f"  Top-p: {config.top_p}")

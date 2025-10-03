@@ -334,29 +334,10 @@ def run_inference(config, debug=False):
             # Use template formatting
             full_prompt = format_template_prompt(config.system_prompt, example, config)
         else:
-            # Use original concatenation logic for backward compatibility
-            formatted_column_values = []
-            for column in config.dataset_columns:
-                if column in example:
-                    column_value = str(example[column])
-                    
-                    # Special handling for choices in multiple choice format
-                    if (column == 'choices' and 
-                        hasattr(config, 'output_type') and 
-                        config.output_type == "multiple_choice"):
-                        choice_labels = getattr(config, 'choice_labels', None)
-                        column_value = format_multiple_choice_for_inference(column_value, choice_labels)
-                    
-                    formatted_column_values.append(column_value)
-                else:
-                    print(f"Warning: Column '{column}' not found in dataset. Available columns: {list(example.keys())}")
-                    formatted_column_values.append("")  # Add empty string for missing columns
-            
-            # Concatenate the formatted column values
-            concatenated_prompt = config.column_separator.join(formatted_column_values)
-            
-            # Combine system prompt with concatenated user prompt
-            full_prompt = f"{config.system_prompt}{config.column_separator}{concatenated_prompt}"
+            raise ValueError(
+                "system_prompt configuration is missing in the template, "
+                "or the required placeholder is not present in system_prompt."
+            )
         
         # Generate response
         try:

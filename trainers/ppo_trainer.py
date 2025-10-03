@@ -179,7 +179,6 @@ class PPOTrainer(BaseTrainer):
         ppo_config = PPOConfig(
             # Output and logging
             output_dir=self.config.training.output_dir,
-            run_name=self.config.training.run_name,
             
             # Training hyperparameters
             learning_rate=self.config.training.learning_rate,

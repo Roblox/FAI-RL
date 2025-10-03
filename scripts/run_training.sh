@@ -7,7 +7,6 @@ set -e  # Exit on any error
 CONFIG=""
 NUM_GPUS=8
 OUTPUT_DIR=""
-RUN_NAME=""
 LOG_DIR="logs"
 NOHUP_MODE=0  # Whether to run via nohup
 DEEPSPEED_CONFIG=""
@@ -91,8 +90,8 @@ if [ -z "$ALGORITHM" ]; then
 fi
 
 # Validate algorithm
-if [[ "$ALGORITHM" != "dpo" && "$ALGORITHM" != "grpo" && "$ALGORITHM" != "gspo" && "$ALGORITHM" != "ppo" ]]; then
-    echo "Error: Algorithm in config must be 'dpo', 'grpo', 'gspo', or 'ppo', found: $ALGORITHM"
+if [[ "$ALGORITHM" != "dpo" && "$ALGORITHM" != "grpo" && "$ALGORITHM" != "gspo" && "$ALGORITHM" != "ppo" && "$ALGORITHM" != "sft" ]]; then
+    echo "Error: Algorithm in config must be 'dpo', 'grpo', 'gspo', 'ppo', or 'sft', found: $ALGORITHM"
     exit 1
 fi
 
@@ -114,7 +113,6 @@ mkdir -p "$LOG_DIR"
 # Build command arguments
 SCRIPT_ARGS="--config $CONFIG --deepspeed-config $DEEPSPEED_CONFIG"
 [ -n "$OUTPUT_DIR" ] && SCRIPT_ARGS="$SCRIPT_ARGS --output-dir $OUTPUT_DIR"
-[ -n "$RUN_NAME" ] && SCRIPT_ARGS="$SCRIPT_ARGS --run-name $RUN_NAME"
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$LOG_DIR/${ALGORITHM}_training_${TIMESTAMP}.log"

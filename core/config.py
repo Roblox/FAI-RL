@@ -37,6 +37,7 @@ class DatasetInfo:
     chosen_column: str = "chosen"
     rejected_column: str = "rejected"
     answer_column: str = "answer"
+    dataset_columns: Optional[List[str]] = None
 
 
 @dataclass
@@ -46,6 +47,7 @@ class DataConfig:
     max_length: int = 512
     max_prompt_length: int = 256
     remove_unused_columns: bool = False
+    system_prompt: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -58,12 +60,14 @@ class DataConfig:
                     "chosen_column": ds.chosen_column,
                     "rejected_column": ds.rejected_column,
                     "answer_column": ds.answer_column,
+                    "dataset_columns": ds.dataset_columns,
                 }
                 for ds in self.datasets
             ],
             "max_length": self.max_length,
             "max_prompt_length": self.max_prompt_length,
             "remove_unused_columns": self.remove_unused_columns,
+            "system_prompt": self.system_prompt,
         }
 
 
@@ -71,7 +75,6 @@ class DataConfig:
 class TrainingConfig:
     """Configuration for training settings."""
     output_dir: str
-    run_name: Optional[str] = None
     algorithm: Optional[str] = None
     
     # Training hyperparameters
@@ -176,10 +179,6 @@ class InferenceConfig:
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     column_separator: str = "\n\n"
     
-    # Per-column prefix and postfix configuration
-    column_prefixes: Dict[str, str] = field(default_factory=dict)
-    column_postfixes: Dict[str, str] = field(default_factory=dict)
-    
     # Generation parameters
     temperature: float = 1.0
     top_p: float = 0.9
@@ -218,10 +217,6 @@ class EvaluationConfig:
     # Multiple choice configuration
     output_type: str = "numerical"  # "numerical" or "multiple_choice"
     choice_labels: List[str] = field(default_factory=lambda: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
-    
-    # Per-column prefix and postfix configuration
-    column_prefixes: Dict[str, str] = field(default_factory=dict)
-    column_postfixes: Dict[str, str] = field(default_factory=dict)
     
     # Generation parameters
     temperature: float = 1.0

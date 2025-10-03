@@ -1,11 +1,8 @@
 import os, sys
 import torch
 import wandb
-import re
-from datasets import load_dataset, Dataset, concatenate_datasets
-from trl import GRPOConfig as GSPOConfig
-from trl import GRPOTrainer as TRLGSPOTrainer
-
+from datasets import load_dataset, concatenate_datasets, Dataset
+from trl import SFTConfig, SFTTrainer as TRLSFTTrainer
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional, List
 
@@ -16,20 +13,16 @@ if project_root not in sys.path:
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
-from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
-from .rewards.format_rewards import structured_xml_reward_func
-from .templates.gsm8k_template import GSM8KTemplate
-from .templates.openmathinstruct_template import OpenMathInstructTemplate
 
-class GSPOTrainer(BaseTrainer):
-    """GSPO (Group Sequence Policy Optimization) trainer implementation."""
+
+class SFTTrainer(BaseTrainer):
+    """SFT (Supervised Fine-Tuning) trainer implementation using TRL."""
 
     def __init__(self, config: ExperimentConfig):
         super().__init__(config)
         self.trainer = None
         self.model = None
         self.tokenizer = None
-        self.train_dataset = None
 
     def setup_model(self):
         """Load model and tokenizer."""
@@ -56,7 +49,7 @@ class GSPOTrainer(BaseTrainer):
         self.tokenizer.padding_side = "left"
         self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 
-        # Resize embeddings for both models
+        # Resize embeddings
         self.model.resize_token_embeddings(len(self.tokenizer))
 
         self.logger.info("Model and tokenizer loaded successfully")
@@ -76,26 +69,36 @@ class GSPOTrainer(BaseTrainer):
             else:
                 dataset = load_dataset(dataset_info.name, split=dataset_info.split)
 
-            # Get column names from config with defaults for math datasets
-            prompt_col = getattr(dataset_info, "prompt_column", "question")
-            answer_col = getattr(dataset_info, "answer_column", "answer")
-
-            # Handle different dataset formats
-            if dataset_info.name == "openai/gsm8k":
-                processed_dataset = dataset.map(
-                    lambda example: GSM8KTemplate.format_for_training(example, prompt_col, answer_col)
-                )
-            elif dataset_info.name == "nvidia/OpenMathInstruct-2":
-                processed_dataset = dataset.map(
-                    lambda example: OpenMathInstructTemplate.format_for_training(example, prompt_col, answer_col)
-                )
-            else:
-                raise ValueError(f"Dataset {dataset_info.name} doesn't have expected columns. "
-                               f"Expected either ('{prompt_col}', '{answer_col}') or '{prompt_col}'")
-
-            datasets.append(processed_dataset)
-            total_examples += len(processed_dataset)
-            self.logger.info(f"Loaded {len(processed_dataset)} examples from {dataset_info.name}")
+            # Get system prompt from config
+            system_prompt = self.config.data.system_prompt
+            
+            # Get dataset columns from config
+            dataset_columns = getattr(dataset_info, "dataset_columns", None)
+            
+            # Standardize column names for SFT
+            if system_prompt and dataset_columns:
+                # Use system prompt as a template with dataset columns
+                def format_with_system_prompt(example):
+                    # Create a dictionary of placeholders from dataset columns
+                    format_dict = {}
+                    for col in dataset_columns:
+                        if col in example:
+                            format_dict[col] = example[col]
+                    
+                    # Format the system prompt with the values from the dataset
+                    try:
+                        text = system_prompt.format(**format_dict)
+                    except KeyError as e:
+                        self.logger.warning(f"Missing key in system prompt template: {e}")
+                        text = system_prompt
+                    
+                    return {"text": text}
+                
+                dataset = dataset.map(format_with_system_prompt, remove_columns=dataset.column_names)
+            
+            datasets.append(dataset)
+            total_examples += len(dataset)
+            self.logger.info(f"Loaded {len(dataset)} examples from {dataset_info.name}")
 
         # Combine all datasets
         if len(datasets) == 1:
@@ -105,12 +108,12 @@ class GSPOTrainer(BaseTrainer):
 
         self.logger.info(f"Total dataset loaded with {total_examples} examples from {len(datasets)} datasets")
 
-    def setup_training_args(self) -> GSPOConfig:
-        """Create GSPO training configuration."""
-        # Set report_to based on wandb configuration
+    def setup_training_args(self) -> SFTConfig:
+        """Create SFT training configuration."""
+        # Set report_to based on wandb configuration to prevent automatic wandb initialization
         report_to = ["wandb"] if self.config.wandb.enabled else []
         
-        return GSPOConfig(
+        return SFTConfig(
             output_dir=self.config.training.output_dir,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
             gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
@@ -128,41 +131,26 @@ class GSPOTrainer(BaseTrainer):
             dataloader_num_workers=self.config.training.dataloader_num_workers,
             gradient_checkpointing=self.config.training.gradient_checkpointing,
             dataloader_pin_memory=self.config.training.dataloader_pin_memory,
-            save_only_model=self.config.training.save_only_model,
             dataloader_drop_last=self.config.training.dataloader_drop_last,
-            prediction_loss_only=self.config.training.prediction_loss_only,
-            report_to=report_to,
-            # GRPO specific parameters
-            max_prompt_length=self.config.data.max_prompt_length,
-            max_completion_length=self.config.data.max_length - self.config.data.max_prompt_length,
-            # GSPO specific parameters
-            importance_sampling_level=self.config.training.importance_sampling_level,
-            epsilon=float(self.config.training.epsilon),
-            epsilon_high=float(self.config.training.epsilon_high),
-            beta=float(self.config.training.beta),
-            steps_per_generation=self.config.training.steps_per_generation,
+            report_to=report_to
         )
 
     def setup_trainer(self):
-        """Initialize the GSPO trainer."""
+        """Initialize the SFT trainer."""
         training_args = self.setup_training_args()
 
-        self.trainer = TRLGSPOTrainer(
+        self.trainer = TRLSFTTrainer(
             model=self.model,
-            reward_funcs=[
-                exact_match_reward_func,
-                structured_xml_reward_func,
-                digit_reward_func,
-            ],
             args=training_args,
+            processing_class=self.tokenizer,
             train_dataset=self.train_dataset,
         )
 
-        self.logger.info("GSPO trainer initialized")
+        self.logger.info("SFT trainer initialized")
 
     def train(self):
         """Run the training process."""
-        self.logger.info("Starting GSPO training...")
+        self.logger.info("Starting SFT training...")
 
         # Setup components
         self.setup_model()
@@ -174,4 +162,4 @@ class GSPOTrainer(BaseTrainer):
 
         # Final save
         self.trainer.save_model(self.config.training.output_dir)
-        self.logger.info("GSPO training completed successfully")
+        self.logger.info("SFT training completed successfully")

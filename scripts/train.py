@@ -12,6 +12,7 @@ from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
 from trainers.gspo_trainer import GSPOTrainer
 from trainers.ppo_trainer import PPOTrainer
+from trainers.sft_trainer import SFTTrainer
 from utils.logging_utils import TrainingLogger, log_system_info
 
 
@@ -79,6 +80,8 @@ def main():
             trainer_class = GSPOTrainer
         elif algorithm == "ppo":
             trainer_class = PPOTrainer
+        elif algorithm == "sft":
+            trainer_class = SFTTrainer
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
             

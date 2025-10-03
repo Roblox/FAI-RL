@@ -1,7 +1,9 @@
 # FAI-RL: Framework for Aligned and Interactive Reinforcement Learning
 
 A modular, production-ready library designed for **easy training, inference, and evaluation** of language models using reinforcement learning methods. Currently supports: 
+- SFT (Supervised Fine-Tuning)
 - DPO (Direct Preference Optimization)
+- PPO (Proximal Policy Optimization)
 - GRPO (Group Relative Preference Optimization)
 - GSPO (Group Sequence Policy Optimization)
 
@@ -36,7 +38,7 @@ source venv_fai_rl/bin/activate
 
 ### Training
 
-Train a model using DPO, GRPO, or GSPO:
+Train a model using SFT, DPO, PPO, GRPO, or GSPO:
 
 ```bash
 # Single GPU training

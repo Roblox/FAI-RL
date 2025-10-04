@@ -50,7 +50,7 @@ data:
     Output JSON:
     {{
       "User Safety": "{prompt_label}",
-      "Response Safety": "{response_label}""
+      "Response Safety": "{response_label}"
     }}
 
 training:

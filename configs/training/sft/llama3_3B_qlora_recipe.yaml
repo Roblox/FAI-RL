@@ -55,7 +55,7 @@ data:
     Output JSON:
     {{
       "User Safety": "{prompt_label}",
-      "Response Safety": "{response_label}""
+      "Response Safety": "{response_label}"
     }}
 
 training:
@@ -63,7 +63,7 @@ training:
   output_dir: "models/llama3_3B_Inst_SFT_qlora-v1" # Output directory for the fine-tuned model
   
   # Training hyperparameters
-  per_device_train_batch_size: 1  # Can use larger batch size with QLoRA
+  per_device_train_batch_size: 1
   gradient_accumulation_steps: 16
   learning_rate: 2.0e-4              # Higher learning rate for QLoRA
   num_train_epochs: 1
@@ -78,7 +78,7 @@ training:
   # Optimization settings
   bf16: true
   fp16: false
-  gradient_checkpointing: true       # Important for QLoRA to save memory
+  gradient_checkpointing: true
   
   # DataLoader settings
   dataloader_num_workers: 0

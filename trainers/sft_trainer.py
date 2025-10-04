@@ -57,6 +57,7 @@ class SFTTrainer(BaseTrainer):
                 )
 
         # Load main model
+        using_deepspeed = bool(self.config.training.deepspeed_config)
         model_kwargs = {
             "torch_dtype": torch_dtype,
             "low_cpu_mem_usage": self.config.model.low_cpu_mem_usage,
@@ -64,7 +65,14 @@ class SFTTrainer(BaseTrainer):
         
         if quantization_config is not None:
             model_kwargs["quantization_config"] = quantization_config
-            model_kwargs["device_map"] = "auto"
+            # When training with DeepSpeed, let DeepSpeed/Accelerate manage device placement.
+            # Setting device_map="auto" is intended for single-GPU inference/training and can
+            # lead to empty optimizer parameter groups under ZeRO-3.
+            if not using_deepspeed:
+                model_kwargs["device_map"] = "auto"
+                self.logger.info("Using device_map=auto for quantized model (no DeepSpeed).")
+            else:
+                self.logger.info("DeepSpeed detected; not setting device_map to let DeepSpeed place parameters.")
         
         self.model = AutoModelForCausalLM.from_pretrained(
             self.config.model.base_model_name,
@@ -233,7 +241,7 @@ class SFTTrainer(BaseTrainer):
         self.trainer = TRLSFTTrainer(
             model=self.model,
             args=training_args,
-            processing_class=self.tokenizer,
+            tokenizer=self.tokenizer,
             train_dataset=self.train_dataset,
         )
 

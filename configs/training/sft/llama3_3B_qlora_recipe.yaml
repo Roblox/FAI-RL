@@ -63,8 +63,8 @@ training:
   output_dir: "models/llama3_3B_Inst_SFT_qlora-v1" # Output directory for the fine-tuned model
   
   # Training hyperparameters
-  per_device_train_batch_size: 2   # Can use larger batch size with QLoRA
-  gradient_accumulation_steps: 8
+  per_device_train_batch_size: 1  # Can use larger batch size with QLoRA
+  gradient_accumulation_steps: 16
   learning_rate: 2.0e-4              # Higher learning rate for QLoRA
   num_train_epochs: 1
   max_steps: -1

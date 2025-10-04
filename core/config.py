@@ -15,6 +15,11 @@ class ModelConfig:
     use_flash_attention: bool = False
     value_model_name: Optional[str] = None  # For PPO: value and reward models
     
+    # Quantization configuration for QLoRA
+    bnb_4bit_compute_dtype: str = "bfloat16"
+    bnb_4bit_quant_type: str = "nf4"
+    bnb_4bit_use_double_quant: bool = True
+    
     # LoRA configuration
     use_lora: bool = False
     lora_r: int = 8
@@ -32,6 +37,9 @@ class ModelConfig:
             "load_in_4bit": self.load_in_4bit,
             "use_flash_attention": self.use_flash_attention,
             "value_model_name": self.value_model_name,
+            "bnb_4bit_compute_dtype": self.bnb_4bit_compute_dtype,
+            "bnb_4bit_quant_type": self.bnb_4bit_quant_type,
+            "bnb_4bit_use_double_quant": self.bnb_4bit_use_double_quant,
             "use_lora": self.use_lora,
             "lora_r": self.lora_r,
             "lora_alpha": self.lora_alpha,

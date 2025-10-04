@@ -1,5 +1,5 @@
 #!/bin/bash
-# scripts/run_training.sh - Unified training script for DPO, GRPO, GSPO, and PPO
+# scripts/run_training.sh - Unified training script for DPO, GRPO, GSPO, PPO, and SFT
 
 set -e  # Exit on any error
 
@@ -10,6 +10,7 @@ OUTPUT_DIR=""
 LOG_DIR="logs"
 NOHUP_MODE=0  # Whether to run via nohup
 DEEPSPEED_CONFIG=""
+NO_DEEPSPEED=0  # Whether to disable DeepSpeed
 
 # Function to extract algorithm from config file
 extract_algorithm_from_config() {
@@ -43,10 +44,6 @@ while [[ $# -gt 0 ]]; do
       NUM_GPUS="$2"
       shift 2
       ;;
-    --deepspeed-config)
-      DEEPSPEED_CONFIG="$2"  # Allow manual override
-      shift 2
-      ;;
     --nohup)
       NOHUP_MODE=1
       shift
@@ -57,7 +54,6 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --config CONFIG_FILE                   Path to configuration YAML file (required)"
       echo "  --num-gpus NUM_GPUS                    Number of GPUs to use (default: 8)"
-      echo "  --deepspeed-config DEEPSPEED_CONFIG    Override ZeRO config file (auto-selected if not provided)"
       echo "  --nohup                                Run in background with nohup"
       echo "  -h, --help                             Show this help message"
       echo ""
@@ -97,21 +93,52 @@ fi
 
 echo "Detected algorithm from config: $ALGORITHM"
 
-# Auto-select deepspeed config if not provided
-if [ -z "$DEEPSPEED_CONFIG" ]; then
-    DEEPSPEED_CONFIG="configs/deepspeed/zero3_config_gpu${NUM_GPUS}.json"
-    echo "Auto-selected deepspeed config: $DEEPSPEED_CONFIG"
+# Check if config uses QLoRA (4-bit or 8-bit quantization)
+# QLoRA is incompatible with DeepSpeed, so automatically disable it
+USES_QUANTIZATION=$(python3 -c "
+import yaml
+import sys
+try:
+    with open('$CONFIG', 'r') as f:
+        config = yaml.safe_load(f)
+    model = config.get('model', {})
+    if model.get('load_in_4bit', False) or model.get('load_in_8bit', False):
+        print('true')
+    else:
+        print('false')
+except Exception:
+    print('false')
+" 2>/dev/null)
+
+if [ "$USES_QUANTIZATION" = "true" ]; then
+    # QLoRA (bitsandbytes quantization) is incompatible with DeepSpeed
+    # Automatically disable DeepSpeed and use torchrun for multi-GPU training
+    echo "Detected quantization (QLoRA) - DeepSpeed is incompatible with bitsandbytes."
+    echo "Automatically disabling DeepSpeed and using torchrun for distributed training."
+    NO_DEEPSPEED=1
+    DEEPSPEED_CONFIG=""
 fi
 
-if [ ! -f "$DEEPSPEED_CONFIG" ]; then
-    echo "Error: Deepspeed config file '$DEEPSPEED_CONFIG' not found"
-    exit 1
+# Auto-select deepspeed config if not disabled
+if [ "$NO_DEEPSPEED" -eq 0 ]; then
+    # Use Zero Stage 3 for full fine-tuning
+    DEEPSPEED_CONFIG="configs/deepspeed/zero3_config_gpu${NUM_GPUS}.json"
+    echo "Auto-selected deepspeed config: $DEEPSPEED_CONFIG"
+
+    if [ ! -f "$DEEPSPEED_CONFIG" ]; then
+        echo "Error: Deepspeed config file '$DEEPSPEED_CONFIG' not found"
+        exit 1
+    fi
+else
+    echo "DeepSpeed disabled - using torchrun for distributed training"
+    DEEPSPEED_CONFIG=""
 fi
 
 mkdir -p "$LOG_DIR"
 
 # Build command arguments
-SCRIPT_ARGS="--config $CONFIG --deepspeed-config $DEEPSPEED_CONFIG"
+SCRIPT_ARGS="--config $CONFIG"
+[ -n "$DEEPSPEED_CONFIG" ] && SCRIPT_ARGS="$SCRIPT_ARGS --deepspeed-config $DEEPSPEED_CONFIG"
 [ -n "$OUTPUT_DIR" ] && SCRIPT_ARGS="$SCRIPT_ARGS --output-dir $OUTPUT_DIR"
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
@@ -120,13 +147,22 @@ LOG_FILE="$LOG_DIR/${ALGORITHM}_training_${TIMESTAMP}.log"
 echo "Starting ${ALGORITHM^^} training with the following configuration:"
 echo "  Algorithm: $ALGORITHM (from config)"
 echo "  Config: $CONFIG"
-echo "  Deepspeed Config: $DEEPSPEED_CONFIG"
+echo "  Deepspeed Config: ${DEEPSPEED_CONFIG:-disabled}"
 echo "  GPUs: $NUM_GPUS"
 echo "  Log file: $LOG_FILE"
 echo "  Additional args: $SCRIPT_ARGS"
 echo ""
 
-CMD="deepspeed --num_gpus=$NUM_GPUS scripts/train.py $SCRIPT_ARGS"
+if [ -n "$DEEPSPEED_CONFIG" ]; then
+    CMD="deepspeed --num_gpus=$NUM_GPUS scripts/train.py $SCRIPT_ARGS"
+else
+    # Run without DeepSpeed (use torchrun for multi-GPU or python for single GPU)
+    if [ "$NUM_GPUS" -gt 1 ]; then
+        CMD="torchrun --nproc_per_node=$NUM_GPUS scripts/train.py $SCRIPT_ARGS"
+    else
+        CMD="python scripts/train.py $SCRIPT_ARGS"
+    fi
+fi
 
 if [ "$NOHUP_MODE" -eq 1 ]; then
     echo "Running in background with nohup..."

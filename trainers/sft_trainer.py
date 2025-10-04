@@ -69,8 +69,15 @@ class SFTTrainer(BaseTrainer):
             # Setting device_map="auto" is intended for single-GPU inference/training and can
             # lead to empty optimizer parameter groups under ZeRO-3.
             if not using_deepspeed:
-                model_kwargs["device_map"] = "auto"
-                self.logger.info("Using device_map=auto for quantized model (no DeepSpeed).")
+                # For multi-GPU training with torchrun (no DeepSpeed), we need to place the model
+                # on the current device for each process to avoid device mismatch errors.
+                if torch.cuda.is_available():
+                    current_device = torch.cuda.current_device()
+                    model_kwargs["device_map"] = {"": current_device}
+                    self.logger.info(f"Using device_map={{'': {current_device}}} for quantized model (no DeepSpeed).")
+                else:
+                    model_kwargs["device_map"] = "auto"
+                    self.logger.info("Using device_map=auto for quantized model (no DeepSpeed, no CUDA).")
             else:
                 self.logger.info("DeepSpeed detected; not setting device_map to let DeepSpeed place parameters.")
         

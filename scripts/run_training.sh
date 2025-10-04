@@ -1,5 +1,5 @@
 #!/bin/bash
-# scripts/run_training.sh - Unified training script for DPO, GRPO, GSPO, and PPO
+# scripts/run_training.sh - Unified training script for DPO, GRPO, GSPO, PPO, and SFT
 
 set -e  # Exit on any error
 
@@ -63,7 +63,6 @@ while [[ $# -gt 0 ]]; do
       echo "  --config CONFIG_FILE                   Path to configuration YAML file (required)"
       echo "  --num-gpus NUM_GPUS                    Number of GPUs to use (default: 8)"
       echo "  --deepspeed-config DEEPSPEED_CONFIG    Override ZeRO config file (auto-selected if not provided)"
-      echo "  --no-deepspeed                         Disable DeepSpeed (useful for single GPU or QLoRA)"
       echo "  --nohup                                Run in background with nohup"
       echo "  -h, --help                             Show this help message"
       echo ""
@@ -103,11 +102,9 @@ fi
 
 echo "Detected algorithm from config: $ALGORITHM"
 
-# Auto-select deepspeed config if not provided and not disabled
-if [ "$NO_DEEPSPEED" -eq 0 ]; then
-    if [ -z "$DEEPSPEED_CONFIG" ]; then
-        # Check if config uses QLoRA (4-bit or 8-bit quantization)
-        USES_QUANTIZATION=$(python3 -c "
+# Check if config uses QLoRA (4-bit or 8-bit quantization)
+# QLoRA is incompatible with DeepSpeed, so automatically disable it
+USES_QUANTIZATION=$(python3 -c "
 import yaml
 import sys
 try:
@@ -121,16 +118,22 @@ try:
 except Exception:
     print('false')
 " 2>/dev/null)
-        
-        if [ "$USES_QUANTIZATION" = "true" ]; then
-            # Use Zero Stage 2 for QLoRA (Zero Stage 3 is incompatible)
-            DEEPSPEED_CONFIG="configs/deepspeed/zero2_config_qlora.json"
-            echo "Detected quantization (QLoRA) - using Zero Stage 2: $DEEPSPEED_CONFIG"
-        else
-            # Use Zero Stage 3 for full fine-tuning
-            DEEPSPEED_CONFIG="configs/deepspeed/zero3_config_gpu${NUM_GPUS}.json"
-            echo "Auto-selected deepspeed config: $DEEPSPEED_CONFIG"
-        fi
+
+if [ "$USES_QUANTIZATION" = "true" ]; then
+    # QLoRA (bitsandbytes quantization) is incompatible with DeepSpeed
+    # Automatically disable DeepSpeed and use torchrun for multi-GPU training
+    echo "Detected quantization (QLoRA) - DeepSpeed is incompatible with bitsandbytes."
+    echo "Automatically disabling DeepSpeed and using torchrun for distributed training."
+    NO_DEEPSPEED=1
+    DEEPSPEED_CONFIG=""
+fi
+
+# Auto-select deepspeed config if not provided and not disabled
+if [ "$NO_DEEPSPEED" -eq 0 ]; then
+    if [ -z "$DEEPSPEED_CONFIG" ]; then
+        # Use Zero Stage 3 for full fine-tuning
+        DEEPSPEED_CONFIG="configs/deepspeed/zero3_config_gpu${NUM_GPUS}.json"
+        echo "Auto-selected deepspeed config: $DEEPSPEED_CONFIG"
     fi
 
     if [ ! -f "$DEEPSPEED_CONFIG" ]; then
@@ -138,7 +141,7 @@ except Exception:
         exit 1
     fi
 else
-    echo "DeepSpeed disabled (--no-deepspeed flag)"
+    echo "DeepSpeed disabled - using torchrun for distributed training"
     DEEPSPEED_CONFIG=""
 fi
 

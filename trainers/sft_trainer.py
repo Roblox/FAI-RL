@@ -241,7 +241,7 @@ class SFTTrainer(BaseTrainer):
         self.trainer = TRLSFTTrainer(
             model=self.model,
             args=training_args,
-            tokenizer=self.tokenizer,
+            processing_class=self.tokenizer,
             train_dataset=self.train_dataset,
         )
 

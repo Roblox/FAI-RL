@@ -36,6 +36,13 @@ class SFTTrainer(BaseTrainer):
         quantization_config = None
         if self.config.model.load_in_4bit or self.config.model.load_in_8bit:
             self.logger.info(f"Setting up {'4-bit' if self.config.model.load_in_4bit else '8-bit'} quantization...")
+            # Guard: quantized fine-tuning requires LoRA/PEFT adapters. Without adapters there
+            # would be zero trainable parameters and DeepSpeed would crash when configuring the optimizer.
+            if not self.config.model.use_lora:
+                raise ValueError(
+                    "Quantized training (4-bit/8-bit) requires LoRA adapters. "
+                    "Set model.use_lora: true (QLoRA) or disable quantization."
+                )
             
             if self.config.model.load_in_4bit:
                 quantization_config = BitsAndBytesConfig(
@@ -89,6 +96,11 @@ class SFTTrainer(BaseTrainer):
                     self.model,
                     use_gradient_checkpointing=self.config.training.gradient_checkpointing
                 )
+                # Ensure input gradients are enabled for k-bit training flows
+                try:
+                    self.model.enable_input_require_grads()
+                except Exception:
+                    pass
             
             # Create LoRA config
             lora_config = LoraConfig(
@@ -109,6 +121,27 @@ class SFTTrainer(BaseTrainer):
             self.logger.info(f"{'QLoRA' if quantization_config else 'LoRA'} applied - "
                            f"Trainable params: {trainable_params:,} / {total_params:,} "
                            f"({100 * trainable_params / total_params:.2f}%)")
+
+            # Safety check: ensure we actually have trainable parameters
+            if trainable_params == 0:
+                target_modules = self.config.model.lora_target_modules
+                self.logger.error(
+                    "No trainable parameters detected after applying LoRA. "
+                    f"target_modules={target_modules}."
+                )
+                raise ValueError(
+                    "LoRA injection resulted in zero trainable parameters. "
+                    "This usually means lora_target_modules do not match your model's module names. "
+                    "For LLaMA-class models, typical targets are: q_proj, k_proj, v_proj, o_proj, "
+                    "gate_proj, up_proj, down_proj."
+                )
+
+        # Disable cache when using gradient checkpointing to avoid warnings and ensure training correctness
+        if getattr(self.config.training, "gradient_checkpointing", False):
+            try:
+                self.model.config.use_cache = False
+            except Exception:
+                pass
 
         self.logger.info("Model and tokenizer loaded successfully")
 

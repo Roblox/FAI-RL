@@ -28,8 +28,9 @@ def parse_args():
     parser.add_argument(
         "--deepspeed-config",
         type=str,
-        required=True,
-        help="Path to deepspeed configuration json file"
+        required=False,  # Changed from required=True
+        default=None,
+        help="Path to deepspeed configuration json file (optional, for multi-GPU training)"
     )
     parser.add_argument(
         "--local_rank",
@@ -48,7 +49,11 @@ def main():
     # Load configuration
     config = ExperimentConfig.from_yaml(args.config)
     
-    config.training.deepspeed_config = args.deepspeed_config
+    # Only set deepspeed_config if provided
+    if args.deepspeed_config is not None:
+        config.training.deepspeed_config = args.deepspeed_config
+    else:
+        config.training.deepspeed_config = None
 
     # Get algorithm from config
     algorithm = config.training.algorithm.lower()

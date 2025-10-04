@@ -15,6 +15,14 @@ class ModelConfig:
     use_flash_attention: bool = False
     value_model_name: Optional[str] = None  # For PPO: value and reward models
     
+    # LoRA configuration
+    use_lora: bool = False
+    lora_r: int = 8
+    lora_alpha: int = 16
+    lora_dropout: float = 0.05
+    lora_target_modules: Optional[List[str]] = None
+    lora_bias: str = "none"
+    
     def to_dict(self) -> Dict[str, Any]:
         return {
             "base_model_name": self.base_model_name,
@@ -24,6 +32,12 @@ class ModelConfig:
             "load_in_4bit": self.load_in_4bit,
             "use_flash_attention": self.use_flash_attention,
             "value_model_name": self.value_model_name,
+            "use_lora": self.use_lora,
+            "lora_r": self.lora_r,
+            "lora_alpha": self.lora_alpha,
+            "lora_dropout": self.lora_dropout,
+            "lora_target_modules": self.lora_target_modules,
+            "lora_bias": self.lora_bias,
         }
 
 

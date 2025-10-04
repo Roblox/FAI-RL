@@ -4,6 +4,7 @@ import wandb
 from datasets import load_dataset, concatenate_datasets, Dataset
 from trl import SFTConfig, SFTTrainer as TRLSFTTrainer
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import LoraConfig, get_peft_model, TaskType
 from typing import Optional, List
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -51,6 +52,29 @@ class SFTTrainer(BaseTrainer):
 
         # Resize embeddings
         self.model.resize_token_embeddings(len(self.tokenizer))
+
+        # Apply LoRA if enabled
+        if self.config.model.use_lora:
+            self.logger.info("Applying LoRA configuration...")
+            
+            # Create LoRA config
+            lora_config = LoraConfig(
+                r=self.config.model.lora_r,
+                lora_alpha=self.config.model.lora_alpha,
+                lora_dropout=self.config.model.lora_dropout,
+                target_modules=self.config.model.lora_target_modules,
+                bias=self.config.model.lora_bias,
+                task_type=TaskType.CAUSAL_LM,
+            )
+            
+            # Apply LoRA to model
+            self.model = get_peft_model(self.model, lora_config)
+            
+            # Print trainable parameters
+            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            total_params = sum(p.numel() for p in self.model.parameters())
+            self.logger.info(f"LoRA applied - Trainable params: {trainable_params:,} / {total_params:,} "
+                           f"({100 * trainable_params / total_params:.2f}%)")
 
         self.logger.info("Model and tokenizer loaded successfully")
 

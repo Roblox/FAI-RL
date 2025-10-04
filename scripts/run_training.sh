@@ -44,14 +44,6 @@ while [[ $# -gt 0 ]]; do
       NUM_GPUS="$2"
       shift 2
       ;;
-    --deepspeed-config)
-      DEEPSPEED_CONFIG="$2"  # Allow manual override
-      shift 2
-      ;;
-    --no-deepspeed)
-      NO_DEEPSPEED=1
-      shift
-      ;;
     --nohup)
       NOHUP_MODE=1
       shift
@@ -62,7 +54,6 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --config CONFIG_FILE                   Path to configuration YAML file (required)"
       echo "  --num-gpus NUM_GPUS                    Number of GPUs to use (default: 8)"
-      echo "  --deepspeed-config DEEPSPEED_CONFIG    Override ZeRO config file (auto-selected if not provided)"
       echo "  --nohup                                Run in background with nohup"
       echo "  -h, --help                             Show this help message"
       echo ""
@@ -128,13 +119,11 @@ if [ "$USES_QUANTIZATION" = "true" ]; then
     DEEPSPEED_CONFIG=""
 fi
 
-# Auto-select deepspeed config if not provided and not disabled
+# Auto-select deepspeed config if not disabled
 if [ "$NO_DEEPSPEED" -eq 0 ]; then
-    if [ -z "$DEEPSPEED_CONFIG" ]; then
-        # Use Zero Stage 3 for full fine-tuning
-        DEEPSPEED_CONFIG="configs/deepspeed/zero3_config_gpu${NUM_GPUS}.json"
-        echo "Auto-selected deepspeed config: $DEEPSPEED_CONFIG"
-    fi
+    # Use Zero Stage 3 for full fine-tuning
+    DEEPSPEED_CONFIG="configs/deepspeed/zero3_config_gpu${NUM_GPUS}.json"
+    echo "Auto-selected deepspeed config: $DEEPSPEED_CONFIG"
 
     if [ ! -f "$DEEPSPEED_CONFIG" ]; then
         echo "Error: Deepspeed config file '$DEEPSPEED_CONFIG' not found"

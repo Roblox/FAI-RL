@@ -231,7 +231,41 @@ class PPOTrainer(BaseTrainer):
             except Exception:
                 pass
         
+        # Fix for PEFT models: Add gradient checkpointing control methods if missing
+        # TRL's unwrap_model_for_generation expects these methods to exist
+        if getattr(self.config.model, 'use_lora', False):
+            self._add_gradient_checkpointing_methods(self.model)
+            self._add_gradient_checkpointing_methods(self.value_model)
+        
         self.logger.info("Models and tokenizer loaded successfully")
+    
+    def _add_gradient_checkpointing_methods(self, model):
+        """Add gradient checkpointing control methods to PEFT models if they don't exist.
+        
+        This is needed because TRL's unwrap_model_for_generation context manager
+        expects these methods, but PEFT wrappers don't always expose them.
+        """
+        if not hasattr(model, 'gradient_checkpointing_disable'):
+            def gradient_checkpointing_disable():
+                """Disable gradient checkpointing."""
+                if hasattr(model, 'base_model'):
+                    base = model.base_model
+                    if hasattr(base, 'gradient_checkpointing_disable'):
+                        base.gradient_checkpointing_disable()
+                    elif hasattr(base, 'model') and hasattr(base.model, 'gradient_checkpointing_disable'):
+                        base.model.gradient_checkpointing_disable()
+            model.gradient_checkpointing_disable = gradient_checkpointing_disable
+        
+        if not hasattr(model, 'gradient_checkpointing_enable'):
+            def gradient_checkpointing_enable():
+                """Enable gradient checkpointing."""
+                if hasattr(model, 'base_model'):
+                    base = model.base_model
+                    if hasattr(base, 'gradient_checkpointing_enable'):
+                        base.gradient_checkpointing_enable()
+                    elif hasattr(base, 'model') and hasattr(base.model, 'gradient_checkpointing_enable'):
+                        base.model.gradient_checkpointing_enable()
+            model.gradient_checkpointing_enable = gradient_checkpointing_enable
 
     def setup_data(self):
         """Load and prepare training datasets."""

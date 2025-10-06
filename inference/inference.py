@@ -323,7 +323,6 @@ def run_inference(config, debug=False):
     data_split = dataset[config.dataset_split] if config.dataset_split in dataset else dataset[list(dataset.keys())[0]]
     
     print(f"Processing {len(data_split)} examples from the dataset...")
-    print(f"Using columns: {config.dataset_columns} with separator: {repr(config.column_separator)}")
     
     # Process the dataset
     results = []
@@ -432,7 +431,6 @@ def main():
     
     print(f"  Dataset: {config.dataset_name}")
     print(f"  Dataset columns: {config.dataset_columns}")
-    print(f"  Column separator: {repr(config.column_separator)}")
     print(f"  Output file: {config.output_file}")
     print(f"  Temperature: {config.temperature}")
     print(f"  Top-p: {config.top_p}")

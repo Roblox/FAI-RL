@@ -33,7 +33,6 @@ inference:
   dataset_name: "your-huggingface-dataset"          # HuggingFace dataset identifier (e.g., "Anthropic/hh-rlhf")
   dataset_split: "test"                             # Dataset split to use: train, test, validation
   dataset_columns: ["persona", "prompt"]            # List of columns to concatenate as model input
-  column_separator: "\n---\n"                       # String to separate multiple columns in the input
 
   # System Prompt
   # Provides context and instructions to the model

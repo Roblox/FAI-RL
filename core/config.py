@@ -199,7 +199,6 @@ class InferenceConfig:
     
     # Dataset column configuration
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
-    column_separator: str = "\n\n"
     
     # Generation parameters
     temperature: float = 1.0
@@ -234,7 +233,6 @@ class EvaluationConfig:
     
     # Prompt configuration
     prompt_template: Optional[str] = None
-    column_separator: str = "\n\n"
     
     # Multiple choice configuration
     output_type: str = "numerical"  # "numerical" or "multiple_choice"

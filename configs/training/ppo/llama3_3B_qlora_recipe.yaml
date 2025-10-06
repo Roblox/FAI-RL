@@ -4,8 +4,28 @@ model:
   torch_dtype: "bfloat16"
   low_cpu_mem_usage: true
   load_in_8bit: false
-  load_in_4bit: false
+  load_in_4bit: true  # Enable 4-bit quantization for QLoRA
   use_flash_attention: false
+  
+  # QLoRA quantization configuration
+  bnb_4bit_compute_dtype: "bfloat16"  # Compute dtype for 4-bit quantization
+  bnb_4bit_quant_type: "nf4"          # Use NF4 quantization (normalized float 4)
+  bnb_4bit_use_double_quant: true     # Use double quantization for better accuracy
+  
+  # LoRA configuration
+  use_lora: true
+  lora_r: 16                   # LoRA rank (higher than standard LoRA for QLoRA)
+  lora_alpha: 32               # LoRA alpha (scaling factor, typically 2x rank)
+  lora_dropout: 0.05           # LoRA dropout
+  lora_target_modules:         # Target modules for LoRA
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_bias: "none"            # Bias handling: "none", "all", or "lora_only"
 
 data:
   datasets: # YOUR TRAINING DATASET
@@ -20,12 +40,12 @@ data:
 
 training:
   algorithm: "ppo"
-  output_dir: "models/llama3_3B_Inst_PPO_full_v1" # Output directory for the fine-tuned model
+  output_dir: "models/llama3_3B_Inst_PPO_qlora_v1" # Output directory for the fine-tuned model
   
   # Training hyperparameters
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 16
-  learning_rate: 1.0e-5
+  learning_rate: 2.0e-4              # Higher learning rate for QLoRA
   num_train_epochs: 3
   max_steps: 10000
   
@@ -49,5 +69,5 @@ wandb:
   enabled: false
   project: "rl"
   entity: "fai-llmaas"
-  name: "Llama-3.2-3B-Inst-Full-PPO"
-  tags: ["PPO", "llama3", "3B-Inst", "GSM8K", "OpenMathInstruct-2"]
+  name: "Llama-3.2-3B-Inst-QLoRA-PPO"
+  tags: ["PPO", "llama3", "3B-Inst", "QLoRA", "4-bit"]

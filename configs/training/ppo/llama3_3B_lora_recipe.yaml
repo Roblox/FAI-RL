@@ -6,6 +6,21 @@ model:
   load_in_8bit: false
   load_in_4bit: false
   use_flash_attention: false
+  
+  # LoRA configuration
+  use_lora: true
+  lora_r: 8                    # LoRA rank
+  lora_alpha: 16               # LoRA alpha (scaling factor)
+  lora_dropout: 0.05           # LoRA dropout
+  lora_target_modules:         # Target modules for LoRA
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_bias: "none"            # Bias handling: "none", "all", or "lora_only"
 
 data:
   datasets: # YOUR TRAINING DATASET
@@ -20,12 +35,12 @@ data:
 
 training:
   algorithm: "ppo"
-  output_dir: "models/llama3_3B_Inst_PPO_full_v1" # Output directory for the fine-tuned model
+  output_dir: "models/llama3_3B_Inst_PPO_lora_v1" # Output directory for the fine-tuned model
   
   # Training hyperparameters
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 16
-  learning_rate: 1.0e-5
+  learning_rate: 1.0e-4          # Higher learning rate for LoRA
   num_train_epochs: 3
   max_steps: 10000
   
@@ -49,5 +64,5 @@ wandb:
   enabled: false
   project: "rl"
   entity: "fai-llmaas"
-  name: "Llama-3.2-3B-Inst-Full-PPO"
-  tags: ["PPO", "llama3", "3B-Inst", "GSM8K", "OpenMathInstruct-2"]
+  name: "Llama-3.2-3B-Inst-LoRA-PPO"
+  tags: ["PPO", "llama3", "3B-Inst", "LoRA"]

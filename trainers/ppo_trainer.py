@@ -10,6 +10,7 @@ from transformers import (
     AutoModelForSequenceClassification,
     BitsAndBytesConfig,
 )
+from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 from typing import Optional, List
 import numpy as np
 
@@ -47,26 +48,50 @@ class PPOTrainer(BaseTrainer):
         # Convert string dtype to torch dtype
         torch_dtype = getattr(torch, self.config.model.torch_dtype)
         
-        # Create quantization config
+        # Create quantization config if needed
         quantization_config = None
-        if self.config.model.load_in_8bit:
-            quantization_config = BitsAndBytesConfig(load_in_8bit=True)
-        elif self.config.model.load_in_4bit:
-            quantization_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch_dtype,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_use_double_quant=True,
-            )
+        if self.config.model.load_in_4bit or self.config.model.load_in_8bit:
+            self.logger.info(f"Setting up {'4-bit' if self.config.model.load_in_4bit else '8-bit'} quantization...")
+            # Guard: quantized fine-tuning requires LoRA/PEFT adapters
+            if not getattr(self.config.model, 'use_lora', False):
+                raise ValueError(
+                    "Quantized training (4-bit/8-bit) requires LoRA adapters. "
+                    "Set model.use_lora: true (QLoRA) or disable quantization."
+                )
+            
+            if self.config.model.load_in_4bit:
+                quantization_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=getattr(torch, self.config.model.bnb_4bit_compute_dtype),
+                    bnb_4bit_quant_type=self.config.model.bnb_4bit_quant_type,
+                    bnb_4bit_use_double_quant=self.config.model.bnb_4bit_use_double_quant,
+                )
+            elif self.config.model.load_in_8bit:
+                quantization_config = BitsAndBytesConfig(
+                    load_in_8bit=True,
+                )
         
-        model_kwargs = dict(
-            torch_dtype=torch_dtype,
-            low_cpu_mem_usage=self.config.model.low_cpu_mem_usage,
-        )
+        # Load main model
+        using_deepspeed = bool(getattr(self.config.training, 'deepspeed_config', None))
+        model_kwargs = {
+            "torch_dtype": torch_dtype,
+            "low_cpu_mem_usage": self.config.model.low_cpu_mem_usage,
+        }
         
         if quantization_config is not None:
             model_kwargs["quantization_config"] = quantization_config
-            model_kwargs["device_map"] = "auto"
+            # When training with DeepSpeed, let DeepSpeed/Accelerate manage device placement
+            if not using_deepspeed:
+                # For multi-GPU training with torchrun (no DeepSpeed)
+                if torch.cuda.is_available():
+                    current_device = torch.cuda.current_device()
+                    model_kwargs["device_map"] = {"": current_device}
+                    self.logger.info(f"Using device_map={{'': {current_device}}} for quantized model (no DeepSpeed).")
+                else:
+                    model_kwargs["device_map"] = "auto"
+                    self.logger.info("Using device_map=auto for quantized model (no DeepSpeed, no CUDA).")
+            else:
+                self.logger.info("DeepSpeed detected; not setting device_map to let DeepSpeed place parameters.")
 
         # Load tokenizer first
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -84,11 +109,17 @@ class PPOTrainer(BaseTrainer):
             **model_kwargs
         )
         
+        # Resize embeddings for policy model
+        self.model.resize_token_embeddings(len(self.tokenizer))
+        
         # Load reference model (for KL penalty in PPO)
         self.ref_policy = AutoModelForCausalLM.from_pretrained(
             self.config.model.value_model_name,
             **model_kwargs
         )
+        
+        # Resize embeddings for reference model
+        self.ref_policy.resize_token_embeddings(len(self.tokenizer))
         
         # Load value model (for advantage estimation)
         self.value_model = AutoModelForSequenceClassification.from_pretrained(
@@ -97,12 +128,108 @@ class PPOTrainer(BaseTrainer):
             **model_kwargs
         )
         
+        # Resize embeddings for value model
+        self.value_model.resize_token_embeddings(len(self.tokenizer))
+        
         # Load reward model (for computing rewards)
         self.reward_model = AutoModelForSequenceClassification.from_pretrained(
             self.config.model.value_model_name,
             num_labels=1,
             **model_kwargs
         )
+        
+        # Resize embeddings for reward model
+        self.reward_model.resize_token_embeddings(len(self.tokenizer))
+        
+        # Apply LoRA if enabled (including QLoRA)
+        if getattr(self.config.model, 'use_lora', False):
+            self.logger.info("Applying LoRA configuration...")
+            
+            # Prepare models for k-bit training if using quantization
+            if self.config.model.load_in_4bit or self.config.model.load_in_8bit:
+                self.logger.info("Preparing models for k-bit training (QLoRA)...")
+                gradient_checkpointing = getattr(self.config.training, 'gradient_checkpointing', False)
+                
+                self.model = prepare_model_for_kbit_training(
+                    self.model,
+                    use_gradient_checkpointing=gradient_checkpointing
+                )
+                self.value_model = prepare_model_for_kbit_training(
+                    self.value_model,
+                    use_gradient_checkpointing=gradient_checkpointing
+                )
+                
+                # Enable input gradients for k-bit training flows
+                try:
+                    self.model.enable_input_require_grads()
+                    self.value_model.enable_input_require_grads()
+                except Exception:
+                    pass
+            
+            # Create LoRA config for causal LM (policy and reference models)
+            lora_config_causal = LoraConfig(
+                r=self.config.model.lora_r,
+                lora_alpha=self.config.model.lora_alpha,
+                lora_dropout=self.config.model.lora_dropout,
+                target_modules=self.config.model.lora_target_modules,
+                bias=self.config.model.lora_bias,
+                task_type=TaskType.CAUSAL_LM,
+            )
+            
+            # Create LoRA config for sequence classification (value and reward models)
+            lora_config_seq_cls = LoraConfig(
+                r=self.config.model.lora_r,
+                lora_alpha=self.config.model.lora_alpha,
+                lora_dropout=self.config.model.lora_dropout,
+                target_modules=self.config.model.lora_target_modules,
+                bias=self.config.model.lora_bias,
+                task_type=TaskType.SEQ_CLS,
+            )
+            
+            # Apply LoRA to policy model
+            self.model = get_peft_model(self.model, lora_config_causal)
+            
+            # Apply LoRA to value model
+            self.value_model = get_peft_model(self.value_model, lora_config_seq_cls)
+            
+            # Note: Reference and reward models typically remain frozen (no LoRA)
+            # They serve as fixed baselines for PPO
+            
+            # Print trainable parameters for policy model
+            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            total_params = sum(p.numel() for p in self.model.parameters())
+            self.logger.info(f"{'QLoRA' if quantization_config else 'LoRA'} applied to policy model - "
+                           f"Trainable params: {trainable_params:,} / {total_params:,} "
+                           f"({100 * trainable_params / total_params:.2f}%)")
+            
+            # Print trainable parameters for value model
+            trainable_params_value = sum(p.numel() for p in self.value_model.parameters() if p.requires_grad)
+            total_params_value = sum(p.numel() for p in self.value_model.parameters())
+            self.logger.info(f"{'QLoRA' if quantization_config else 'LoRA'} applied to value model - "
+                           f"Trainable params: {trainable_params_value:,} / {total_params_value:,} "
+                           f"({100 * trainable_params_value / total_params_value:.2f}%)")
+
+            # Safety check: ensure we actually have trainable parameters
+            if trainable_params == 0:
+                target_modules = self.config.model.lora_target_modules
+                self.logger.error(
+                    "No trainable parameters detected after applying LoRA. "
+                    f"target_modules={target_modules}."
+                )
+                raise ValueError(
+                    "LoRA injection resulted in zero trainable parameters. "
+                    "This usually means lora_target_modules do not match your model's module names. "
+                    "For LLaMA-class models, typical targets are: q_proj, k_proj, v_proj, o_proj, "
+                    "gate_proj, up_proj, down_proj."
+                )
+
+        # Disable cache when using gradient checkpointing to avoid warnings and ensure training correctness
+        if getattr(self.config.training, "gradient_checkpointing", False):
+            try:
+                self.model.config.use_cache = False
+                self.value_model.config.use_cache = False
+            except Exception:
+                pass
         
         self.logger.info("Models and tokenizer loaded successfully")
 

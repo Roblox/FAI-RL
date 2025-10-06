@@ -111,3 +111,13 @@ FAI-RL/
 - **[Training Guide](./trainers/README.md)** - Configure and run model training
 - **[Inference Guide](./inference/README.md)** - Run model inference and generation  
 - **[Evaluation Guide](./evaluations/README.md)** - Evaluate model performance on benchmarks
+
+## 🧪 Test Environment
+This framework has been tested and validated on the following AWS EC2 instance configuration:
+
+- Instance Type: p4d.24xlarge
+- GPUs: 8 x NVIDIA A100-SXM4-80GB
+- vCPUs: 96
+- Memory: 1152 GiB
+- Storage: 8000 GB NVMe SSD
+- Network Performance: 400 Gbps

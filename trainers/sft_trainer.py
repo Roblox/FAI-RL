@@ -32,7 +32,7 @@ class SFTTrainer(BaseTrainer):
         # Convert string dtype to torch dtype
         torch_dtype = getattr(torch, self.config.model.torch_dtype)
 
-        # Create quantization config if needed
+        # Create quantization config
         quantization_config = None
         if self.config.model.load_in_4bit or self.config.model.load_in_8bit:
             self.logger.info(f"Setting up {'4-bit' if self.config.model.load_in_4bit else '8-bit'} quantization...")

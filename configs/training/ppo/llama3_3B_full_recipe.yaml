@@ -47,7 +47,7 @@ training:
 
 # Fields marked below are placeholders that users can change for their own project/run
 wandb:
-  enabled: false
+  enabled: true
   project: "rl"
   entity: "fai-llmaas"
   name: "Llama-3.2-3B-Inst-Full-PPO"

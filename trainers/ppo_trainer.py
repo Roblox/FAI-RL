@@ -393,10 +393,61 @@ class PPOTrainer(BaseTrainer):
         self.setup_data()
         self.setup_trainer()
 
+        # Ensure TRL wrapper exposes gradient checkpointing toggles expected by unwrap_model_for_generation
+        self._ensure_wrapper_gradient_checkpointing_methods(self.trainer.model)
+
         # Train the model
         self.trainer.train()
 
         # Final save
         self.trainer.save_model(self.config.training.output_dir)
         self.logger.info("PPO training completed successfully")
+
+    def _ensure_wrapper_gradient_checkpointing_methods(self, wrapper):
+        """Ensure TRL's PolicyAndValueWrapper exposes gradient checkpointing methods.
+
+        TRL calls gradient_checkpointing_disable/enable on the wrapper during generation.
+        Some wrapper instances may not allow setting new attributes (e.g., using __slots__),
+        so we attach the methods to the class to ensure availability.
+        """
+        wrapper_cls = wrapper.__class__
+
+        if not hasattr(wrapper_cls, 'gradient_checkpointing_disable'):
+            def gradient_checkpointing_disable(self):  # type: ignore[no-redef]
+                # Best-effort forwarding to underlying models if available
+                for attr_name in ("model", "policy", "base_model"):
+                    base = getattr(self, attr_name, None)
+                    if base is None:
+                        continue
+                    # Try direct call
+                    if hasattr(base, 'gradient_checkpointing_disable'):
+                        base.gradient_checkpointing_disable()
+                        return
+                    # Try nested .model (e.g., PEFT wrappers)
+                    nested = getattr(base, 'model', None)
+                    if nested is not None and hasattr(nested, 'gradient_checkpointing_disable'):
+                        nested.gradient_checkpointing_disable()
+                        return
+                # If nothing found, act as no-op
+                return
+
+            setattr(wrapper_cls, 'gradient_checkpointing_disable', gradient_checkpointing_disable)
+
+        if not hasattr(wrapper_cls, 'gradient_checkpointing_enable'):
+            def gradient_checkpointing_enable(self):  # type: ignore[no-redef]
+                # Best-effort forwarding to underlying models if available
+                for attr_name in ("model", "policy", "base_model"):
+                    base = getattr(self, attr_name, None)
+                    if base is None:
+                        continue
+                    if hasattr(base, 'gradient_checkpointing_enable'):
+                        base.gradient_checkpointing_enable()
+                        return
+                    nested = getattr(base, 'model', None)
+                    if nested is not None and hasattr(nested, 'gradient_checkpointing_enable'):
+                        nested.gradient_checkpointing_enable()
+                        return
+                return
+
+            setattr(wrapper_cls, 'gradient_checkpointing_enable', gradient_checkpointing_enable)
 

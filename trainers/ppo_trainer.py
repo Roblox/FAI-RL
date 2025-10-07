@@ -234,8 +234,7 @@ class PPOTrainer(BaseTrainer):
         # Fix for PEFT models: Add gradient checkpointing control methods if missing
         # TRL's unwrap_model_for_generation expects these methods to exist
         if getattr(self.config.model, 'use_lora', False):
-            self._add_gradient_checkpointing_methods(self.model)
-            self._add_gradient_checkpointing_methods(self.value_model)
+            self._add_gradient_checkpointing_methods(self.trainer.model)
         
         self.logger.info("Models and tokenizer loaded successfully")
     

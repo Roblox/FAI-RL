@@ -27,6 +27,53 @@ from .templates.gsm8k_template import GSM8KTemplate
 from .templates.openmathinstruct_template import OpenMathInstructTemplate
 
 
+# Global fallback: ensure all torch.nn.Module instances expose gradient checkpointing toggles
+def _forward_gradient_checkpointing_call(module: torch.nn.Module, method_name: str) -> None:
+    # Try common attributes used by wrappers to reach the underlying model
+    for attr_name in ("gradient_checkpointing_" + method_name,):
+        if hasattr(module, attr_name) and callable(getattr(module, attr_name)):
+            try:
+                getattr(module, attr_name)()
+                return
+            except Exception:
+                pass
+    for candidate in ("model", "policy", "base_model"):
+        base = getattr(module, candidate, None)
+        if base is None:
+            continue
+        # Direct on base
+        fn = getattr(base, "gradient_checkpointing_" + method_name, None)
+        if callable(fn):
+            try:
+                fn()
+                return
+            except Exception:
+                pass
+        # Try nested .model (e.g., PEFT wrappers)
+        nested = getattr(base, "model", None)
+        if nested is not None:
+            fn_nested = getattr(nested, "gradient_checkpointing_" + method_name, None)
+            if callable(fn_nested):
+                try:
+                    fn_nested()
+                    return
+                except Exception:
+                    pass
+    # If nothing found, act as no-op
+    return
+
+
+if not hasattr(torch.nn.Module, "gradient_checkpointing_disable"):
+    def _gc_disable(self):  # type: ignore[no-redef]
+        _forward_gradient_checkpointing_call(self, "disable")
+    torch.nn.Module.gradient_checkpointing_disable = _gc_disable  # type: ignore[attr-defined]
+
+if not hasattr(torch.nn.Module, "gradient_checkpointing_enable"):
+    def _gc_enable(self):  # type: ignore[no-redef]
+        _forward_gradient_checkpointing_call(self, "enable")
+    torch.nn.Module.gradient_checkpointing_enable = _gc_enable  # type: ignore[attr-defined]
+
+
 class PPOTrainer(BaseTrainer):
     """PPO (Proximal Policy Optimization) trainer implementation."""
 
@@ -392,6 +439,11 @@ class PPOTrainer(BaseTrainer):
         self.setup_model()
         self.setup_data()
         self.setup_trainer()
+
+        # Debug: confirm wrapper now exposes gradient checkpointing toggles
+        has_disable = hasattr(self.trainer.model, 'gradient_checkpointing_disable')
+        has_enable = hasattr(self.trainer.model, 'gradient_checkpointing_enable')
+        self.logger.info(f"Wrapper GC methods available - disable: {has_disable}, enable: {has_enable}")
 
         # Ensure TRL wrapper exposes gradient checkpointing toggles expected by unwrap_model_for_generation
         self._ensure_wrapper_gradient_checkpointing_methods(self.trainer.model)

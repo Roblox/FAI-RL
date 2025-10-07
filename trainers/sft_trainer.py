@@ -36,9 +36,9 @@ class SFTTrainer(BaseTrainer):
         quantization_config = None
         if self.config.model.load_in_4bit or self.config.model.load_in_8bit:
             self.logger.info(f"Setting up {'4-bit' if self.config.model.load_in_4bit else '8-bit'} quantization...")
-            # Guard: quantized fine-tuning requires LoRA/PEFT adapters. Without adapters there
-            # would be zero trainable parameters and DeepSpeed would crash when configuring the optimizer.
-            if not self.config.model.use_lora:
+
+            # Guard: quantized fine-tuning requires LoRA/PEFT adapters
+            if not getattr(self.config.model, 'use_lora', False):
                 raise ValueError(
                     "Quantized training (4-bit/8-bit) requires LoRA adapters. "
                     "Set model.use_lora: true (QLoRA) or disable quantization."
@@ -101,7 +101,7 @@ class SFTTrainer(BaseTrainer):
         self.model.resize_token_embeddings(len(self.tokenizer))
 
         # Apply LoRA if enabled (including QLoRA)
-        if self.config.model.use_lora:
+        if getattr(self.config.model, 'use_lora', False):
             self.logger.info("Applying LoRA configuration...")
             
             # Prepare model for k-bit training if using quantization

@@ -116,7 +116,7 @@ class PPOTrainer(BaseTrainer):
                 )
         
         # Load main model
-        using_deepspeed = bool(getattr(self.config.training, 'deepspeed_config', None))
+        using_deepspeed = bool(self.config.training.deepspeed_config)
         model_kwargs = {
             "torch_dtype": torch_dtype,
             "low_cpu_mem_usage": self.config.model.low_cpu_mem_usage,
@@ -140,14 +140,12 @@ class PPOTrainer(BaseTrainer):
         # Load tokenizer first
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.config.model.base_model_name,
-            padding_side="left",
         )
 
-        # Set pad token if not present
         if self.tokenizer.pad_token is None:
-            self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-        # Ensure consistent left padding
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         self.tokenizer.padding_side = "left"
+        self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
         
         # Load policy model (main model for generation)
         self.model = AutoModelForCausalLM.from_pretrained(

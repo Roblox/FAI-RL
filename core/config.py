@@ -91,6 +91,7 @@ class DataConfig:
             "max_prompt_length": self.max_prompt_length,
             "remove_unused_columns": self.remove_unused_columns,
             "system_prompt": self.system_prompt,
+            "dataset_num_proc": self.dataset_num_proc,
         }
 
 

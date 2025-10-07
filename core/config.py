@@ -70,6 +70,8 @@ class DataConfig:
     max_prompt_length: int = 256
     remove_unused_columns: bool = False
     system_prompt: Optional[str] = None
+    prompt_column: str = "prompt"
+    dataset_num_proc: int = 1
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -90,6 +92,8 @@ class DataConfig:
             "max_prompt_length": self.max_prompt_length,
             "remove_unused_columns": self.remove_unused_columns,
             "system_prompt": self.system_prompt,
+            "prompt_column": self.prompt_column,
+            "dataset_num_proc": self.dataset_num_proc,
         }
 
 
@@ -116,25 +120,12 @@ class TrainingConfig:
     steps_per_generation: int = 4               # each batch of rollout data is partitioned into four minibatches for gradient updates
     importance_sampling_level: str = "sequence" # GSPO uses sequence-level importance sampling
     
-    # PPO specific parameters
-    ppo_epochs: int = 4                         # Number of PPO epochs per batch
-    init_kl_coef: float = 0.2                   # Initial KL coefficient
-    target_kl: float = 6.0                      # Target KL divergence
-    adap_kl_ctrl: bool = True                   # Adaptive KL control
+    # PPO specific parameters (used by PPO trainer)
     gamma: float = 1.0                          # Discount factor
     lam: float = 0.95                           # GAE lambda
     cliprange: float = 0.2                      # PPO clipping range
     cliprange_value: float = 0.2                # Value function clipping range
     vf_coef: float = 0.1                        # Value function coefficient
-    max_grad_norm: float = 1.0                  # Max gradient norm for clipping
-    temperature: float = 1.0                    # Sampling temperature
-    top_k: int = 0                              # Top-k sampling
-    top_p: float = 1.0                          # Top-p sampling
-    do_sample: bool = True                      # Whether to sample
-    use_score_scaling: bool = False             # Whether to scale scores
-    use_score_norm: bool = False                # Whether to normalize scores
-    score_clip: Optional[float] = None          # Score clipping threshold
-    seed: int = 0                               # Random seed
     
     # Logging and inference
     logging_steps: int = 10

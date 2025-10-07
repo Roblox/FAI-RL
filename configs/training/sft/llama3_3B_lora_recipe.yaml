@@ -55,7 +55,7 @@ data:
 
 training:
   algorithm: "sft"
-  output_dir: "models/llama3_3B_Inst_SFT_lora-v1" # Output directory for the fine-tuned model
+  output_dir: "models/llama3_3B_Inst_SFT_lora_v1" # Output directory for the fine-tuned model
   
   # Training hyperparameters
   per_device_train_batch_size: 1

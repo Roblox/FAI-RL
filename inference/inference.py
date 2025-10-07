@@ -14,6 +14,7 @@ from typing import Dict, Any, Union
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from pathlib import Path
+from peft import PeftModel, PeftConfig
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
@@ -132,19 +133,69 @@ def load_model_and_tokenizer(config):
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model path does not exist: {model_path}")
     
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    # Check if this is a PEFT checkpoint
+    adapter_config_path = os.path.join(model_path, "adapter_config.json")
+    is_peft_checkpoint = os.path.exists(adapter_config_path)
     
-    # Load the model
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        torch_dtype=torch.bfloat16,  # Use bfloat16 for efficiency
-        device_map="auto"  # Automatically uses available GPUs
-    )
-    
-    # Set the pad token if it's not already set
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    if is_peft_checkpoint:
+        print("Detected PEFT/LoRA checkpoint, loading base model first...")
+        
+        # Load the PEFT config to get the base model name
+        peft_config = PeftConfig.from_pretrained(model_path)
+        base_model_name = peft_config.base_model_name_or_path
+        
+        print(f"Base model: {base_model_name}")
+        
+        # Load tokenizer from checkpoint
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        
+        # Set the pad token if it's not already set
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        
+        # Add the special pad token to match training setup (PPO adds "[PAD]" token)
+        if "[PAD]" not in tokenizer.get_vocab():    # TODO:: add this special tokens for all algorithms
+            tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+            print(f"Added [PAD] token to tokenizer. New vocab size: {len(tokenizer)}")
+        
+        # Load base model first WITHOUT adapter
+        print("Loading base model...")
+        model = AutoModelForCausalLM.from_pretrained(
+            base_model_name,
+            torch_dtype=torch.bfloat16,
+            device_map="auto"
+        )
+        
+        # Resize embeddings to match tokenizer BEFORE loading adapter
+        if model.get_input_embeddings().weight.shape[0] != len(tokenizer):
+            print(f"Resizing model embeddings from {model.get_input_embeddings().weight.shape[0]} to {len(tokenizer)}")
+            model.resize_token_embeddings(len(tokenizer))
+        
+        # Now load the PEFT adapter
+        print("Loading PEFT adapter...")
+        model = PeftModel.from_pretrained(model, model_path)
+        
+        # Merge adapter weights for faster inference
+        print("Merging adapter weights...")
+        model = model.merge_and_unload()
+        
+    else:
+        # Regular model loading (non-PEFT)
+        print("Loading regular (non-PEFT) model...")
+        
+        # Load tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        
+        # Set the pad token if it's not already set
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        
+        # Load the model
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            torch_dtype=torch.bfloat16,
+            device_map="auto"
+        )
     
     model.eval()  # Set the model to inference mode
     

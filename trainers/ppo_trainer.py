@@ -24,17 +24,25 @@ from .templates.gsm8k_template import GSM8KTemplate
 from .templates.openmathinstruct_template import OpenMathInstructTemplate
 
 
-# Monkey-patch DistributedDataParallel to expose the underlying model's config
-# This fixes the TRL library's access to model.config when using DDP
+# Monkey-patch DistributedDataParallel to expose the underlying model's config and policy
+# This fixes the TRL library's access to model.config and model.policy when using DDP
 def _ddp_config_property(self):
     """Property to access the underlying model's config through DDP wrapper."""
     if hasattr(self, 'module'):
         return self.module.config
     raise AttributeError("DistributedDataParallel has no attribute 'config' and no 'module' attribute found")
 
+def _ddp_policy_property(self):
+    """Property to access the underlying model's policy through DDP wrapper."""
+    if hasattr(self, 'module'):
+        return self.module.policy if hasattr(self.module, 'policy') else self.module
+    raise AttributeError("DistributedDataParallel has no attribute 'policy' and no 'module' attribute found")
+
 if hasattr(torch.nn.parallel, 'DistributedDataParallel'):
     if not hasattr(torch.nn.parallel.DistributedDataParallel, 'config'):
         torch.nn.parallel.DistributedDataParallel.config = property(_ddp_config_property)
+    if not hasattr(torch.nn.parallel.DistributedDataParallel, 'policy'):
+        torch.nn.parallel.DistributedDataParallel.policy = property(_ddp_policy_property)
 
 
 # Global fallback: ensure all torch.nn.Module instances expose gradient checkpointing toggles

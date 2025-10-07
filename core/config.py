@@ -70,6 +70,7 @@ class DataConfig:
     max_prompt_length: int = 256
     remove_unused_columns: bool = False
     system_prompt: Optional[str] = None
+    dataset_num_proc: int = 1
     
     def to_dict(self) -> Dict[str, Any]:
         return {

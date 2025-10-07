@@ -386,6 +386,9 @@ class PPOTrainer(BaseTrainer):
 
     def setup_training_args(self) -> PPOConfig:
         """Create PPO training configuration."""
+        # Set report_to based on wandb configuration
+        report_to = ["wandb"] if self.config.wandb.enabled else []
+        
         # Map our config to PPOConfig parameters
         ppo_config = PPOConfig(
             # Output and logging
@@ -415,6 +418,9 @@ class PPOTrainer(BaseTrainer):
             
             # Dataset processing
             dataset_num_proc=getattr(self.config.data, 'dataset_num_proc', 1),
+            
+            # Wandb configuration
+            report_to=report_to,
         )
         
         return ppo_config

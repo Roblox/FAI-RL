@@ -135,6 +135,16 @@ def load_model_and_tokenizer(config):
     # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     
+    # Set the pad token if it's not already set
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    
+    # Add the special pad token to match training setup (PPO adds "[PAD]" token)
+    # This is critical for models trained with PPO that add special tokens
+    if "[PAD]" not in tokenizer.get_vocab():
+        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        print(f"Added [PAD] token to tokenizer. New vocab size: {len(tokenizer)}")
+    
     # Load the model
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
@@ -142,9 +152,10 @@ def load_model_and_tokenizer(config):
         device_map="auto"  # Automatically uses available GPUs
     )
     
-    # Set the pad token if it's not already set
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    # Resize model embeddings to match tokenizer if needed
+    if model.get_input_embeddings().weight.shape[0] != len(tokenizer):
+        print(f"Resizing model embeddings from {model.get_input_embeddings().weight.shape[0]} to {len(tokenizer)}")
+        model.resize_token_embeddings(len(tokenizer))
     
     model.eval()  # Set the model to inference mode
     

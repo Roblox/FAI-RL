@@ -149,6 +149,8 @@ class PPOTrainer(BaseTrainer):
         # Set pad token if not present
         if self.tokenizer.pad_token is None:
             self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        # Ensure consistent left padding
+        self.tokenizer.padding_side = "left"
         
         # Load policy model (main model for generation)
         self.model = AutoModelForCausalLM.from_pretrained(
@@ -187,6 +189,17 @@ class PPOTrainer(BaseTrainer):
         
         # Resize embeddings for reward model
         self.reward_model.resize_token_embeddings(len(self.tokenizer))
+
+        # Propagate pad_token_id to all model configs to allow batching with padding
+        try:
+            pad_id = self.tokenizer.pad_token_id
+            if pad_id is not None:
+                self.model.config.pad_token_id = pad_id
+                self.ref_policy.config.pad_token_id = pad_id
+                self.value_model.config.pad_token_id = pad_id
+                self.reward_model.config.pad_token_id = pad_id
+        except Exception:
+            pass
         
         # Apply LoRA if enabled (including QLoRA)
         if getattr(self.config.model, 'use_lora', False):

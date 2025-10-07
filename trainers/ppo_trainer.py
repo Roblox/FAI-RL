@@ -450,7 +450,7 @@ class PPOTrainer(BaseTrainer):
         self.setup_trainer()
 
         # Ensure TRL wrapper exposes gradient checkpointing toggles expected by unwrap_model_for_generation
-        self._ensure_wrapper_gradient_checkpointing_methods(self.trainer.model)
+        # self._ensure_wrapper_gradient_checkpointing_methods(self.trainer.model)
 
         # Train the model
         self.trainer.train()

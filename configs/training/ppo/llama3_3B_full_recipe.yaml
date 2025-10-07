@@ -28,7 +28,7 @@ training:
   gradient_accumulation_steps: 16
   learning_rate: 1.0e-5
   num_train_epochs: 1
-  max_steps: -1
+  max_steps: 100
   
   # PPO specific parameters
   gamma: 1.0                                # Discount factor

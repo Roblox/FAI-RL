@@ -60,15 +60,15 @@ def _forward_gradient_checkpointing_call(module: torch.nn.Module, method_name: s
     return
 
 
-if not hasattr(torch.nn.Module, "gradient_checkpointing_disable"):
-    def _gc_disable(self):  # type: ignore[no-redef]
-        _forward_gradient_checkpointing_call(self, "disable")
-    torch.nn.Module.gradient_checkpointing_disable = _gc_disable  # type: ignore[attr-defined]
+# if not hasattr(torch.nn.Module, "gradient_checkpointing_disable"):
+#     def _gc_disable(self):  # type: ignore[no-redef]
+#         _forward_gradient_checkpointing_call(self, "disable")
+#     torch.nn.Module.gradient_checkpointing_disable = _gc_disable  # type: ignore[attr-defined]
 
-if not hasattr(torch.nn.Module, "gradient_checkpointing_enable"):
-    def _gc_enable(self):  # type: ignore[no-redef]
-        _forward_gradient_checkpointing_call(self, "enable")
-    torch.nn.Module.gradient_checkpointing_enable = _gc_enable  # type: ignore[attr-defined]
+# if not hasattr(torch.nn.Module, "gradient_checkpointing_enable"):
+#     def _gc_enable(self):  # type: ignore[no-redef]
+#         _forward_gradient_checkpointing_call(self, "enable")
+#     torch.nn.Module.gradient_checkpointing_enable = _gc_enable  # type: ignore[attr-defined]
 
 
 class PPOTrainer(BaseTrainer):

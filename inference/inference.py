@@ -154,7 +154,7 @@ def load_model_and_tokenizer(config):
             tokenizer.pad_token = tokenizer.eos_token
         
         # Add the special pad token to match training setup (PPO adds "[PAD]" token)
-        if "[PAD]" not in tokenizer.get_vocab():
+        if "[PAD]" not in tokenizer.get_vocab():    # TODO:: add this special tokens for all algorithms
             tokenizer.add_special_tokens({"pad_token": "[PAD]"})
             print(f"Added [PAD] token to tokenizer. New vocab size: {len(tokenizer)}")
         

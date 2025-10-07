@@ -107,7 +107,7 @@ class PPOTrainer(BaseTrainer):
         self.eval_dataset = None
 
     def setup_model(self):
-        """Load models and tokenizer for PPO."""
+        """Load models and tokenizer."""
         self.logger.info(f"Loading model: {self.config.model.base_model_name}")
 
         # Convert string dtype to torch dtype
@@ -408,9 +408,7 @@ class PPOTrainer(BaseTrainer):
         # Set report_to based on wandb configuration
         report_to = ["wandb"] if self.config.wandb.enabled else []
         
-        # Map our config to PPOConfig parameters
         ppo_config = PPOConfig(
-            # Output and logging
             output_dir=self.config.training.output_dir,
             
             # Training hyperparameters

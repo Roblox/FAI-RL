@@ -65,12 +65,9 @@ class SFTTrainer(BaseTrainer):
         
         if quantization_config is not None:
             model_kwargs["quantization_config"] = quantization_config
-            # When training with DeepSpeed, let DeepSpeed/Accelerate manage device placement.
-            # Setting device_map="auto" is intended for single-GPU inference/training and can
-            # lead to empty optimizer parameter groups under ZeRO-3.
+            # When training with DeepSpeed, let DeepSpeed/Accelerate manage device placement
             if not using_deepspeed:
-                # For multi-GPU training with torchrun (no DeepSpeed), we need to place the model
-                # on the current device for each process to avoid device mismatch errors.
+                # For multi-GPU training with torchrun (no DeepSpeed)
                 if torch.cuda.is_available():
                     current_device = torch.cuda.current_device()
                     model_kwargs["device_map"] = {"": current_device}

@@ -1,8 +1,7 @@
 import os, sys
 import torch
-import wandb
 from accelerate import PartialState
-from datasets import load_dataset, Dataset, concatenate_datasets
+from datasets import load_dataset, concatenate_datasets
 from trl import PPOConfig, PPOTrainer as TRLPPOTrainer
 from transformers import (
     AutoTokenizer,
@@ -11,8 +10,6 @@ from transformers import (
     BitsAndBytesConfig,
 )
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
-from typing import Optional, List
-import numpy as np
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
@@ -401,7 +398,7 @@ class PPOTrainer(BaseTrainer):
             total_episodes=self.config.training.max_steps if self.config.training.max_steps > 0 else 10000,
             num_ppo_epochs=self.config.training.num_train_epochs,
             
-            # PPO algorithm parameters - UNCOMMENT THESE
+            # PPO algorithm parameters
             gamma=getattr(self.config.training, 'gamma', 1.0),
             lam=getattr(self.config.training, 'lam', 0.95),
             cliprange=getattr(self.config.training, 'cliprange', 0.2),
@@ -417,7 +414,7 @@ class PPOTrainer(BaseTrainer):
             gradient_checkpointing=getattr(self.config.training, 'gradient_checkpointing', True),
             
             # Dataset processing
-            dataset_num_proc=1,
+            dataset_num_proc=getattr(self.config.data, 'dataset_num_proc', 1),
         )
         
         return ppo_config
@@ -436,11 +433,6 @@ class PPOTrainer(BaseTrainer):
             train_dataset=self.train_dataset,
             eval_dataset=self.eval_dataset,
         )
-        
-        # Fix for PEFT models: Add gradient checkpointing methods to the wrapped model
-        # TRL's PPOTrainer wraps models in a PolicyAndValueWrapper, which also needs these methods
-        if getattr(self.config.model, 'use_lora', False):
-            self._add_gradient_checkpointing_methods(self.trainer.model)
 
         self.logger.info("PPO trainer initialized")
 
@@ -452,11 +444,6 @@ class PPOTrainer(BaseTrainer):
         self.setup_model()
         self.setup_data()
         self.setup_trainer()
-
-        # Debug: confirm wrapper now exposes gradient checkpointing toggles
-        has_disable = hasattr(self.trainer.model, 'gradient_checkpointing_disable')
-        has_enable = hasattr(self.trainer.model, 'gradient_checkpointing_enable')
-        self.logger.info(f"Wrapper GC methods available - disable: {has_disable}, enable: {has_enable}")
 
         # Ensure TRL wrapper exposes gradient checkpointing toggles expected by unwrap_model_for_generation
         self._ensure_wrapper_gradient_checkpointing_methods(self.trainer.model)

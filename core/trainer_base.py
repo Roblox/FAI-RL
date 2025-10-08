@@ -193,6 +193,20 @@ class BaseTrainer(ABC):
         # Apply LoRA to model
         model = get_peft_model(model, lora_config)
         
+        # Fix dtype mismatch for generation with QLoRA
+        # Cast lm_head and other output layers to the correct dtype
+        if self.config.model.load_in_4bit or self.config.model.load_in_8bit:
+            torch_dtype = getattr(torch, self.config.model.torch_dtype)
+            self.logger.info(f"Casting output layers to {torch_dtype} for QLoRA generation compatibility...")
+            
+            # For causal LM models, cast lm_head
+            if hasattr(model.base_model.model, 'lm_head'):
+                model.base_model.model.lm_head = model.base_model.model.lm_head.to(torch_dtype)
+            
+            # For sequence classification models, cast score layer
+            if hasattr(model.base_model.model, 'score'):
+                model.base_model.model.score = model.base_model.model.score.to(torch_dtype)
+        
         # Print trainable parameters
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in model.parameters())

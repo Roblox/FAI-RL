@@ -193,40 +193,40 @@ class BaseTrainer(ABC):
         # Apply LoRA to model
         model = get_peft_model(model, lora_config)
         
-        # Ensure non-quantized modules (lm_head and embeddings) match compute dtype for generation
-        if self.config.model.load_in_4bit or self.config.model.load_in_8bit:
-            if self.config.model.load_in_4bit:
-                compute_dtype = getattr(torch, self.config.model.bnb_4bit_compute_dtype)
-            else:
-                if getattr(self.config.training, 'bf16', False):
-                    compute_dtype = torch.bfloat16
-                elif getattr(self.config.training, 'fp16', False):
-                    compute_dtype = torch.float16
-                else:
-                    compute_dtype = torch.float32
+        # # Ensure non-quantized modules (lm_head and embeddings) match compute dtype for generation
+        # if self.config.model.load_in_4bit or self.config.model.load_in_8bit:
+        #     if self.config.model.load_in_4bit:
+        #         compute_dtype = getattr(torch, self.config.model.bnb_4bit_compute_dtype)
+        #     else:
+        #         if getattr(self.config.training, 'bf16', False):
+        #             compute_dtype = torch.bfloat16
+        #         elif getattr(self.config.training, 'fp16', False):
+        #             compute_dtype = torch.float16
+        #         else:
+        #             compute_dtype = torch.float32
 
-            # Cast lm_head to compute dtype - need to access through base_model for PEFT
-            try:
-                # Access the base model through PEFT wrapper
-                base_model = model.base_model if hasattr(model, 'base_model') else model
-                if hasattr(base_model, 'model') and hasattr(base_model.model, 'lm_head'):
-                    base_model.model.lm_head = base_model.model.lm_head.to(compute_dtype)
-                    self.logger.info(f"Cast lm_head to {compute_dtype}")
-                elif hasattr(base_model, 'lm_head'):
-                    base_model.lm_head = base_model.lm_head.to(compute_dtype)
-                    self.logger.info(f"Cast lm_head to {compute_dtype}")
-            except Exception as e:
-                self.logger.warning(f"Could not cast lm_head to {compute_dtype}: {e}")
+        #     # Cast lm_head to compute dtype - need to access through base_model for PEFT
+        #     try:
+        #         # Access the base model through PEFT wrapper
+        #         base_model = model.base_model if hasattr(model, 'base_model') else model
+        #         if hasattr(base_model, 'model') and hasattr(base_model.model, 'lm_head'):
+        #             base_model.model.lm_head = base_model.model.lm_head.to(compute_dtype)
+        #             self.logger.info(f"Cast lm_head to {compute_dtype}")
+        #         elif hasattr(base_model, 'lm_head'):
+        #             base_model.lm_head = base_model.lm_head.to(compute_dtype)
+        #             self.logger.info(f"Cast lm_head to {compute_dtype}")
+        #     except Exception as e:
+        #         self.logger.warning(f"Could not cast lm_head to {compute_dtype}: {e}")
 
-            # Cast input embeddings to compute dtype
-            try:
-                if hasattr(model, 'get_input_embeddings'):
-                    input_embeddings = model.get_input_embeddings()
-                    if input_embeddings is not None:
-                        model.set_input_embeddings(input_embeddings.to(compute_dtype))
-                        self.logger.info(f"Cast input embeddings to {compute_dtype}")
-            except Exception as e:
-                self.logger.warning(f"Could not cast input embeddings to {compute_dtype}: {e}")
+        #     # Cast input embeddings to compute dtype
+        #     try:
+        #         if hasattr(model, 'get_input_embeddings'):
+        #             input_embeddings = model.get_input_embeddings()
+        #             if input_embeddings is not None:
+        #                 model.set_input_embeddings(input_embeddings.to(compute_dtype))
+        #                 self.logger.info(f"Cast input embeddings to {compute_dtype}")
+        #     except Exception as e:
+        #         self.logger.warning(f"Could not cast input embeddings to {compute_dtype}: {e}")
         
         # Print trainable parameters
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)

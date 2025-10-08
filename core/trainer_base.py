@@ -205,12 +205,18 @@ class BaseTrainer(ABC):
                 else:
                     compute_dtype = torch.float32
 
-            # Cast lm_head to compute dtype
+            # Cast lm_head to compute dtype - need to access through base_model for PEFT
             try:
-                if hasattr(model, 'lm_head'):
-                    model.lm_head = model.lm_head.to(compute_dtype)
-            except Exception:
-                pass
+                # Access the base model through PEFT wrapper
+                base_model = model.base_model if hasattr(model, 'base_model') else model
+                if hasattr(base_model, 'model') and hasattr(base_model.model, 'lm_head'):
+                    base_model.model.lm_head = base_model.model.lm_head.to(compute_dtype)
+                    self.logger.info(f"Cast lm_head to {compute_dtype}")
+                elif hasattr(base_model, 'lm_head'):
+                    base_model.lm_head = base_model.lm_head.to(compute_dtype)
+                    self.logger.info(f"Cast lm_head to {compute_dtype}")
+            except Exception as e:
+                self.logger.warning(f"Could not cast lm_head to {compute_dtype}: {e}")
 
             # Cast input embeddings to compute dtype
             try:
@@ -218,8 +224,9 @@ class BaseTrainer(ABC):
                     input_embeddings = model.get_input_embeddings()
                     if input_embeddings is not None:
                         model.set_input_embeddings(input_embeddings.to(compute_dtype))
-            except Exception:
-                pass
+                        self.logger.info(f"Cast input embeddings to {compute_dtype}")
+            except Exception as e:
+                self.logger.warning(f"Could not cast input embeddings to {compute_dtype}: {e}")
         
         # Print trainable parameters
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)

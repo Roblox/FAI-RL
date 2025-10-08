@@ -5,6 +5,21 @@ model:
   load_in_8bit: false
   load_in_4bit: false
   use_flash_attention: false
+  
+  # LoRA configuration
+  use_lora: true
+  lora_r: 8                    # LoRA rank
+  lora_alpha: 16               # LoRA alpha (scaling factor)
+  lora_dropout: 0.05           # LoRA dropout
+  lora_target_modules:         # Target modules for LoRA
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_bias: "none"            # Bias handling: "none", "all", or "lora_only"
 
 data:
   datasets: # YOUR TRAINING DATASET
@@ -24,12 +39,12 @@ data:
 
 training:
   algorithm: "dpo"
-  output_dir: "models/YOUR_MODEL_OUTPUT"
+  output_dir: "models/llama3_3B_Inst_DPO_lora_v1"
   
   # Training hyperparameters
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 16
-  learning_rate: 1.0e-5
+  learning_rate: 1.0e-4          # Higher learning rate for LoRA
   num_train_epochs: 1
   max_steps: -1
   warmup_steps: 50
@@ -53,9 +68,10 @@ training:
   save_only_model: true
   prediction_loss_only: true
 
+# Fields marked below are placeholders that users can change for their own project/run
 wandb:
   enabled: true
-  project: "YOUR_PROJECT"
-  entity: "YOUR_ENTITY"
-  name: "YOUR_NAME"
-  tags: ["DPO", "llama3", "3B-Inst", "hh-rlhf", "ultrafeedback", "coconot"]
+  project: "rl"
+  entity: "fai-llmaas"
+  name: "Llama-3.1-3B-Inst-OSS-DPO-FAIRL"
+  tags: ["DPO", "llama3", "3B-Inst", "LoRA", "hh-rlhf", "coconot"]

@@ -1,0 +1,62 @@
+model:
+  base_model_name: "meta-llama/Llama-3.2-3B-Instruct"
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_8bit: false
+  load_in_4bit: false
+  use_flash_attention: false
+
+data:
+  datasets: # YOUR TRAINING DATASET
+    - name: "Anthropic/hh-rlhf"
+      split: "train"
+      chosen_column: "chosen"
+      rejected_column: "rejected"
+    - name: "allenai/coconot"
+      subset: "pref"
+      split: "train"
+      prompt_column: "prompt"
+      chosen_column: "chosen"
+      rejected_column: "rejected"
+  max_length: 2048
+  max_prompt_length: 1024
+  remove_unused_columns: false
+
+training:
+  algorithm: "dpo"
+  output_dir: "models/llama3_3B_Inst_DPO_full_v1"
+  
+  # Training hyperparameters
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 1.0e-5
+  num_train_epochs: 1
+  max_steps: -1
+  warmup_steps: 50
+  
+  # Logging and checkpointing
+  logging_steps: 5
+  save_steps: 100
+  eval_steps: 100
+  
+  # Optimization settings
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+  
+  # DataLoader settings
+  dataloader_num_workers: 0
+  dataloader_pin_memory: false
+  dataloader_drop_last: true
+  
+  # Miscellaneous
+  save_only_model: true
+  prediction_loss_only: true
+
+# Fields marked below are placeholders that users can change for their own project/run
+wandb:
+  enabled: true
+  project: "rl"
+  entity: "fai-llmaas"
+  name: "Llama-3.1-3B-Inst-OSS-DPO-FAIRL"
+  tags: ["DPO", "llama3", "3B-Inst", "hh-rlhf", "coconot"]

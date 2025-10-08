@@ -7,9 +7,8 @@ from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     AutoModelForSequenceClassification,
-    BitsAndBytesConfig,
 )
-from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
+from peft import TaskType
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
@@ -87,7 +86,8 @@ if not hasattr(torch.nn.Module, "gradient_checkpointing_disable"):
     torch.nn.Module.gradient_checkpointing_disable = _gc_disable  # type: ignore[attr-defined]
 
 if not hasattr(torch.nn.Module, "gradient_checkpointing_enable"):
-    def _gc_enable(self):  # type: ignore[no-redef]
+    def _gc_enable(self, gradient_checkpointing_kwargs=None):  # type: ignore[no-redef]
+        # Accept gradient_checkpointing_kwargs for compatibility with transformers Trainer
         _forward_gradient_checkpointing_call(self, "enable")
     torch.nn.Module.gradient_checkpointing_enable = _gc_enable  # type: ignore[attr-defined]
 
@@ -110,54 +110,12 @@ class PPOTrainer(BaseTrainer):
         """Load models and tokenizer."""
         self.logger.info(f"Loading model: {self.config.model.base_model_name}")
 
-        # Convert string dtype to torch dtype
-        torch_dtype = getattr(torch, self.config.model.torch_dtype)
+        # Create quantization config using base class method
+        quantization_config = self.create_quantization_config()
         
-        # Create quantization config
-        quantization_config = None
-        if self.config.model.load_in_4bit or self.config.model.load_in_8bit:
-            self.logger.info(f"Setting up {'4-bit' if self.config.model.load_in_4bit else '8-bit'} quantization...")
-            # Guard: quantized fine-tuning requires LoRA/PEFT adapters
-            if not getattr(self.config.model, 'use_lora', False):
-                raise ValueError(
-                    "Quantized training (4-bit/8-bit) requires LoRA adapters. "
-                    "Set model.use_lora: true (QLoRA) or disable quantization."
-                )
-            
-            if self.config.model.load_in_4bit:
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_compute_dtype=getattr(torch, self.config.model.bnb_4bit_compute_dtype),
-                    bnb_4bit_quant_type=self.config.model.bnb_4bit_quant_type,
-                    bnb_4bit_use_double_quant=self.config.model.bnb_4bit_use_double_quant,
-                )
-            elif self.config.model.load_in_8bit:
-                quantization_config = BitsAndBytesConfig(
-                    load_in_8bit=True,
-                )
+        # Prepare model kwargs using base class method
+        model_kwargs = self.prepare_model_kwargs(quantization_config)
         
-        # Load main model
-        using_deepspeed = bool(self.config.training.deepspeed_config)
-        model_kwargs = {
-            "torch_dtype": torch_dtype,
-            "low_cpu_mem_usage": self.config.model.low_cpu_mem_usage,
-        }
-        
-        if quantization_config is not None:
-            model_kwargs["quantization_config"] = quantization_config
-            # When training with DeepSpeed, let DeepSpeed/Accelerate manage device placement
-            if not using_deepspeed:
-                # For multi-GPU training with torchrun (no DeepSpeed)
-                if torch.cuda.is_available():
-                    current_device = torch.cuda.current_device()
-                    model_kwargs["device_map"] = {"": current_device}
-                    self.logger.info(f"Using device_map={{'': {current_device}}} for quantized model (no DeepSpeed).")
-                else:
-                    model_kwargs["device_map"] = "auto"
-                    self.logger.info("Using device_map=auto for quantized model (no DeepSpeed, no CUDA).")
-            else:
-                self.logger.info("DeepSpeed detected; not setting device_map to let DeepSpeed place parameters.")
-
         # Load tokenizer first
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.config.model.base_model_name,
@@ -217,95 +175,16 @@ class PPOTrainer(BaseTrainer):
         except Exception:
             pass
         
-        # Apply LoRA if enabled (including QLoRA)
-        if getattr(self.config.model, 'use_lora', False):
-            self.logger.info("Applying LoRA configuration...")
-            
-            # Prepare models for k-bit training if using quantization
-            if self.config.model.load_in_4bit or self.config.model.load_in_8bit:
-                self.logger.info("Preparing models for k-bit training (QLoRA)...")
-                gradient_checkpointing = getattr(self.config.training, 'gradient_checkpointing', False)
-                
-                self.model = prepare_model_for_kbit_training(
-                    self.model,
-                    use_gradient_checkpointing=gradient_checkpointing
-                )
-                self.value_model = prepare_model_for_kbit_training(
-                    self.value_model,
-                    use_gradient_checkpointing=gradient_checkpointing
-                )
-                
-                # Enable input gradients for k-bit training flows
-                try:
-                    self.model.enable_input_require_grads()
-                    self.value_model.enable_input_require_grads()
-                except Exception:
-                    pass
-            
-            # Create LoRA config for causal LM (policy and reference models)
-            lora_config_causal = LoraConfig(
-                r=self.config.model.lora_r,
-                lora_alpha=self.config.model.lora_alpha,
-                lora_dropout=self.config.model.lora_dropout,
-                target_modules=self.config.model.lora_target_modules,
-                bias=self.config.model.lora_bias,
-                task_type=TaskType.CAUSAL_LM,
-            )
-            
-            # Create LoRA config for sequence classification (value and reward models)
-            lora_config_seq_cls = LoraConfig(
-                r=self.config.model.lora_r,
-                lora_alpha=self.config.model.lora_alpha,
-                lora_dropout=self.config.model.lora_dropout,
-                target_modules=self.config.model.lora_target_modules,
-                bias=self.config.model.lora_bias,
-                task_type=TaskType.SEQ_CLS,
-            )
-            
-            # Apply LoRA to policy model
-            self.model = get_peft_model(self.model, lora_config_causal)
-            
-            # Apply LoRA to value model
-            self.value_model = get_peft_model(self.value_model, lora_config_seq_cls)
-            
-            # Note: Reference and reward models typically remain frozen (no LoRA)
-            # They serve as fixed baselines for PPO
-            
-            # Print trainable parameters for policy model
-            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-            total_params = sum(p.numel() for p in self.model.parameters())
-            self.logger.info(f"{'QLoRA' if quantization_config else 'LoRA'} applied to policy model - "
-                           f"Trainable params: {trainable_params:,} / {total_params:,} "
-                           f"({100 * trainable_params / total_params:.2f}%)")
-            
-            # Print trainable parameters for value model
-            trainable_params_value = sum(p.numel() for p in self.value_model.parameters() if p.requires_grad)
-            total_params_value = sum(p.numel() for p in self.value_model.parameters())
-            self.logger.info(f"{'QLoRA' if quantization_config else 'LoRA'} applied to value model - "
-                           f"Trainable params: {trainable_params_value:,} / {total_params_value:,} "
-                           f"({100 * trainable_params_value / total_params_value:.2f}%)")
+        # Apply LoRA if enabled (including QLoRA) using base class method
+        self.model = self.apply_lora_to_model(self.model, TaskType.CAUSAL_LM, quantization_config)
+        self.value_model = self.apply_lora_to_model(self.value_model, TaskType.SEQ_CLS, quantization_config)
+        
+        # Note: Reference and reward models typically remain frozen (no LoRA)
+        # They serve as fixed baselines for PPO
 
-            # Safety check: ensure we actually have trainable parameters
-            if trainable_params == 0:
-                target_modules = self.config.model.lora_target_modules
-                self.logger.error(
-                    "No trainable parameters detected after applying LoRA. "
-                    f"target_modules={target_modules}."
-                )
-                raise ValueError(
-                    "LoRA injection resulted in zero trainable parameters. "
-                    "This usually means lora_target_modules do not match your model's module names. "
-                    "For LLaMA-class models, typical targets are: q_proj, k_proj, v_proj, o_proj, "
-                    "gate_proj, up_proj, down_proj."
-                )
-
-        # Disable cache when using gradient checkpointing to avoid warnings and ensure training correctness
-        if getattr(self.config.training, "gradient_checkpointing", False):
-            try:
-                self.model.config.use_cache = False
-                self.value_model.config.use_cache = False
-            except Exception:
-                pass
+        # Disable cache when using gradient checkpointing using base class method
+        self.disable_cache_for_gradient_checkpointing(self.model)
+        self.disable_cache_for_gradient_checkpointing(self.value_model)
         
         # Fix for PEFT models: Add gradient checkpointing control methods if missing
         # TRL's unwrap_model_for_generation expects these methods to exist
@@ -333,8 +212,9 @@ class PPOTrainer(BaseTrainer):
             model.gradient_checkpointing_disable = gradient_checkpointing_disable
         
         if not hasattr(model, 'gradient_checkpointing_enable'):
-            def gradient_checkpointing_enable():
+            def gradient_checkpointing_enable(gradient_checkpointing_kwargs=None):
                 """Enable gradient checkpointing."""
+                # Accept gradient_checkpointing_kwargs for compatibility with transformers Trainer
                 if hasattr(model, 'base_model'):
                     base = model.base_model
                     if hasattr(base, 'gradient_checkpointing_enable'):
@@ -407,7 +287,14 @@ class PPOTrainer(BaseTrainer):
         """Create PPO training configuration."""
         # Set report_to based on wandb configuration
         report_to = ["wandb"] if self.config.wandb.enabled else []
-        
+    
+        # Calculate total_episodes from dataset size if max_steps is -1
+        if self.config.training.max_steps > 0:
+            total_episodes = self.config.training.max_steps
+        else:
+            # Calculate based on dataset size and epochs
+            dataset_size = len(self.train_dataset)
+            total_episodes = dataset_size * self.config.training.num_train_epochs
         ppo_config = PPOConfig(
             output_dir=self.config.training.output_dir,
             
@@ -415,7 +302,7 @@ class PPOTrainer(BaseTrainer):
             learning_rate=self.config.training.learning_rate,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
             gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
-            total_episodes=self.config.training.max_steps if self.config.training.max_steps > 0 else 10000,  # TODO:: test it with -1
+            total_episodes=total_episodes,
             num_ppo_epochs=self.config.training.num_train_epochs,
             
             # PPO algorithm parameters

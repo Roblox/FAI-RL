@@ -23,7 +23,7 @@ data:
 
 training:
   algorithm: "gspo"
-  output_dir: "models/YOUR_MODEL_OUTPUT"
+  output_dir: "models/llama3_3B_Inst_GSPO_full_v1"
   
   # Training hyperparameters
   per_device_train_batch_size: 1
@@ -62,7 +62,7 @@ training:
 
 wandb:
   enabled: true
-  project: "YOUR_PROJECT"
-  entity: "YOUR_ENTITY"
-  name: "YOUR_NAME"
+  project: "rl"
+  entity: "fai-llmaas"
+  name: "Llama-3.1-3B-Inst-Full-GSPO-FAIRL"
   tags: ["GSPO", "llama3", "3B-Inst", "GSM8K", "OpenMathInstruct-2"]

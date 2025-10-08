@@ -127,6 +127,7 @@ class GSPOTrainer(BaseTrainer):
             deepspeed=self.config.training.deepspeed_config,
             dataloader_num_workers=self.config.training.dataloader_num_workers,
             gradient_checkpointing=self.config.training.gradient_checkpointing,
+            gradient_checkpointing_kwargs=None,  # Fix for PEFT compatibility
             dataloader_pin_memory=self.config.training.dataloader_pin_memory,
             save_only_model=self.config.training.save_only_model,
             dataloader_drop_last=self.config.training.dataloader_drop_last,

@@ -86,7 +86,8 @@ if not hasattr(torch.nn.Module, "gradient_checkpointing_disable"):
     torch.nn.Module.gradient_checkpointing_disable = _gc_disable  # type: ignore[attr-defined]
 
 if not hasattr(torch.nn.Module, "gradient_checkpointing_enable"):
-    def _gc_enable(self):  # type: ignore[no-redef]
+    def _gc_enable(self, gradient_checkpointing_kwargs=None):  # type: ignore[no-redef]
+        # Accept gradient_checkpointing_kwargs for compatibility with transformers Trainer
         _forward_gradient_checkpointing_call(self, "enable")
     torch.nn.Module.gradient_checkpointing_enable = _gc_enable  # type: ignore[attr-defined]
 
@@ -211,8 +212,9 @@ class PPOTrainer(BaseTrainer):
             model.gradient_checkpointing_disable = gradient_checkpointing_disable
         
         if not hasattr(model, 'gradient_checkpointing_enable'):
-            def gradient_checkpointing_enable():
+            def gradient_checkpointing_enable(gradient_checkpointing_kwargs=None):
                 """Enable gradient checkpointing."""
+                # Accept gradient_checkpointing_kwargs for compatibility with transformers Trainer
                 if hasattr(model, 'base_model'):
                     base = model.base_model
                     if hasattr(base, 'gradient_checkpointing_enable'):

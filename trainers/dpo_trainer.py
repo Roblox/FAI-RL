@@ -138,6 +138,7 @@ class DPOTrainer(BaseTrainer):
             deepspeed=self.config.training.deepspeed_config,
             dataloader_num_workers=self.config.training.dataloader_num_workers,
             gradient_checkpointing=self.config.training.gradient_checkpointing,
+            gradient_checkpointing_kwargs=None,  # Fix for PEFT compatibility
             max_length=self.config.data.max_length,
             max_prompt_length=self.config.data.max_prompt_length,
             dataloader_pin_memory=self.config.training.dataloader_pin_memory,

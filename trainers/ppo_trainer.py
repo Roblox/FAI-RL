@@ -287,7 +287,14 @@ class PPOTrainer(BaseTrainer):
         """Create PPO training configuration."""
         # Set report_to based on wandb configuration
         report_to = ["wandb"] if self.config.wandb.enabled else []
-        
+    
+        # Calculate total_episodes from dataset size if max_steps is -1
+        if self.config.training.max_steps > 0:
+            total_episodes = self.config.training.max_steps
+        else:
+            # Calculate based on dataset size and epochs
+            dataset_size = len(self.train_dataset)
+            total_episodes = dataset_size * self.config.training.num_train_epochs,
         ppo_config = PPOConfig(
             output_dir=self.config.training.output_dir,
             
@@ -295,13 +302,7 @@ class PPOTrainer(BaseTrainer):
             learning_rate=self.config.training.learning_rate,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
             gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
-            # Calculate total_episodes from dataset size if max_steps is -1
-            if self.config.training.max_steps > 0:
-                total_episodes = self.config.training.max_steps
-            else:
-                # Calculate based on dataset size and epochs
-                dataset_size = len(self.train_dataset)
-                total_episodes = dataset_size * self.config.training.num_train_epochs
+            total_episodes=total_episodes,
             num_ppo_epochs=self.config.training.num_train_epochs,
             
             # PPO algorithm parameters

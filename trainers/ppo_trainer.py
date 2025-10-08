@@ -295,7 +295,7 @@ class PPOTrainer(BaseTrainer):
             learning_rate=self.config.training.learning_rate,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
             gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
-            total_episodes=self.config.training.max_steps if self.config.training.max_steps > 0 else 10000,  # TODO:: test it with -1
+            total_episodes=self.config.training.max_steps,
             num_ppo_epochs=self.config.training.num_train_epochs,
             
             # PPO algorithm parameters

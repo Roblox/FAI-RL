@@ -121,6 +121,12 @@ class DPOTrainer(BaseTrainer):
         # Set report_to based on wandb configuration to prevent automatic wandb initialization
         report_to = ["wandb"] if self.config.wandb.enabled else []
         
+        # Set gradient checkpointing kwargs to use non-reentrant mode for DDP compatibility
+        # This fixes the "Expected to mark a variable ready only once" error with LoRA + DDP
+        gradient_checkpointing_kwargs = None
+        if self.config.training.gradient_checkpointing:
+            gradient_checkpointing_kwargs = {"use_reentrant": False}
+        
         return DPOConfig(
             output_dir=self.config.training.output_dir,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
@@ -138,7 +144,7 @@ class DPOTrainer(BaseTrainer):
             deepspeed=self.config.training.deepspeed_config,
             dataloader_num_workers=self.config.training.dataloader_num_workers,
             gradient_checkpointing=self.config.training.gradient_checkpointing,
-            gradient_checkpointing_kwargs=None,  # Fix for PEFT compatibility
+            gradient_checkpointing_kwargs=gradient_checkpointing_kwargs,
             max_length=self.config.data.max_length,
             max_prompt_length=self.config.data.max_prompt_length,
             dataloader_pin_memory=self.config.training.dataloader_pin_memory,
@@ -146,6 +152,7 @@ class DPOTrainer(BaseTrainer):
             dataloader_drop_last=self.config.training.dataloader_drop_last,
             prediction_loss_only=self.config.training.prediction_loss_only,
             report_to=report_to,
+            ddp_find_unused_parameters=False,  # Critical for LoRA + DDP stability
         )
 
     def setup_trainer(self):

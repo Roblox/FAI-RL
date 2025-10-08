@@ -148,6 +148,27 @@ class BaseTrainer(ABC):
         # Resize embeddings
         model.resize_token_embeddings(len(tokenizer))
         
+        # CRITICAL: After resizing, ensure embeddings match model's dtype
+        # This prevents dtype mismatches during generation with bf16/fp16/quantization
+        target_dtype = getattr(torch, self.config.model.torch_dtype)
+        try:
+            if hasattr(model, 'get_input_embeddings'):
+                input_embeddings = model.get_input_embeddings()
+                if input_embeddings is not None and input_embeddings.weight.dtype != target_dtype:
+                    input_embeddings.weight.data = input_embeddings.weight.data.to(target_dtype)
+                    self.logger.info(f"Cast input embeddings to {target_dtype} after resize")
+        except Exception as e:
+            self.logger.warning(f"Could not cast input embeddings after resize: {e}")
+        
+        try:
+            if hasattr(model, 'get_output_embeddings'):
+                output_embeddings = model.get_output_embeddings()
+                if output_embeddings is not None and output_embeddings.weight.dtype != target_dtype:
+                    output_embeddings.weight.data = output_embeddings.weight.data.to(target_dtype)
+                    self.logger.info(f"Cast output embeddings (lm_head) to {target_dtype} after resize")
+        except Exception as e:
+            self.logger.warning(f"Could not cast output embeddings after resize: {e}")
+        
         return tokenizer
 
     def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM, 

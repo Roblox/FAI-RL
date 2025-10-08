@@ -73,5 +73,5 @@ wandb:
   enabled: true
   project: "rl"
   entity: "fai-llmaas"
-  name: "Llama-3.1-3B-Inst-OSS-DPO-FAIRL"
+  name: "Llama-3.1-3B-Inst-LoRA-DPO-FAIRL"
   tags: ["DPO", "llama3", "3B-Inst", "LoRA", "hh-rlhf", "coconot"]

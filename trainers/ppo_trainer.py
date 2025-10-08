@@ -294,7 +294,7 @@ class PPOTrainer(BaseTrainer):
         else:
             # Calculate based on dataset size and epochs
             dataset_size = len(self.train_dataset)
-            total_episodes = dataset_size * self.config.training.num_train_epochs,
+            total_episodes = dataset_size * self.config.training.num_train_epochs
         ppo_config = PPOConfig(
             output_dir=self.config.training.output_dir,
             

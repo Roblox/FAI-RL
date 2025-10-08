@@ -179,6 +179,21 @@ class BaseTrainer(ABC):
                 model.enable_input_require_grads()
             except Exception:
                 pass
+            
+            # CRITICAL FIX: Cast lm_head and embed_tokens to proper dtype for generation
+            # This prevents dtype mismatch errors during generation in GRPO/GSPO with QLoRA
+            compute_dtype = getattr(torch, self.config.model.bnb_4bit_compute_dtype) if self.config.model.load_in_4bit else torch.float16
+            self.logger.info(f"Casting lm_head and embed_tokens to {compute_dtype} for QLoRA generation compatibility...")
+            
+            # Cast lm_head (output projection)
+            if hasattr(model, 'lm_head'):
+                model.lm_head = model.lm_head.to(compute_dtype)
+            
+            # Cast input embeddings
+            if hasattr(model, 'get_input_embeddings'):
+                input_embeddings = model.get_input_embeddings()
+                if input_embeddings is not None:
+                    model.set_input_embeddings(input_embeddings.to(compute_dtype))
         
         # Create LoRA config
         lora_config = LoraConfig(

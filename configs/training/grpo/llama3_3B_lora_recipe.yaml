@@ -1,0 +1,76 @@
+model:
+  base_model_name: "meta-llama/Llama-3.2-3B-Instruct"
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_8bit: false
+  load_in_4bit: false
+  use_flash_attention: false
+  
+  # LoRA configuration
+  use_lora: true
+  lora_r: 8                    # LoRA rank
+  lora_alpha: 16               # LoRA alpha (scaling factor)
+  lora_dropout: 0.05           # LoRA dropout
+  lora_target_modules:         # Target modules for LoRA
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_bias: "none"            # Bias handling: "none", "all", or "lora_only"
+
+data:
+  datasets: # YOUR TRAINING DATASET
+    - name: "openai/gsm8k"
+      subset: "main"
+      split: "train"
+      prompt_column: "question"
+      answer_column: "answer"
+    - name: "nvidia/OpenMathInstruct-2"
+      split: "train_1M"
+      prompt_column: "problem"
+      answer_column: "expected_answer"
+  max_length: 2048
+  max_prompt_length: 1024
+  remove_unused_columns: false
+
+training:
+  algorithm: "grpo"
+  output_dir: "models/llama3_3B_Inst_GRPO_lora_v1"
+  
+  # Training hyperparameters
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 1.0e-4          # Higher learning rate for LoRA
+  num_train_epochs: 1
+  max_steps: -1
+  warmup_steps: 50
+  
+  # Logging and checkpointing
+  logging_steps: 5
+  save_steps: 100
+  eval_steps: 100
+  
+  # Optimization settings
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+  
+  # DataLoader settings
+  dataloader_num_workers: 0
+  dataloader_pin_memory: false
+  dataloader_drop_last: true
+  
+  # Miscellaneous
+  save_only_model: true
+  prediction_loss_only: true
+
+wandb:
+  enabled: true
+  project: "rl"
+  entity: "fai-llmaas"
+  name: "Llama-3.2-3B-Inst-LoRA-GRPO"
+  tags: ["GRPO", "llama3", "3B-Inst", "LoRA", "GSM8K", "OpenMathInstruct-2"]
+

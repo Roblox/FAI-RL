@@ -1,4 +1,4 @@
-# FAI-RL: Framework for Aligned and Interactive Reinforcement Learning
+# FAI-RL: Foundation of AI - Reinforcement learning Library
 
 A modular, production-ready library designed for **easy training, inference, and evaluation** of language models using reinforcement learning methods. Currently supports: 
 - SFT (Supervised Fine-Tuning)
@@ -6,6 +6,11 @@ A modular, production-ready library designed for **easy training, inference, and
 - PPO (Proximal Policy Optimization)
 - GRPO (Group Relative Preference Optimization)
 - GSPO (Group Sequence Policy Optimization)
+
+### Flexible Configuration System
+* YAML-based configuration for all training parameters
+* Pre-configured recipes for popular models
+* DeepSpeed ZeRO-3 integration for distributed training
 
 ## 🚀 Quick Start
 
@@ -108,16 +113,38 @@ FAI-RL/
 
 ## 🔗 Quick Links
 
-- **[Training Guide](./trainers/README.md)** - Configure and run model training
-- **[Inference Guide](./inference/README.md)** - Run model inference and generation  
-- **[Evaluation Guide](./evaluations/README.md)** - Evaluate model performance on benchmarks
+* **[Training Guide](./trainers/README.md)** - Comprehensive guide to configuring and running model training with detailed parameter explanations
+* **[Inference Guide](./inference/README.md)** - Running model inference and text generation
+* **[Evaluation Guide](./evaluations/README.md)** - Evaluating model performance on standard benchmarks
 
-## 🧪 Test Environment
-This framework has been tested and validated on the following AWS EC2 instance configuration:
+## Algorithm Selection Guide
 
-- Instance Type: p4d.24xlarge
-- GPUs: 8 x NVIDIA A100-SXM4-80GB
-- vCPUs: 96
-- Memory: 1152 GiB
-- Storage: 8000 GB NVMe SSD
-- Network Performance: 400 Gbps
+Choose the right algorithm for your use case:
+
+| Algorithm | Best For | Requirements | Key Benefits |
+|-----------|----------|--------------|--------------|
+| **SFT** | Initial instruction tuning, domain adaptation | Prompt-response pairs | Simple, fast, establishes baseline |
+| **DPO** | Aligning to human preferences | Preference pairs (chosen/rejected) | No reward model needed, stable training |
+| **PPO** | Complex sequential tasks, agentic workflows | Preference pairs + reward model | Most flexible, handles multi-turn interactions |
+| **GRPO** | Math reasoning, efficiency-focused tasks | Question-answer pairs | No critic model, faster training |
+| **GSPO** | Multi-turn RL, stable sequence-level optimization | Question-answer pairs | Better stability than GRPO |
+
+## Memory Optimization
+
+FAI-RL supports various techniques to train large models efficiently:
+
+* **Full Fine-tuning:** Train all model parameters (requires most memory)
+* **LoRA:** Parameter-efficient training (~10% memory of full fine-tuning)
+* **QLoRA:** 4-bit quantized LoRA (train 7B+ models on single consumer GPU)
+* **DeepSpeed ZeRO-3:** Distributed training for models that don't fit on single GPU
+
+## 🧪 Tested Environment
+
+This framework has been validated on:
+
+* **Instance:** AWS EC2 p4d.24xlarge
+* **GPUs:** 8 x NVIDIA A100-SXM4-80GB (80GB VRAM each)
+* **CPU:** 96 vCPUs
+* **Memory:** 1152 GiB
+* **Storage:** 8TB NVMe SSD
+* **Network:** 400 Gbps

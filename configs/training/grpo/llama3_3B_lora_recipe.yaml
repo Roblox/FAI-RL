@@ -23,23 +23,22 @@ model:
 
 data:
   datasets: # YOUR TRAINING DATASET
-    - name: "Anthropic/hh-rlhf"
+    - name: "openai/gsm8k"
+      subset: "main"
       split: "train"
-      chosen_column: "chosen"
-      rejected_column: "rejected"
-    - name: "allenai/coconot"
-      subset: "pref"
-      split: "train"
-      prompt_column: "prompt"
-      chosen_column: "chosen"
-      rejected_column: "rejected"
+      prompt_column: "question"
+      answer_column: "answer"
+    - name: "nvidia/OpenMathInstruct-2"
+      split: "train_1M"
+      prompt_column: "problem"
+      answer_column: "expected_answer"
   max_length: 2048
   max_prompt_length: 1024
   remove_unused_columns: false
 
 training:
-  algorithm: "dpo"
-  output_dir: "models/llama3_3B_Inst_DPO_lora_v1"
+  algorithm: "grpo"
+  output_dir: "models/llama3_3B_Inst_GRPO_lora_v1"
   
   # Training hyperparameters
   per_device_train_batch_size: 1
@@ -68,10 +67,10 @@ training:
   save_only_model: true
   prediction_loss_only: true
 
-# Fields marked below are placeholders that users can change for their own project/run
 wandb:
   enabled: true
   project: "rl"
   entity: "fai-llmaas"
-  name: "Llama-3.1-3B-Inst-LoRA-DPO-FAIRL"
-  tags: ["DPO", "llama3", "3B-Inst", "LoRA", "hh-rlhf", "coconot"]
+  name: "Llama-3.2-3B-Inst-LoRA-GRPO"
+  tags: ["GRPO", "llama3", "3B-Inst", "LoRA", "GSM8K", "OpenMathInstruct-2"]
+

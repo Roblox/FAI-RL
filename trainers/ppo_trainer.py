@@ -311,7 +311,7 @@ class PPOTrainer(BaseTrainer):
             cliprange=getattr(self.config.training, 'cliprange', 0.2),
             cliprange_value=getattr(self.config.training, 'cliprange_value', 0.2),
             vf_coef=getattr(self.config.training, 'vf_coef', 0.1),
-            
+
             # Training configuration
             logging_steps=getattr(self.config.training, 'logging_steps', 10),
             save_steps=getattr(self.config.training, 'save_steps', 500),

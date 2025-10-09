@@ -70,5 +70,5 @@ wandb:
   enabled: true
   project: "rl"
   entity: "fai-llmaas"
-  name: "Llama-3.1-3B-Inst-OSS-SFT-FAIRL"
+  name: "Llama-3.1-3B-Inst-SFT-FAIRL"
   tags: ["SFT", "llama3", "3B-Inst", "OSS"]

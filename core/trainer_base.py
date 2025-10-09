@@ -148,31 +148,10 @@ class BaseTrainer(ABC):
         # Resize embeddings
         model.resize_token_embeddings(len(tokenizer))
         
-        # CRITICAL: After resizing, ensure embeddings match model's dtype
-        # This prevents dtype mismatches during generation with bf16/fp16/quantization
-        target_dtype = getattr(torch, self.config.model.torch_dtype)
-        try:
-            if hasattr(model, 'get_input_embeddings'):
-                input_embeddings = model.get_input_embeddings()
-                if input_embeddings is not None and input_embeddings.weight.dtype != target_dtype:
-                    input_embeddings.weight.data = input_embeddings.weight.data.to(target_dtype)
-                    self.logger.info(f"Cast input embeddings to {target_dtype} after resize")
-        except Exception as e:
-            self.logger.warning(f"Could not cast input embeddings after resize: {e}")
-        
-        try:
-            if hasattr(model, 'get_output_embeddings'):
-                output_embeddings = model.get_output_embeddings()
-                if output_embeddings is not None and output_embeddings.weight.dtype != target_dtype:
-                    output_embeddings.weight.data = output_embeddings.weight.data.to(target_dtype)
-                    self.logger.info(f"Cast output embeddings (lm_head) to {target_dtype} after resize")
-        except Exception as e:
-            self.logger.warning(f"Could not cast output embeddings after resize: {e}")
-        
         return tokenizer
 
     def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM, 
-                       quantization_config: Optional[BitsAndBytesConfig] = None):
+                           quantization_config: Optional[BitsAndBytesConfig] = None):
         """Apply LoRA/QLoRA to a model.
         
         Args:
@@ -214,68 +193,12 @@ class BaseTrainer(ABC):
         # Apply LoRA to model
         model = get_peft_model(model, lora_config)
         
-        # Ensure non-quantized modules (lm_head and embeddings) match compute dtype for generation
-        if self.config.model.load_in_4bit or self.config.model.load_in_8bit:
-            if self.config.model.load_in_4bit:
-                compute_dtype = getattr(torch, self.config.model.bnb_4bit_compute_dtype)
-            else:
-                if getattr(self.config.training, 'bf16', False):
-                    compute_dtype = torch.bfloat16
-                elif getattr(self.config.training, 'fp16', False):
-                    compute_dtype = torch.float16
-                else:
-                    compute_dtype = torch.float32
-
-            # Cast lm_head to compute dtype - navigate through PEFT wrapper correctly
-            try:
-                # For PEFT models, we need to access: model.base_model.model.lm_head
-                if hasattr(model, 'base_model'):
-                    base_model = model.base_model
-                    # Check if there's another nested 'model' attribute (common in PEFT)
-                    if hasattr(base_model, 'model'):
-                        actual_model = base_model.model
-                    else:
-                        actual_model = base_model
-                        
-                    if hasattr(actual_model, 'lm_head'):
-                        actual_model.lm_head = actual_model.lm_head.to(compute_dtype)
-                        self.logger.info(f"Cast lm_head to {compute_dtype}")
-                elif hasattr(model, 'lm_head'):
-                    model.lm_head = model.lm_head.to(compute_dtype)
-                    self.logger.info(f"Cast lm_head to {compute_dtype}")
-            except Exception as e:
-                self.logger.warning(f"Could not cast lm_head to {compute_dtype}: {e}")
-
-            # Cast input embeddings to compute dtype
-            try:
-                if hasattr(model, 'get_input_embeddings'):
-                    input_embeddings = model.get_input_embeddings()
-                    if input_embeddings is not None:
-                        # Check if embeddings need casting
-                        if input_embeddings.weight.dtype != compute_dtype:
-                            input_embeddings = input_embeddings.to(compute_dtype)
-                            model.set_input_embeddings(input_embeddings)
-                            self.logger.info(f"Cast input embeddings to {compute_dtype}")
-            except Exception as e:
-                self.logger.warning(f"Could not cast input embeddings to {compute_dtype}: {e}")
-            
-            # Also cast output embeddings if they exist separately
-            try:
-                if hasattr(model, 'get_output_embeddings'):
-                    output_embeddings = model.get_output_embeddings()
-                    if output_embeddings is not None and output_embeddings.weight.dtype != compute_dtype:
-                        output_embeddings = output_embeddings.to(compute_dtype)
-                        model.set_output_embeddings(output_embeddings)
-                        self.logger.info(f"Cast output embeddings to {compute_dtype}")
-            except Exception as e:
-                self.logger.warning(f"Could not cast output embeddings to {compute_dtype}: {e}")
-        
         # Print trainable parameters
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in model.parameters())
         self.logger.info(f"{'QLoRA' if quantization_config else 'LoRA'} applied - "
-                    f"Trainable params: {trainable_params:,} / {total_params:,} "
-                    f"({100 * trainable_params / total_params:.2f}%)")
+                       f"Trainable params: {trainable_params:,} / {total_params:,} "
+                       f"({100 * trainable_params / total_params:.2f}%)")
 
         # Safety check: ensure we actually have trainable parameters
         if trainable_params == 0:

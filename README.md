@@ -18,9 +18,24 @@ Get started with installation, training, inference, and evaluation in just a few
 
 ### 📦 Installation
 
-Follow these steps to set up the FAI-RL library on your local machine. The first time, you'll need to clone the repository, create a virtual environment, and install the required dependencies. For subsequent runs, you only need to activate the virtual environment.
+#### Option 1: Install from PyPI (Recommended)
 
-#### Setup (first time only)
+```bash
+pip install FAI-RL
+```
+
+#### Option 2: Install from source
+
+```bash
+# Clone the repository
+git clone https://github.com/Roblox/FAI-RL.git
+cd FAI-RL
+
+# Install in development mode
+pip install -e .
+```
+
+#### Option 3: Manual setup with virtual environment
 
 ```bash
 # Clone the repository
@@ -31,14 +46,8 @@ cd FAI-RL
 python -m venv venv_fai_rl
 source venv_fai_rl/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
-```
-
-#### Next runs
-
-```bash
-source venv_fai_rl/bin/activate
+# Install the package
+pip install -e .
 ```
 
 ### Training

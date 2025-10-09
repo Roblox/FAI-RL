@@ -134,9 +134,6 @@ class PPOTrainer(BaseTrainer):
         
         # Resize embeddings for policy model
         self.model.resize_token_embeddings(len(self.tokenizer))
-        # Ensure resized embeddings/lm_head match target dtype
-        target_dtype = getattr(torch, self.config.model.torch_dtype)
-        self._cast_embeddings_and_lm_head(self.model, target_dtype)
         
         # Load reference model (for KL penalty in PPO)
         self.ref_policy = AutoModelForCausalLM.from_pretrained(
@@ -146,7 +143,6 @@ class PPOTrainer(BaseTrainer):
         
         # Resize embeddings for reference model
         self.ref_policy.resize_token_embeddings(len(self.tokenizer))
-        self._cast_embeddings_and_lm_head(self.ref_policy, target_dtype)
         
         # Load value model (for advantage estimation)
         self.value_model = AutoModelForSequenceClassification.from_pretrained(
@@ -157,7 +153,6 @@ class PPOTrainer(BaseTrainer):
         
         # Resize embeddings for value model
         self.value_model.resize_token_embeddings(len(self.tokenizer))
-        self._cast_embeddings_and_lm_head(self.value_model, target_dtype)
         
         # Load reward model (for computing rewards)
         self.reward_model = AutoModelForSequenceClassification.from_pretrained(
@@ -168,7 +163,6 @@ class PPOTrainer(BaseTrainer):
         
         # Resize embeddings for reward model
         self.reward_model.resize_token_embeddings(len(self.tokenizer))
-        self._cast_embeddings_and_lm_head(self.reward_model, target_dtype)
 
         # Propagate pad_token_id to all model configs to allow batching with padding
         try:
@@ -184,9 +178,6 @@ class PPOTrainer(BaseTrainer):
         # Apply LoRA if enabled (including QLoRA) using base class method
         self.model = self.apply_lora_to_model(self.model, TaskType.CAUSAL_LM, quantization_config)
         self.value_model = self.apply_lora_to_model(self.value_model, TaskType.SEQ_CLS, quantization_config)
-        # Safety: recast after LoRA application to keep dtype consistent
-        self._cast_embeddings_and_lm_head(self.model, target_dtype)
-        self._cast_embeddings_and_lm_head(self.value_model, target_dtype)
         
         # Note: Reference and reward models typically remain frozen (no LoRA)
         # They serve as fixed baselines for PPO
@@ -203,25 +194,6 @@ class PPOTrainer(BaseTrainer):
         
         self.logger.info("Models and tokenizer loaded successfully")
     
-    def _cast_embeddings_and_lm_head(self, model, target_dtype):
-        """Cast input/output embeddings (and lm_head) to target dtype if needed."""
-        try:
-            if hasattr(model, "get_input_embeddings"):
-                input_embeddings = model.get_input_embeddings()
-                if input_embeddings is not None and input_embeddings.weight is not None:
-                    if input_embeddings.weight.dtype != target_dtype:
-                        input_embeddings.weight.data = input_embeddings.weight.data.to(target_dtype)
-        except Exception:
-            pass
-        try:
-            if hasattr(model, "get_output_embeddings"):
-                output_embeddings = model.get_output_embeddings()
-                if output_embeddings is not None and output_embeddings.weight is not None:
-                    if output_embeddings.weight.dtype != target_dtype:
-                        output_embeddings.weight.data = output_embeddings.weight.data.to(target_dtype)
-        except Exception:
-            pass
-
     def _add_gradient_checkpointing_methods(self, model):
         """Add gradient checkpointing control methods to PEFT models if they don't exist.
         

@@ -90,6 +90,18 @@ Config parameters use dot notation for nested values:
         help="Number of GPUs to use for training (default: 1)"
     )
     parser.add_argument(
+        "--local_rank",
+        type=int,
+        default=-1,
+        help="Local rank for distributed training (automatically set by launcher)"
+    )
+    parser.add_argument(
+        "--deepspeed_config",
+        type=str,
+        default=None,
+        help="Path to DeepSpeed config file (automatically set by launcher)"
+    )
+    parser.add_argument(
         "overrides",
         nargs="*",
         help="Config overrides in key=value format (e.g., model.base_model_name='meta-llama/Llama-3.2-3B-Instruct')"
@@ -250,8 +262,10 @@ def main():
     # Load configuration from file and/or CLI arguments
     config = load_config_with_overrides(args)
     
-    # Get deepspeed config from environment variable if set by deepspeed launcher
-    if 'DEEPSPEED_CONFIG' in os.environ:
+    # Get deepspeed config from command-line arg, environment variable, or leave as None
+    if args.deepspeed_config:
+        config.training.deepspeed_config = args.deepspeed_config
+    elif 'DEEPSPEED_CONFIG' in os.environ:
         config.training.deepspeed_config = os.environ['DEEPSPEED_CONFIG']
     else:
         config.training.deepspeed_config = None

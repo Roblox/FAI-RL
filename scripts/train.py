@@ -4,12 +4,14 @@ import sys
 import os
 import subprocess
 import yaml
+import ast
+from typing import Any, Dict
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from core.config import ExperimentConfig
+from core.config import ExperimentConfig, ModelConfig, DataConfig, TrainingConfig, WandbConfig, DatasetInfo
 from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
 from trainers.gspo_trainer import GSPOTrainer
@@ -18,20 +20,79 @@ from trainers.sft_trainer import SFTTrainer
 from utils.logging_utils import TrainingLogger, log_system_info
 
 
+def parse_value(value_str: str) -> Any:
+    """Parse a string value to its appropriate Python type."""
+    # Try to evaluate as Python literal (handles int, float, bool, list, dict, etc.)
+    try:
+        return ast.literal_eval(value_str)
+    except (ValueError, SyntaxError):
+        # If it fails, return as string
+        return value_str
+
+
+def set_nested_value(config_dict: Dict, key_path: str, value: Any) -> None:
+    """Set a value in a nested dictionary using dot notation.
+    
+    Example: 
+        set_nested_value(config, "model.base_model_name", "llama")
+        sets config["model"]["base_model_name"] = "llama"
+    """
+    keys = key_path.split('.')
+    current = config_dict
+    
+    # Navigate to the nested location
+    for key in keys[:-1]:
+        if key not in current:
+            current[key] = {}
+        current = current[key]
+    
+    # Set the final value
+    current[keys[-1]] = value
+
+
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Train DPO, GRPO, GSPO, or PPO model")
+    parser = argparse.ArgumentParser(
+        description="Train DPO, GRPO, GSPO, PPO, or SFT model",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Using config file:
+  fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml
+  
+  # Using command-line arguments only:
+  fai-rl-train \\
+    model.base_model_name="meta-llama/Llama-3.2-3B-Instruct" \\
+    training.algorithm="sft" \\
+    training.output_dir="./output" \\
+    data.datasets="[{'name': 'nvidia/Aegis-AI-Content-Safety-Dataset-2.0', 'split': 'train'}]"
+  
+  # Mix config file with overrides:
+  fai-rl-train --config config.yaml training.learning_rate=1e-5 training.num_train_epochs=3
+  
+Config parameters use dot notation for nested values:
+  - model.base_model_name, model.torch_dtype, model.use_lora, model.lora_r, etc.
+  - data.max_length, data.max_prompt_length, data.system_prompt, etc.
+  - training.algorithm, training.learning_rate, training.num_train_epochs, etc.
+  - wandb.enabled, wandb.project, wandb.name, etc.
+"""
+    )
     parser.add_argument(
         "--config",
         type=str,
-        required=True,
-        help="Path to configuration YAML file"
+        default=None,
+        help="Path to configuration YAML file (optional if using CLI arguments)"
     )
     parser.add_argument(
         "--num-gpus",
         type=int,
         default=1,
         help="Number of GPUs to use for training (default: 1)"
+    )
+    parser.add_argument(
+        "overrides",
+        nargs="*",
+        help="Config overrides in key=value format (e.g., model.base_model_name='meta-llama/Llama-3.2-3B-Instruct')"
     )
 
     return parser.parse_args()
@@ -58,10 +119,18 @@ def launch_distributed_training(args):
     script_path = os.path.abspath(__file__)
     
     # Build base command arguments  
-    cmd_args = ["--config", args.config, "--num-gpus", str(args.num_gpus)]
+    cmd_args = ["--num-gpus", str(args.num_gpus)]
     
-    # Check if using quantization
-    uses_quantization = check_uses_quantization(args.config)
+    # Add config file if provided
+    if args.config:
+        cmd_args.extend(["--config", args.config])
+    
+    # Add overrides
+    if args.overrides:
+        cmd_args.extend(args.overrides)
+    
+    # Check if using quantization (only if config file is provided)
+    uses_quantization = check_uses_quantization(args.config) if args.config else False
     
     if uses_quantization:
         # QLoRA is incompatible with DeepSpeed, use torchrun
@@ -83,6 +152,85 @@ def launch_distributed_training(args):
     return subprocess.call(cmd)
 
 
+def load_config_with_overrides(args) -> ExperimentConfig:
+    """Load configuration from file and/or command-line arguments.
+    
+    Priority (highest to lowest):
+    1. Command-line overrides
+    2. Config file values
+    3. Default values from dataclasses
+    """
+    # Start with an empty config dict
+    config_dict = {}
+    
+    # Load from config file if provided
+    if args.config:
+        with open(args.config, 'r') as f:
+            config_dict = yaml.safe_load(f)
+        print(f"Loaded base configuration from: {args.config}")
+    else:
+        # Initialize with empty sections
+        config_dict = {
+            'model': {},
+            'data': {},
+            'training': {},
+            'wandb': {}
+        }
+        print("No config file provided, using defaults with CLI overrides")
+    
+    # Parse and apply command-line overrides
+    if args.overrides:
+        print("Applying command-line overrides:")
+        for override in args.overrides:
+            if '=' not in override:
+                print(f"  Warning: Skipping invalid override '{override}' (expected key=value format)")
+                continue
+            
+            key, value_str = override.split('=', 1)
+            value = parse_value(value_str)
+            set_nested_value(config_dict, key, value)
+            print(f"  {key} = {value}")
+    
+    # Ensure required fields have at least some value
+    if not config_dict.get('model', {}).get('base_model_name'):
+        raise ValueError(
+            "model.base_model_name is required. "
+            "Provide it via config file or CLI: model.base_model_name='model-name'"
+        )
+    
+    if not config_dict.get('training', {}).get('output_dir'):
+        raise ValueError(
+            "training.output_dir is required. "
+            "Provide it via config file or CLI: training.output_dir='./output'"
+        )
+    
+    if not config_dict.get('training', {}).get('algorithm'):
+        raise ValueError(
+            "training.algorithm is required. "
+            "Provide it via config file or CLI: training.algorithm='sft' (options: sft, dpo, ppo, grpo, gspo)"
+        )
+    
+    # Handle datasets configuration
+    data_config = config_dict.get('data', {}).copy()
+    if 'datasets' in data_config and data_config['datasets']:
+        # Convert to DatasetInfo objects if they're dicts
+        if isinstance(data_config['datasets'][0], dict):
+            data_config['datasets'] = [
+                DatasetInfo(**ds) for ds in data_config['datasets']
+            ]
+    else:
+        # Default to empty list if no datasets specified
+        data_config['datasets'] = []
+    
+    # Create config objects with defaults
+    return ExperimentConfig(
+        model=ModelConfig(**config_dict.get('model', {})),
+        data=DataConfig(**data_config),
+        training=TrainingConfig(**config_dict.get('training', {})),
+        wandb=WandbConfig(**config_dict.get('wandb', {})),
+    )
+
+
 def main():
     """Main training function."""
     args = parse_args()
@@ -98,8 +246,8 @@ def main():
     else:
         print(f"Running as distributed process (rank: {os.environ.get('RANK', 'unknown')})...")
 
-    # Load configuration
-    config = ExperimentConfig.from_yaml(args.config)
+    # Load configuration from file and/or CLI arguments
+    config = load_config_with_overrides(args)
     
     # Get deepspeed config from environment variable if set by deepspeed launcher
     if 'DEEPSPEED_CONFIG' in os.environ:

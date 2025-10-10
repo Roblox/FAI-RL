@@ -7,48 +7,16 @@ A modular, production-ready library designed for **easy training, inference, and
 - GRPO (Group Relative Preference Optimization)
 - GSPO (Group Sequence Policy Optimization)
 
-### Flexible Configuration System
-* YAML-based configuration for all training parameters
-* Pre-configured recipes for popular models
-* DeepSpeed ZeRO-3 integration for distributed training
-
 ## 🚀 Quick Start
 
 Get started with installation, training, inference, and evaluation in just a few commands:
 
 ### 📦 Installation
 
-#### Option 1: Install from PyPI (Recommended)
-
 ```bash
 pip install FAI-RL
 ```
 
-#### Option 2: Install from source
-
-```bash
-# Clone the repository
-git clone https://github.com/Roblox/FAI-RL.git
-cd FAI-RL
-
-# Install in development mode
-pip install -e .
-```
-
-#### Option 3: Manual setup with virtual environment
-
-```bash
-# Clone the repository
-git clone https://github.com/Roblox/FAI-RL.git
-cd FAI-RL
-
-# Create virtual environment
-python -m venv venv_fai_rl
-source venv_fai_rl/bin/activate
-
-# Install the package
-pip install -e .
-```
 
 ### Training
 
@@ -56,15 +24,10 @@ Train a model using SFT, DPO, PPO, GRPO, or GSPO:
 
 ```bash
 # Single GPU training
-./scripts/run_training.sh \
-    --config configs/training/dpo/llama3_3B_recipe.yaml \
-    --num-gpus 1
+fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 1
 
-# Multi-GPU training (8 GPUs)
-./scripts/run_training.sh \
-    --config configs/training/dpo/llama3_3B_recipe.yaml \
-    --num-gpus 8 \
-    --nohup  # Run in background
+# Multi-GPU training in background (8 GPUs)
+fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 8 --nohup
 ```
 
 ### Inference
@@ -73,13 +36,10 @@ Generate responses from your trained models:
 
 ```bash
 # Run inference on trained model
-./scripts/run_inference.sh \
-    --config configs/inference/llama3_3B_recipe.yaml
+fai-rl-inference --config configs/inference/llama3_3B_inference.yaml
 
 # Run inference with debug mode
-./scripts/run_inference.sh \
-    --config configs/inference/llama3_3B_recipe.yaml \
-    --debug
+fai-rl-inference --config configs/inference/llama3_3B_inference.yaml --debug
 ```
 
 ### Evaluation
@@ -88,16 +48,19 @@ Evaluate model performance on benchmarks:
 
 ```bash
 # Evaluate on MMLU benchmark
-./scripts/run_evaluation.sh \
-    --config configs/evaluation/mmlu/llama3_3B_recipe.yaml
+fai-rl-eval --config configs/evaluation/mmlu/llama3_3B_recipe.yaml
 
 # Evaluate with debug output
-./scripts/run_evaluation.sh \
-    --config configs/evaluation/mmlu/llama3_3B_recipe.yaml \
-    --debug
+fai-rl-eval --config configs/evaluation/mmlu/llama3_3B_recipe.yaml --debug
 ```
 
 -----
+
+## Flexible Configuration System
+* YAML-based configuration for all training parameters
+* Pre-configured recipes for popular models
+* DeepSpeed ZeRO-3 integration for distributed training
+
 
 ## 📁 Project Structure
 

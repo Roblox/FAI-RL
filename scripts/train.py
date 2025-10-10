@@ -130,8 +130,8 @@ def launch_distributed_training(args):
     """Launch training with the appropriate distributed launcher."""
     script_path = os.path.abspath(__file__)
     
-    # Build base command arguments  
-    cmd_args = ["--num-gpus", str(args.num_gpus)]
+    # Build base command arguments (don't pass --num-gpus, launcher handles GPU allocation)
+    cmd_args = []
     
     # Add config file if provided
     if args.config:

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Foundation of AI - Reinforcement learning Library"
 readme = "README.md"
 requires-python = ">=3.8"
-license = "MIT"
+license = ""
 license-files = ["LICENSE"]
 authors = [
     {name = "Roblox", email = "ylim@roblox.com"},

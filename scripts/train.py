@@ -28,23 +28,10 @@ def parse_args():
         help="Path to configuration YAML file"
     )
     parser.add_argument(
-        "--deepspeed-config",
-        type=str,
-        required=False,  # Changed from required=True
-        default=None,
-        help="Path to deepspeed configuration json file (optional, for multi-GPU training)"
-    )
-    parser.add_argument(
         "--num-gpus",
         type=int,
         default=1,
         help="Number of GPUs to use for training (default: 1)"
-    )
-    parser.add_argument(
-        "--local_rank",
-        type=str,
-        default=0,
-        help="ignore the parameter"
     )
 
     return parser.parse_args()
@@ -70,10 +57,8 @@ def launch_distributed_training(args):
     """Launch training with the appropriate distributed launcher."""
     script_path = os.path.abspath(__file__)
     
-    # Build base command arguments
-    cmd_args = ["--config", args.config]
-    if args.deepspeed_config:
-        cmd_args.extend(["--deepspeed-config", args.deepspeed_config])
+    # Build base command arguments  
+    cmd_args = ["--config", args.config, "--num-gpus", str(args.num_gpus)]
     
     # Check if using quantization
     uses_quantization = check_uses_quantization(args.config)
@@ -83,20 +68,16 @@ def launch_distributed_training(args):
         print(f"Detected quantization (QLoRA) - using torchrun for {args.num_gpus} GPU(s)")
         cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
     else:
-        # Auto-select deepspeed config if not provided
-        if not args.deepspeed_config:
-            deepspeed_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{args.num_gpus}.json")
-            if os.path.exists(deepspeed_config):
-                print(f"Auto-selected deepspeed config: {deepspeed_config}")
-                cmd_args.extend(["--deepspeed-config", deepspeed_config])
-            else:
-                print(f"Warning: DeepSpeed config for {args.num_gpus} GPU(s) not found, using torchrun")
-                cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
-                return subprocess.call(cmd)
-        
-        # Use deepspeed launcher
-        print(f"Using deepspeed for {args.num_gpus} GPU(s)")
-        cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path] + cmd_args
+        # Auto-select deepspeed config
+        deepspeed_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{args.num_gpus}.json")
+        if os.path.exists(deepspeed_config):
+            print(f"Auto-selected deepspeed config: {deepspeed_config}")
+            # Use deepspeed launcher
+            print(f"Using deepspeed for {args.num_gpus} GPU(s)")
+            cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", "--deepspeed_config", deepspeed_config, script_path] + cmd_args
+        else:
+            print(f"Warning: DeepSpeed config for {args.num_gpus} GPU(s) not found, using torchrun")
+            cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
     
     # Execute the command
     return subprocess.call(cmd)
@@ -120,9 +101,9 @@ def main():
     # Load configuration
     config = ExperimentConfig.from_yaml(args.config)
     
-    # Only set deepspeed_config if provided
-    if args.deepspeed_config is not None:
-        config.training.deepspeed_config = args.deepspeed_config
+    # Get deepspeed config from environment variable if set by deepspeed launcher
+    if 'DEEPSPEED_CONFIG' in os.environ:
+        config.training.deepspeed_config = os.environ['DEEPSPEED_CONFIG']
     else:
         config.training.deepspeed_config = None
 

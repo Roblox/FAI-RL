@@ -155,7 +155,7 @@ def launch_distributed_training(args):
             print(f"Auto-selected deepspeed config: {deepspeed_config}")
             # Use deepspeed launcher
             print(f"Using deepspeed for {args.num_gpus} GPU(s)")
-            cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path, "--deepspeed_config", deepspeed_config] + cmd_argsg
+            cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path, "--deepspeed_config", deepspeed_config] + cmd_args
         else:
             print(f"Warning: DeepSpeed config for {args.num_gpus} GPU(s) not found, using torchrun")
             cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args

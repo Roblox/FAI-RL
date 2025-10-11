@@ -14,9 +14,7 @@ Get started with installation, training, inference, and evaluation in just a few
 ### 📦 Installation
 
 ```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-pip install FAI-RL
+pip install --extra-index-url https://download.pytorch.org/whl/cu118 FAI-RL
 ```
 
 

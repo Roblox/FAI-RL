@@ -90,6 +90,12 @@ Examples:
 
     # Use parse_known_args to allow distributed launchers to pass additional args like --local_rank
     args, unknown = parser.parse_known_args()
+    
+    # Add this check: if no arguments provided at all, show help and exit
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+    
     return args
 
 

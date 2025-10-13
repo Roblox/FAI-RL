@@ -341,3 +341,19 @@ MigrationBackup/
 # Custom
 .ipynb_checkpoints/
 .DS_Store
+
+# Python package build artifacts
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+venv_*/
+env/
+ENV/
+
+# PyPI
+.pypirc

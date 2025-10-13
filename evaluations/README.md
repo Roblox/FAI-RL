@@ -2,17 +2,6 @@
 
 Comprehensive model evaluation system that leverages the inference pipeline to assess model performance on various benchmarks and datasets.
 
-## 🚀 Quick Start
-
-**Run evaluation**:
-```bash
-# Basic evaluation
-./scripts/run_evaluation.sh --config configs/evaluation/mmlu/llama3_3B_recipe.yaml
-
-# With debug logging
-./scripts/run_evaluation.sh --config configs/evaluation/mmlu/llama3_3B_recipe.yaml --debug
-```
-
 ## 🔧 Configuration
 
 Create evaluation configs in `../configs/evaluation/`:

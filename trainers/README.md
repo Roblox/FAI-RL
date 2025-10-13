@@ -4,29 +4,6 @@ Training implementations supporting SFT (Supervised Fine-Tuning), DPO (Direct Pr
 
 ## 🚀 Quick Start
 
-**Run training**:
-```bash
-# Single-GPU Training
-./scripts/run_training.sh --config configs/training/dpo/llama3_3B_recipe.yaml --num-gpus 1
-
-# Multi-GPU Training (8 GPUs)
-./scripts/run_training.sh --config configs/training/dpo/llama3_3B_recipe.yaml --num-gpus 8
-
-# Background execution
-./scripts/run_training.sh --config configs/training/dpo/llama3_3B_recipe.yaml --num-gpus 4 --nohup
-```
-
-**Script Usage:**
-```bash
-Usage: ./scripts/run_training.sh --config CONFIG_FILE [OPTIONS]
-
-Options:
-  --config CONFIG_FILE                   Path to configuration YAML file (required)
-  --num-gpus NUM_GPUS                    Number of GPUs to use (required)
-  --nohup                                Run in background with nohup
-  -h, --help                             Show help message
-```
-
 ## 🔧 Configuration
 
 Create training configs in `../configs/training/`:

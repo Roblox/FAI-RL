@@ -8,10 +8,14 @@ import sys
 import re
 import json, csv
 import pandas as pd
+import warnings
 from datetime import datetime
 from typing import Dict, List, Tuple, Any, Optional
 from datasets import load_dataset
 import numpy as np
+
+# Suppress Pydantic warnings from dependencies (TRL/transformers)
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
 
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

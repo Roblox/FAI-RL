@@ -7,39 +7,16 @@ A modular, production-ready library designed for **easy training, inference, and
 - GRPO (Group Relative Preference Optimization)
 - GSPO (Group Sequence Policy Optimization)
 
-### Flexible Configuration System
-* YAML-based configuration for all training parameters
-* Pre-configured recipes for popular models
-* DeepSpeed ZeRO-3 integration for distributed training
-
 ## 🚀 Quick Start
 
 Get started with installation, training, inference, and evaluation in just a few commands:
 
 ### 📦 Installation
 
-Follow these steps to set up the FAI-RL library on your local machine. The first time, you'll need to clone the repository, create a virtual environment, and install the required dependencies. For subsequent runs, you only need to activate the virtual environment.
-
-#### Setup (first time only)
-
 ```bash
-# Clone the repository
-git clone https://github.com/Roblox/FAI-RL.git
-cd FAI-RL
-
-# Create virtual environment
-python -m venv venv_fai_rl
-source venv_fai_rl/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+pip install --extra-index-url https://download.pytorch.org/whl/cu118 FAI-RL
 ```
 
-#### Next runs
-
-```bash
-source venv_fai_rl/bin/activate
-```
 
 ### Training
 
@@ -47,15 +24,15 @@ Train a model using SFT, DPO, PPO, GRPO, or GSPO:
 
 ```bash
 # Single GPU training
-./scripts/run_training.sh \
-    --config configs/training/dpo/llama3_3B_recipe.yaml \
-    --num-gpus 1
+fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 1
 
-# Multi-GPU training (8 GPUs)
-./scripts/run_training.sh \
-    --config configs/training/dpo/llama3_3B_recipe.yaml \
-    --num-gpus 8 \
-    --nohup  # Run in background
+# Multi-GPU training in background (8 GPUs)
+fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 8 --nohup
+
+# Runtime parameter overrides
+fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 8 --nohup \
+model.base_model_name=Qwen/Qwen3-4B-Instruct-2507 \
+training.num_train_epochs=3
 ```
 
 ### Inference
@@ -64,13 +41,10 @@ Generate responses from your trained models:
 
 ```bash
 # Run inference on trained model
-./scripts/run_inference.sh \
-    --config configs/inference/llama3_3B_recipe.yaml
+fai-rl-inference --config configs/inference/llama3_3B_inference.yaml
 
 # Run inference with debug mode
-./scripts/run_inference.sh \
-    --config configs/inference/llama3_3B_recipe.yaml \
-    --debug
+fai-rl-inference --config configs/inference/llama3_3B_inference.yaml --debug
 ```
 
 ### Evaluation
@@ -79,16 +53,19 @@ Evaluate model performance on benchmarks:
 
 ```bash
 # Evaluate on MMLU benchmark
-./scripts/run_evaluation.sh \
-    --config configs/evaluation/mmlu/llama3_3B_recipe.yaml
+fai-rl-eval --config configs/evaluation/mmlu/llama3_3B_recipe.yaml
 
 # Evaluate with debug output
-./scripts/run_evaluation.sh \
-    --config configs/evaluation/mmlu/llama3_3B_recipe.yaml \
-    --debug
+fai-rl-eval --config configs/evaluation/mmlu/llama3_3B_recipe.yaml --debug
 ```
 
 -----
+
+## Flexible Configuration System
+* YAML-based configuration for all training parameters
+* Pre-configured recipes for popular models
+* DeepSpeed ZeRO-3 integration for distributed training
+
 
 ## 📁 Project Structure
 
@@ -104,7 +81,6 @@ FAI-RL/
 │   ├── evaluation/            # Evaluation configurations
 │   └── deepspeed/             # DeepSpeed ZeRO configurations
 ├── utils/                     # Utility modules
-├── scripts/                   # Scripts
 ├── logs/                      # Training logs (auto-generated)
 └── outputs/                   # Inference output (auto-generated)
 ```
@@ -116,18 +92,6 @@ FAI-RL/
 * **[Training Guide](./trainers/README.md)** - Comprehensive guide to configuring and running model training with detailed parameter explanations
 * **[Inference Guide](./inference/README.md)** - Running model inference and text generation
 * **[Evaluation Guide](./evaluations/README.md)** - Evaluating model performance on standard benchmarks
-
-## Algorithm Selection Guide
-
-Choose the right algorithm for your use case:
-
-| Algorithm | Best For | Requirements | Key Benefits |
-|-----------|----------|--------------|--------------|
-| **SFT** | Initial instruction tuning, domain adaptation | Prompt-response pairs | Simple, fast, establishes baseline |
-| **DPO** | Aligning to human preferences | Preference pairs (chosen/rejected) | No reward model needed, stable training |
-| **PPO** | Complex sequential tasks, agentic workflows | Preference pairs + reward model | Most flexible, handles multi-turn interactions |
-| **GRPO** | Math reasoning, efficiency-focused tasks | Question-answer pairs | No critic model, faster training |
-| **GSPO** | Multi-turn RL, stable sequence-level optimization | Question-answer pairs | Better stability than GRPO |
 
 ## Memory Optimization
 
@@ -148,3 +112,30 @@ This framework has been validated on:
 * **Memory:** 1152 GiB
 * **Storage:** 8TB NVMe SSD
 * **Network:** 400 Gbps
+
+## 🛠 For Maintainers
+
+To release a new version of FAI-RL:
+
+1. Update version in pyproject.toml:
+```bash
+[project]
+name = "FAI-RL"
+version = "__NEW_VERSION__"
+```
+
+2. Build and upload the package:
+```bash
+# Upgrade pip and build tools
+pip install --upgrade pip
+pip install build twine
+
+# Clean previous builds
+rm -rf dist/ build/ *.egg-info
+
+# Build the package
+python -m build
+
+# Upload to PyPI
+python -m twine upload dist/*
+```

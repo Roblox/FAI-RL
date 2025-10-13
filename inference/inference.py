@@ -10,9 +10,13 @@ import sys
 import pandas as pd
 import requests
 import re
+import warnings
 from typing import Dict, Any, Union
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
+
+# Suppress Pydantic warnings from dependencies (TRL/transformers)
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
 from pathlib import Path
 from peft import PeftModel, PeftConfig
 
@@ -467,7 +471,7 @@ def main():
     args = parse_args()
     
     # Load configuration
-    config = ExperimentConfig.load_eval_config(args.config)
+    config = ExperimentConfig.load_inference_config(args.config)
     
     # Check if we should use API-based inference
     use_api = hasattr(config, 'mlp_api_key') and config.mlp_api_key
@@ -491,7 +495,7 @@ def main():
     
     try:
         # Run inference
-        run_inference(config)
+        run_inference(config, debug=args.debug)
         print("Inference completed successfully!")
         
     except Exception as e:

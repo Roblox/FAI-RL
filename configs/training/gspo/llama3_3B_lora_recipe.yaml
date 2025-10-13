@@ -76,7 +76,7 @@ training:
   prediction_loss_only: true
 
 wandb:
-  enabled: true
+  enabled: false
   project: "rl"
   entity: "fai-llmaas"
   name: "Llama-3.2-3B-Inst-LoRA-GSPO"

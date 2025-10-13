@@ -1,6 +1,6 @@
 evaluation:
-  model_path: "models/YOUR_MODEL_OUTPUT/YOUR_CHECKPOINT"
-  output_file: "outputs/YOUR_EVALUATION_OUTPUT.csv"
+  model_path: "models/llama3_3B_Inst_SFT_lora_v1/checkpoint-100"
+  output_file: "outputs/llama3_3B_Inst_SFT_lora_v1_checkpoint100_evaluation.csv"
 
   # Dataset column configuration
   dataset_name: "cais/mmlu"

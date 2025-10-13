@@ -91,18 +91,6 @@ Config parameters use dot notation for nested values:
         help="Number of GPUs to use for training (default: 1)"
     )
     parser.add_argument(
-        "--local_rank",
-        type=int,
-        default=-1,
-        help="Local rank for distributed training (automatically set by launcher)"
-    )
-    parser.add_argument(
-        "--deepspeed_config",
-        type=str,
-        default=None,
-        help="Path to DeepSpeed config file (automatically set by launcher)"
-    )
-    parser.add_argument(
         "--nohup",
         action="store_true",
         help="Run training in background with nohup (output redirected to nohup.out)"
@@ -159,9 +147,11 @@ def launch_distributed_training(args):
         deepspeed_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{args.num_gpus}.json")
         if os.path.exists(deepspeed_config):
             print(f"Auto-selected deepspeed config: {deepspeed_config}")
+            # Set environment variable for deepspeed config
+            os.environ['DEEPSPEED_CONFIG'] = deepspeed_config
             # Use deepspeed launcher
             print(f"Using deepspeed for {args.num_gpus} GPU(s)")
-            cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path, "--deepspeed_config", deepspeed_config] + cmd_args
+            cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path] + cmd_args
         else:
             print(f"Warning: DeepSpeed config for {args.num_gpus} GPU(s) not found, using torchrun")
             cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
@@ -290,10 +280,8 @@ def main():
     # Load configuration from file and/or CLI arguments
     config = load_config_with_overrides(args)
     
-    # Get deepspeed config from command-line arg, environment variable, or leave as None
-    if args.deepspeed_config:
-        config.training.deepspeed_config = args.deepspeed_config
-    elif 'DEEPSPEED_CONFIG' in os.environ:
+    # Get deepspeed config from environment variable (auto-set by launcher)
+    if 'DEEPSPEED_CONFIG' in os.environ:
         config.training.deepspeed_config = os.environ['DEEPSPEED_CONFIG']
     else:
         config.training.deepspeed_config = None

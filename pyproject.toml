@@ -62,7 +62,7 @@ Issues = "https://github.com/Roblox/FAI-RL/issues"
 
 [project.scripts]
 fai-rl-train = "scripts.train:main"
-fai-rl-inference = "scripts.run_inference:main"
+fai-rl-inference = "inference.inference:main"
 fai-rl-eval = "evaluations.eval:main"
 
 [tool.setuptools]

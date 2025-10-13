@@ -53,7 +53,7 @@ training:
   prediction_loss_only: true
 
 wandb:
-  enabled: true
+  enabled: false
   project: "rl"
   entity: "fai-llmaas"
   name: "Llama-3.1-3B-Inst-Full-GRPO-FAIRL"

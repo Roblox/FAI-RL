@@ -491,7 +491,7 @@ def main():
     
     try:
         # Run inference
-        run_inference(config)
+        run_inference(config, debug=args.debug)
         print("Inference completed successfully!")
         
     except Exception as e:

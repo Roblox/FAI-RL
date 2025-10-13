@@ -61,21 +61,8 @@ Examples:
   # Using config file:
   fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml
   
-  # Using command-line arguments only:
-  fai-rl-train \\
-    model.base_model_name="meta-llama/Llama-3.2-3B-Instruct" \\
-    training.algorithm="sft" \\
-    training.output_dir="./output" \\
-    data.datasets="[{'name': 'nvidia/Aegis-AI-Content-Safety-Dataset-2.0', 'split': 'train'}]"
-  
   # Mix config file with overrides:
   fai-rl-train --config config.yaml training.learning_rate=1e-5 training.num_train_epochs=3
-  
-Config parameters use dot notation for nested values:
-  - model.base_model_name, model.torch_dtype, model.use_lora, model.lora_r, etc.
-  - data.max_length, data.max_prompt_length, data.system_prompt, etc.
-  - training.algorithm, training.learning_rate, training.num_train_epochs, etc.
-  - wandb.enabled, wandb.project, wandb.name, etc.
 """
     )
     parser.add_argument(

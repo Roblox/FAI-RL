@@ -2,20 +2,6 @@
 
 Inference system supporting both local model inference.
 
-## 🚀 Quick Start
-
-**Run inference**:
-```bash
-# Basic inference
-./scripts/run_inference.sh --config configs/inference/llama3_3B_recipe.yaml
-
-# Background execution
-./scripts/run_inference.sh --config configs/inference/llama3_3B_recipe.yaml --nohup
-
-# With debug logging
-./scripts/run_inference.sh --config configs/inference/llama3_3B_recipe.yaml --debug
-```
-
 ## 🔧 Configuration
 
 Create inference configs in `../configs/inference/`:

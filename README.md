@@ -28,6 +28,11 @@ fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus
 
 # Multi-GPU training in background (8 GPUs)
 fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 8 --nohup
+
+# Runtime parameter overrides
+fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 8 --nohup \
+model.base_model_name=Qwen/Qwen3-4B-Instruct-2507 \
+training.num_train_epochs=3
 ```
 
 ### Inference

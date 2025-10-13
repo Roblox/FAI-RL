@@ -113,3 +113,30 @@ This framework has been validated on:
 * **Memory:** 1152 GiB
 * **Storage:** 8TB NVMe SSD
 * **Network:** 400 Gbps
+
+🛠 For Maintainers
+
+To release a new version of FAI-RL:
+
+1. Update version in pyproject.toml:
+```bash
+[project]
+name = "FAI-RL"
+version = "__NEW_VERSION__"
+```
+
+2. Build and upload the package:
+```bash
+# Upgrade pip and build tools
+pip install --upgrade pip
+pip install build twine
+
+# Clean previous builds
+rm -rf dist/ build/ *.egg-info
+
+# Build the package
+python -m build
+
+# Upload to PyPI
+python -m twine upload dist/*
+```

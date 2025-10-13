@@ -16,6 +16,7 @@ Get started with installation, training, inference, and evaluation in just a few
 ```bash
 pip install --extra-index-url https://download.pytorch.org/whl/cu118 FAI-RL
 ```
+📘 PyPI: https://pypi.org/project/FAI-RL/
 
 
 ### Training

@@ -6,7 +6,11 @@ import os
 import subprocess
 import yaml
 import ast
+import warnings
 from typing import Any, Dict
+
+# Suppress Pydantic warnings from dependencies (TRL/transformers)
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:

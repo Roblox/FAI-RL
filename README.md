@@ -81,7 +81,6 @@ FAI-RL/
 │   ├── evaluation/            # Evaluation configurations
 │   └── deepspeed/             # DeepSpeed ZeRO configurations
 ├── utils/                     # Utility modules
-├── scripts/                   # Scripts
 ├── logs/                      # Training logs (auto-generated)
 └── outputs/                   # Inference output (auto-generated)
 ```

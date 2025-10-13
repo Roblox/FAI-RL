@@ -10,9 +10,13 @@ import sys
 import pandas as pd
 import requests
 import re
+import warnings
 from typing import Dict, Any, Union
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
+
+# Suppress Pydantic warnings from dependencies (TRL/transformers)
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
 from pathlib import Path
 from peft import PeftModel, PeftConfig
 

@@ -114,7 +114,7 @@ This framework has been validated on:
 * **Storage:** 8TB NVMe SSD
 * **Network:** 400 Gbps
 
-🛠 For Maintainers
+## 🛠 For Maintainers
 
 To release a new version of FAI-RL:
 

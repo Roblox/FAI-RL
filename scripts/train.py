@@ -101,7 +101,9 @@ Config parameters use dot notation for nested values:
         help="Config overrides in key=value format (e.g., model.base_model_name='meta-llama/Llama-3.2-3B-Instruct')"
     )
 
-    return parser.parse_args()
+    # Use parse_known_args to allow distributed launchers to pass additional args like --local_rank
+    args, unknown = parser.parse_known_args()
+    return args
 
 
 def check_uses_quantization(config_path):

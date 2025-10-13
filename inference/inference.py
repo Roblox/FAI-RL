@@ -467,7 +467,7 @@ def main():
     args = parse_args()
     
     # Load configuration
-    config = ExperimentConfig.load_eval_config(args.config)
+    config = ExperimentConfig.load_inference_config(args.config)
     
     # Check if we should use API-based inference
     use_api = hasattr(config, 'mlp_api_key') and config.mlp_api_key

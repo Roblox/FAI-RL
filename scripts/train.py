@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import time
 import sys
 import os
@@ -102,6 +103,11 @@ Config parameters use dot notation for nested values:
         help="Path to DeepSpeed config file (automatically set by launcher)"
     )
     parser.add_argument(
+        "--nohup",
+        action="store_true",
+        help="Run training in background with nohup (output redirected to nohup.out)"
+    )
+    parser.add_argument(
         "overrides",
         nargs="*",
         help="Config overrides in key=value format (e.g., model.base_model_name='meta-llama/Llama-3.2-3B-Instruct')"
@@ -130,7 +136,7 @@ def launch_distributed_training(args):
     """Launch training with the appropriate distributed launcher."""
     script_path = os.path.abspath(__file__)
     
-    # Build base command arguments (don't pass --num-gpus, launcher handles GPU allocation)
+    # Build base command arguments (don't pass --num-gpus and --nohup, launcher handles GPU allocation)
     cmd_args = []
     
     # Add config file if provided
@@ -160,8 +166,31 @@ def launch_distributed_training(args):
             print(f"Warning: DeepSpeed config for {args.num_gpus} GPU(s) not found, using torchrun")
             cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
     
-    # Execute the command
-    return subprocess.call(cmd)
+    # Handle nohup mode
+    if args.nohup:
+        # Generate log filename with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = f"training_{timestamp}.log"
+        
+        print(f"Running in background with nohup. Output will be saved to: {log_file}")
+        
+        # Prepare nohup command: nohup <command> > log_file 2>&1 &
+        # We'll use shell=True to handle the redirection and background execution
+        cmd_str = " ".join(cmd) + f" > {log_file} 2>&1 &"
+        full_cmd = f"nohup {cmd_str}"
+        
+        print(f"Executing: {full_cmd}")
+        
+        # Execute with shell to handle redirection and background
+        result = subprocess.call(full_cmd, shell=True)
+        
+        if result == 0:
+            print(f"Training started in background. Monitor progress with: tail -f {log_file}")
+        
+        return result
+    else:
+        # Execute the command normally (foreground)
+        return subprocess.call(cmd)
 
 
 def load_config_with_overrides(args) -> ExperimentConfig:

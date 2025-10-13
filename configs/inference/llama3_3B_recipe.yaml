@@ -1,6 +1,6 @@
 inference:
   model_path: "models/llama3_3B_Inst_SFT_lora_v1/checkpoint-100"
-  output_file: "outputs/llama3_3B_Inst_SFT_lora_v1_checkpoint100.csv"
+  output_file: "outputs/llama3_3B_Inst_SFT_lora_v1_checkpoint100_inference.csv"
   
   # Dataset column configuration
   dataset_name: "Roblox/FAI-RL-inference-dataset"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "FAI-RL"
-version = "0.1.4"
+version = "0.1.5"
 description = "Foundation of AI - Reinforcement learning Library"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -61,7 +61,7 @@ Repository = "https://github.com/Roblox/FAI-RL"
 Issues = "https://github.com/Roblox/FAI-RL/issues"
 
 [project.scripts]
-fai-rl-train = "scripts.train:main"
+fai-rl-train = "trainers.train:main"
 fai-rl-inference = "inference.inference:main"
 fai-rl-eval = "evaluations.eval:main"
 

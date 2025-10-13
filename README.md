@@ -94,18 +94,6 @@ FAI-RL/
 * **[Inference Guide](./inference/README.md)** - Running model inference and text generation
 * **[Evaluation Guide](./evaluations/README.md)** - Evaluating model performance on standard benchmarks
 
-## Algorithm Selection Guide
-
-Choose the right algorithm for your use case:
-
-| Algorithm | Best For | Requirements | Key Benefits |
-|-----------|----------|--------------|--------------|
-| **SFT** | Initial instruction tuning, domain adaptation | Prompt-response pairs | Simple, fast, establishes baseline |
-| **DPO** | Aligning to human preferences | Preference pairs (chosen/rejected) | No reward model needed, stable training |
-| **PPO** | Complex sequential tasks, agentic workflows | Preference pairs + reward model | Most flexible, handles multi-turn interactions |
-| **GRPO** | Math reasoning, efficiency-focused tasks | Question-answer pairs | No critic model, faster training |
-| **GSPO** | Multi-turn RL, stable sequence-level optimization | Question-answer pairs | Better stability than GRPO |
-
 ## Memory Optimization
 
 FAI-RL supports various techniques to train large models efficiently:

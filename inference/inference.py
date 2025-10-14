@@ -158,7 +158,7 @@ def load_model_and_tokenizer(config):
             tokenizer.pad_token = tokenizer.eos_token
         
         # Add the special pad token to match training setup (PPO adds "[PAD]" token)
-        if "[PAD]" not in tokenizer.get_vocab():    # TODO:: add this special tokens for all algorithms
+        if "[PAD]" not in tokenizer.get_vocab():
             tokenizer.add_special_tokens({"pad_token": "[PAD]"})
             print(f"Added [PAD] token to tokenizer. New vocab size: {len(tokenizer)}")
         
@@ -241,6 +241,7 @@ def _get_api_endpoint(model: str) -> str:
     # ST3 models that require the sitetest3 endpoint
     st3_models = [
         'Qwen/Qwen3-235B-A22B-Instruct-2507', 
+        'Qwen/Qwen3-8B',
         'openai/gpt-oss-120b', 
         'openai/o3', 
         'openai/gpt-4o', 
@@ -311,9 +312,9 @@ def _parse_api_response(response_json: dict, model: str) -> str:
 
 def _validate_api_key(api_key: str) -> None:
     """Validate that the API key is not a placeholder."""
-    if api_key == "YOUR_MLP_API_KEY":
+    if api_key == "YOUR_API_KEY":
         raise ValueError(
-            "Error: mlp_api_key is still set to the placeholder 'YOUR_MLP_API_KEY'. "
+            "Error: api_key is still set to the placeholder 'YOUR_API_KEY'. "
             "Please replace it with your actual API key in the configuration file."
         )
 
@@ -323,7 +324,7 @@ def generate_response_by_api(
     config
 ) -> Union[Dict[str, Any], str]:
     """Generate response using API-based inference."""
-    _validate_api_key(config.mlp_api_key)
+    _validate_api_key(config.api_key)
     
     try:
         # Get the appropriate API endpoint
@@ -332,7 +333,7 @@ def generate_response_by_api(
         # Set up headers
         headers = {
             "Content-Type": "application/json",
-            "Authorization": config.mlp_api_key
+            "Authorization": config.api_key
         }
         
         # Build request data based on model type
@@ -358,7 +359,7 @@ def generate_response_by_api(
 def run_inference(config, debug=False):
     """Run inference on the specified dataset."""
     # Determine if we should use API or local model
-    use_api = (config.model is not None) and (config.mlp_api_key is not None)
+    use_api = (config.model is not None) and (config.api_key is not None)
     
     if use_api:
         print(f"Using API inference with model: {config.model}")
@@ -474,7 +475,7 @@ def main():
     config = ExperimentConfig.load_inference_config(args.config)
     
     # Check if we should use API-based inference
-    use_api = hasattr(config, 'mlp_api_key') and config.mlp_api_key
+    use_api = hasattr(config, 'api_key') and config.api_key
     
     print("Starting inference with the following configuration:")
     if use_api:

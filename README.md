@@ -42,10 +42,10 @@ Generate responses from your trained models:
 
 ```bash
 # Run inference on trained model
-fai-rl-inference --config configs/inference/llama3_3B_inference.yaml
+fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml
 
 # Run inference with debug mode
-fai-rl-inference --config configs/inference/llama3_3B_inference.yaml --debug
+fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml --debug
 ```
 
 ### Evaluation

@@ -236,27 +236,20 @@ def generate_response(model, tokenizer, prompt: str, config):
     
     return response_text
 
-def _get_api_endpoint(model: str) -> str:
-    """Determine the appropriate API endpoint based on model type and name."""
-    # ST3 models that require the sitetest3 endpoint
-    st3_models = [
-        'Qwen/Qwen3-235B-A22B-Instruct-2507', 
-        'Qwen/Qwen3-8B',
-        'openai/gpt-oss-120b', 
-        'openai/o3', 
-        'openai/gpt-4o', 
-        'anthropic/claude-opus-4'
-    ]
+def _get_api_endpoint(model: str, api_endpoint: str = None) -> str:
+    """Determine the appropriate API endpoint based on model type and name.
     
-    if model.startswith("google/"):
-        model_name = model.split("/")[-1]
-        return f"https://apis.sitetest3.simulpong.com/ml-gateway-service/gemini/v1beta/models/{model_name}:generateContent"
-    elif model in st3_models:
-        return "https://apis.sitetest3.simulpong.com/ml-gateway-service/v1/chat/completions"
-    else:
-        # Default ST1 endpoint
-        return 'https://snc2-apis.sitetest1.simulpong.com/ml-gateway-service/v1/chat/completions'
-
+    Args:
+        model: The model identifier
+        api_endpoint: Optional custom API endpoint override
+        
+    Returns:
+        The API endpoint URL to use
+    """
+    # If custom endpoint is provided and not empty, use it
+    if api_endpoint and api_endpoint.strip():
+        return api_endpoint.strip()
+    
 
 def _build_google_request_data(prompt: str, config) -> dict:
     """Build request data for Google/Gemini models."""
@@ -328,7 +321,8 @@ def generate_response_by_api(
     
     try:
         # Get the appropriate API endpoint
-        url = _get_api_endpoint(config.model)
+        api_endpoint = getattr(config, 'api_endpoint', None)
+        url = _get_api_endpoint(config.model, api_endpoint)
         
         # Set up headers
         headers = {

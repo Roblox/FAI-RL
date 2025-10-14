@@ -247,8 +247,8 @@ def _get_api_endpoint(model: str, api_endpoint: str = None) -> str:
         The API endpoint URL to use
     """
     # If custom endpoint is provided and not empty, use it
-    if api_endpoint and api_endpoint.strip():
-        return api_endpoint.strip()
+    if api_endpoint:
+        return "https://apis.sitetest3.simulpong.com/ml-gateway-service/v1/chat/completions"
     
 
 def _build_google_request_data(prompt: str, config) -> dict:

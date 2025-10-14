@@ -180,7 +180,8 @@ class InferenceConfig:
     model: Optional[str] = None
     
     # API configuration
-    mlp_api_key: Optional[str] = None
+    api_endpoint: Optional[str] = None
+    api_key: Optional[str] = None
     
     # Dataset configuration
     dataset_name: str = "Roblox/FAI-RL-inference-dataset"
@@ -209,7 +210,7 @@ class EvaluationConfig:
     model: Optional[str] = None
     
     # API configuration  
-    mlp_api_key: Optional[str] = None
+    api_key: Optional[str] = None
     
     # Dataset configuration
     dataset_name: str = "cais/mmlu"
@@ -276,10 +277,10 @@ class ExperimentConfig:
         config = InferenceConfig(**config_dict['inference'])
         
         # Validate API key if present
-        if hasattr(config, 'mlp_api_key') and config.mlp_api_key:
-            if config.mlp_api_key == "YOUR_MLP_API_KEY":
+        if hasattr(config, 'api_key') and config.api_key:
+            if config.api_key == "YOUR_API_KEY":
                 raise ValueError(
-                    "Error: mlp_api_key is still set to the placeholder 'YOUR_MLP_API_KEY'. "
+                    "Error: api_key is still set to the placeholder 'YOUR_API_KEY'. "
                     "Please replace it with your actual API key in the configuration file."
                 )
         
@@ -294,10 +295,10 @@ class ExperimentConfig:
         config = EvaluationConfig(**config_dict['evaluation'])
         
         # Validate API key if present
-        if hasattr(config, 'mlp_api_key') and config.mlp_api_key:
-            if config.mlp_api_key == "YOUR_MLP_API_KEY":
+        if hasattr(config, 'api_key') and config.api_key:
+            if config.api_key == "YOUR_API_KEY":
                 raise ValueError(
-                    "Error: mlp_api_key is still set to the placeholder 'YOUR_MLP_API_KEY'. "
+                    "Error: api_key is still set to the placeholder 'YOUR_API_KEY'. "
                     "Please replace it with your actual API key in the configuration file."
                 )
         

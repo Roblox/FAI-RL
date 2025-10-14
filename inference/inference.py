@@ -158,7 +158,7 @@ def load_model_and_tokenizer(config):
             tokenizer.pad_token = tokenizer.eos_token
         
         # Add the special pad token to match training setup (PPO adds "[PAD]" token)
-        if "[PAD]" not in tokenizer.get_vocab():    # TODO:: add this special tokens for all algorithms
+        if "[PAD]" not in tokenizer.get_vocab():
             tokenizer.add_special_tokens({"pad_token": "[PAD]"})
             print(f"Added [PAD] token to tokenizer. New vocab size: {len(tokenizer)}")
         
@@ -236,26 +236,20 @@ def generate_response(model, tokenizer, prompt: str, config):
     
     return response_text
 
-def _get_api_endpoint(model: str) -> str:
-    """Determine the appropriate API endpoint based on model type and name."""
-    # ST3 models that require the sitetest3 endpoint
-    st3_models = [
-        'Qwen/Qwen3-235B-A22B-Instruct-2507', 
-        'openai/gpt-oss-120b', 
-        'openai/o3', 
-        'openai/gpt-4o', 
-        'anthropic/claude-opus-4'
-    ]
+def _get_api_endpoint(model: str, api_endpoint: str = None) -> str:
+    """Determine the appropriate API endpoint based on model type and name.
     
-    if model.startswith("google/"):
-        model_name = model.split("/")[-1]
-        return f"https://apis.sitetest3.simulpong.com/ml-gateway-service/gemini/v1beta/models/{model_name}:generateContent"
-    elif model in st3_models:
+    Args:
+        model: The model identifier
+        api_endpoint: Optional custom API endpoint override
+        
+    Returns:
+        The API endpoint URL to use
+    """
+    # If custom endpoint is provided and not empty, use it
+    if api_endpoint:
         return "https://apis.sitetest3.simulpong.com/ml-gateway-service/v1/chat/completions"
-    else:
-        # Default ST1 endpoint
-        return 'https://snc2-apis.sitetest1.simulpong.com/ml-gateway-service/v1/chat/completions'
-
+    
 
 def _build_google_request_data(prompt: str, config) -> dict:
     """Build request data for Google/Gemini models."""
@@ -311,9 +305,9 @@ def _parse_api_response(response_json: dict, model: str) -> str:
 
 def _validate_api_key(api_key: str) -> None:
     """Validate that the API key is not a placeholder."""
-    if api_key == "YOUR_MLP_API_KEY":
+    if api_key == "YOUR_API_KEY":
         raise ValueError(
-            "Error: mlp_api_key is still set to the placeholder 'YOUR_MLP_API_KEY'. "
+            "Error: api_key is still set to the placeholder 'YOUR_API_KEY'. "
             "Please replace it with your actual API key in the configuration file."
         )
 
@@ -323,16 +317,17 @@ def generate_response_by_api(
     config
 ) -> Union[Dict[str, Any], str]:
     """Generate response using API-based inference."""
-    _validate_api_key(config.mlp_api_key)
+    _validate_api_key(config.api_key)
     
     try:
         # Get the appropriate API endpoint
-        url = _get_api_endpoint(config.model)
+        api_endpoint = getattr(config, 'api_endpoint', None)
+        url = _get_api_endpoint(config.model, api_endpoint)
         
         # Set up headers
         headers = {
             "Content-Type": "application/json",
-            "Authorization": config.mlp_api_key
+            "Authorization": config.api_key
         }
         
         # Build request data based on model type
@@ -358,7 +353,7 @@ def generate_response_by_api(
 def run_inference(config, debug=False):
     """Run inference on the specified dataset."""
     # Determine if we should use API or local model
-    use_api = (config.model is not None) and (config.mlp_api_key is not None)
+    use_api = (config.model is not None) and (config.api_key is not None)
     
     if use_api:
         print(f"Using API inference with model: {config.model}")
@@ -474,7 +469,7 @@ def main():
     config = ExperimentConfig.load_inference_config(args.config)
     
     # Check if we should use API-based inference
-    use_api = hasattr(config, 'mlp_api_key') and config.mlp_api_key
+    use_api = hasattr(config, 'api_key') and config.api_key
     
     print("Starting inference with the following configuration:")
     if use_api:

@@ -180,6 +180,7 @@ class InferenceConfig:
     model: Optional[str] = None
     
     # API configuration
+    api_endpoint: Optional[str] = None
     api_key: Optional[str] = None
     
     # Dataset configuration

@@ -4,6 +4,36 @@ Training implementations supporting SFT (Supervised Fine-Tuning), DPO (Direct Pr
 
 ## 🚀 Quick Start
 
+### Basic Training
+
+```bash
+# Single GPU training with SFT
+fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 1
+
+# Multi-GPU training with DPO (8 GPUs)
+fai-rl-train --config configs/training/dpo/llama3_3B_lora_recipe.yaml --num-gpus 8
+
+# Run training in background with nohup
+fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 8 --nohup
+```
+
+### Runtime Parameter Overrides
+
+Override configuration parameters directly from command line:
+
+```bash
+# Override model and training parameters
+fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 4 \
+  model.base_model_name=Qwen/Qwen3-4B-Instruct-2507 \
+  training.num_train_epochs=3 \
+  training.learning_rate=5.0e-5
+
+# Override dataset and output directory
+fai-rl-train --config configs/training/dpo/llama3_3B_lora_recipe.yaml --num-gpus 8 --nohup \
+  data.datasets[0].name=your-org/your-dataset \
+  training.output_dir=models/my_custom_model
+```
+
 ## 🔧 Configuration
 
 Create training configs in `../configs/training/`:
@@ -172,9 +202,56 @@ Replace the following values for your specific use case:
 - LoRA: `1.0e-4`
 - QLoRA: `2.0e-4`
 
-## 📊 Training Progress
+## 📊 Output & Monitoring
 
-**Monitoring options:**
-- Logs are stored in `../logs/`
-- If Weights & Biases is enabled, follow real-time progress at wandb
-- Final models are saved under `./models/`
+### Directory Structure
+
+After training, the following directories will be created:
+
+```
+FAI-RL/
+├── models/                   # Trained model checkpoints
+│   └── llama3_3B_Inst_SFT_lora_v1/
+│       ├── checkpoint-50/    # Intermediate checkpoints
+│       ├── checkpoint-100/
+│       └── ...
+└── logs/                     # Training logs (if generated)
+    └── training_YYYYMMDD_HHMMSS.log
+```
+
+## 💡 Best Practices
+
+### Memory Management
+- Start with `per_device_train_batch_size: 1` and increase if memory allows
+- Use `gradient_accumulation_steps` to achieve larger effective batch sizes
+- Enable `gradient_checkpointing: true` for memory-constrained scenarios
+- Consider QLoRA (`load_in_4bit: true` + LoRA) for training large models on limited hardware
+
+### Learning Rate Selection
+- **Full fine-tuning**: 1e-5 to 1e-6
+- **LoRA**: 1e-4
+- **QLoRA**: 2e-4
+
+### Checkpoint Strategy
+- Set `save_steps` based on dataset size (e.g., every 10% of total steps)
+- Keep `save_only_model: true` to save disk space
+- Use `eval_steps` to monitor validation performance periodically
+
+### Dataset Preparation
+- Ensure column names in config match your dataset
+- Set `max_length` based on your typical sequence length
+- Use `dataset_num_proc` > 1 to speed up preprocessing for large datasets
+
+## 🐛 Troubleshooting
+
+### Out of Memory (OOM) Errors
+1. Reduce `per_device_train_batch_size`
+2. Enable `gradient_checkpointing: true`
+3. Switch to QLoRA: set `load_in_4bit: true` and configure LoRA
+4. Reduce `max_length` or `max_prompt_length`
+
+### Slow Training
+1. Increase `dataloader_num_workers` (e.g., 4-8)
+2. Set `dataloader_pin_memory: true` if sufficient RAM available
+3. Verify `gradient_accumulation_steps` isn't unnecessarily high
+4. Consider using DeepSpeed for multi-GPU setups

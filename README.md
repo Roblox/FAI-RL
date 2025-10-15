@@ -26,39 +26,31 @@ Train a model using SFT, DPO, PPO, GRPO, or GSPO:
 ```bash
 # Single GPU training
 fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 1
-
-# Multi-GPU training in background (8 GPUs)
-fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 8 --nohup
-
-# Runtime parameter overrides
-fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 8 --nohup \
-model.base_model_name=Qwen/Qwen3-4B-Instruct-2507 \
-training.num_train_epochs=3
 ```
+
+📖 **[See detailed Training Guide →](./trainers/README.md)**
 
 ### Inference
 
 Generate responses from your trained models:
 
 ```bash
-# Run inference on trained model
-fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml
-
 # Run inference with debug mode
 fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml --debug
 ```
+
+📖 **[See detailed Inference Guide →](./inference/README.md)**
 
 ### Evaluation
 
 Evaluate model performance on benchmarks:
 
 ```bash
-# Evaluate on MMLU benchmark
-fai-rl-eval --config configs/evaluation/mmlu/llama3_3B_recipe.yaml
-
 # Evaluate with debug output
 fai-rl-eval --config configs/evaluation/mmlu/llama3_3B_recipe.yaml --debug
 ```
+
+📖 **[See detailed Evaluation Guide →](./evaluations/README.md)**
 
 -----
 
@@ -85,14 +77,8 @@ FAI-RL/
 ├── logs/                      # Training logs (auto-generated)
 └── outputs/                   # Inference output (auto-generated)
 ```
-
+g
 -----
-
-## 🔗 Quick Links
-
-* **[Training Guide](./trainers/README.md)** - Comprehensive guide to configuring and running model training with detailed parameter explanations
-* **[Inference Guide](./inference/README.md)** - Running model inference and text generation
-* **[Evaluation Guide](./evaluations/README.md)** - Evaluating model performance on standard benchmarks
 
 ## Memory Optimization
 

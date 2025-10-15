@@ -1,6 +1,35 @@
 # FAI-RL Inference
 
-Inference system supporting both local model inference.
+High-performance inference system for generating text completions from trained language models. Supports batch processing, custom prompts, and flexible configuration.
+
+## 🚀 Quick Start
+
+### Basic Inference
+
+```bash
+# Run inference on a trained model
+fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml
+
+# Run inference with debug mode for detailed logging
+fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml --debug
+```
+
+### Runtime Parameter Overrides
+
+Override configuration parameters directly from command line:
+
+```bash
+# Override model path and output file
+fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml \
+  inference.model_path=models/my_custom_model/checkpoint-100 \
+  inference.output_file=outputs/my_inference_results.csv
+
+# Override generation parameters
+fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml \
+  inference.temperature=0.7 \
+  inference.max_new_tokens=512 \
+  inference.do_sample=false
+```
 
 ## 🔧 Configuration
 
@@ -43,5 +72,41 @@ inference:
 
 ## 📊 Output
 
-**Results file**: Contains all generated responses
-**Summary file**: Contains inference statistics and configuration
+### Output Files
+
+Inference generates a CSV file at the specified `output_file` path:
+
+```
+outputs/
+└── llama3_3B_Inst_SFT_lora_v1_checkpoint100_inference.csv
+```
+
+### Output Format
+
+The CSV file contains the following columns:
+- **Input columns**: All columns specified in `dataset_columns` (e.g., `persona`, `prompt`)
+- **`generated_text`**: The model's generated response
+- **Metadata**: Generation parameters used (temperature, top_p, max_new_tokens)
+
+## 🐛 Troubleshooting
+
+### Slow Inference
+- Reduce `max_new_tokens` if not needed
+- Ensure model is loaded on GPU (not CPU)
+- Consider using smaller models for faster generation
+
+### Out of Memory
+- Reduce batch size (processed internally)
+- Use a smaller model
+- Reduce `max_new_tokens`
+
+### Poor Quality Outputs
+- Adjust `temperature` (try lower values for more focused outputs)
+- Refine `system_prompt` to provide better context
+- Ensure model is properly trained for the task
+- Try different `top_p` values
+
+### Missing Outputs
+- Check `output_file` path is writable
+- Verify `dataset_columns` match your dataset
+- Enable `--debug` flag for detailed error messages

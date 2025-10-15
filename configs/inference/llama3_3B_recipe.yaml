@@ -1,13 +1,25 @@
+# Inference Configuration for Local Fine-tuned Model
+# This config runs inference on a local fine-tuned model checkpoint.
+# Use this after training a model with the FAI-RL framework.
+
 inference:
+  # Model Configuration - Option A: Local Fine-tuned Model
+  # Path to local fine-tuned model checkpoint (use this for models trained with this framework)
   model_path: "models/llama3_3B_Inst_SFT_lora_v1/checkpoint-100"
+  
+  # Path to save inference results (CSV format with input columns + response column)
   output_file: "outputs/llama3_3B_Inst_SFT_lora_v1_checkpoint100_inference.csv"
   
-  # Dataset column configuration
-  dataset_name: "Roblox/FAI-RL-inference-dataset"
-  dataset_split: "test"
-  dataset_columns: ["persona", "prompt"]
-  response_column: "response"  # Name of the column to store model responses (default: "response")
+  # Dataset Configuration
+  # Specifies which dataset to run inference on
+  dataset_name: "Roblox/FAI-RL-inference-dataset"  # HuggingFace dataset identifier (e.g., "Anthropic/hh-rlhf")
+  dataset_split: "test"                            # Dataset split to use: train, test, or validation
+  dataset_columns: ["persona", "prompt"]           # List of columns to concatenate as model input
+  response_column: "response"                      # Name of column to store model responses (default: "response")
   
+  # System Prompt
+  # Provides context and instructions to the model for generation
+  # Multi-line system message that defines the model's behavior and task
   system_prompt: |
     You are RobloxAI, an AI built by Roblox. You are a large language model designed to assist users with their queries in a safe, accurate, and ethical manner.
     
@@ -48,8 +60,11 @@ inference:
     --------------------------------
   
   
-  # Generation parameters
-  temperature: 1.0
-  top_p: 0.9
-  max_new_tokens: 1000
-  do_sample: true
+  # Generation Parameters
+  # Controls the randomness and quality of generated text
+  # Tips: For consistent results, use temperature: 0.0 and do_sample: false
+  #       For creative generation, use temperature: 0.8-1.2 with top_p: 0.9
+  temperature: 1.0            # Sampling temperature (0.0 = deterministic, 2.0 = very random)
+  top_p: 0.9                  # Nucleus sampling threshold (0.0-1.0, lower = more focused)
+  max_new_tokens: 1000        # Maximum number of tokens to generate per response
+  do_sample: true             # Enable sampling (false = greedy decoding, true = stochastic sampling)

@@ -210,7 +210,8 @@ class EvaluationConfig:
     model_path: Optional[str] = None
     model: Optional[str] = None
     
-    # API configuration  
+    # API configuration
+    api_endpoint: Optional[str] = None
     api_key: Optional[str] = None
     
     # Dataset configuration

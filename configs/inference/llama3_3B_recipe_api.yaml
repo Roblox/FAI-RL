@@ -1,15 +1,29 @@
+# Inference Configuration for API-based Models
+# This config runs inference using an API endpoint (e.g., OpenAI, hosted LLM).
+# Use this for commercial models or hosted endpoints without local model files.
+# 
+# Usage: Replace <YOUR_API_ENDPOINT> and <YOUR_API_KEY> with your actual API credentials
+
 inference:
-  api_endpoint: "https://<YOUR_API_ENDPOINT>"
-  api_key: "<YOUR_API_KEY>"
-  model: "meta-llama/Llama-3.2-3B-Instruct"
+  # Model Configuration - Option C: API-based Inference
+  # For API-based inference, provide model identifier, API key, and endpoint
+  api_endpoint: "https://<YOUR_API_ENDPOINT>"        # Custom API endpoint URL for hosted model
+  api_key: "<YOUR_API_KEY>"                          # API authentication key (e.g., OpenAI API key)
+  model: "meta-llama/Llama-3.2-3B-Instruct"          # API model identifier (format depends on API provider)
+  
+  # Path to save inference results (CSV format with input columns + response column)
   output_file: "outputs/llama3-3B-FAI-RL-inference-dataset-output-api.csv"
   
-  # Dataset column configuration
-  dataset_name: "Roblox/FAI-RL-inference-dataset"
-  dataset_split: "test"
-  dataset_columns: ["persona", "prompt"]
-  response_column: "response"  # Name of the column to store model responses (default: "response")
+  # Dataset Configuration
+  # Specifies which dataset to run inference on
+  dataset_name: "Roblox/FAI-RL-inference-dataset"  # HuggingFace dataset identifier (e.g., "Anthropic/hh-rlhf")
+  dataset_split: "test"                            # Dataset split to use: train, test, or validation
+  dataset_columns: ["persona", "prompt"]           # List of columns to concatenate as model input
+  response_column: "response"                      # Name of column to store model responses (default: "response")
   
+  # System Prompt
+  # Provides context and instructions to the model for generation
+  # Multi-line system message that defines the model's behavior and task
   system_prompt: |
     You are RobloxAI, an AI built by Roblox. You are a large language model designed to assist users with their queries in a safe, accurate, and ethical manner.
     
@@ -50,8 +64,11 @@ inference:
     --------------------------------
 
   
-  # Generation parameters
-  temperature: 1.0
-  top_p: 0.9
-  max_new_tokens: 1000
-  do_sample: true
+  # Generation Parameters
+  # Controls the randomness and quality of generated text
+  # Tips: For consistent results, use temperature: 0.0 and do_sample: false
+  #       For creative generation, use temperature: 0.8-1.2 with top_p: 0.9
+  temperature: 1.0            # Sampling temperature (0.0 = deterministic, 2.0 = very random)
+  top_p: 0.9                  # Nucleus sampling threshold (0.0-1.0, lower = more focused)
+  max_new_tokens: 1000        # Maximum number of tokens to generate per response
+  do_sample: true             # Enable sampling (false = greedy decoding, true = stochastic sampling)

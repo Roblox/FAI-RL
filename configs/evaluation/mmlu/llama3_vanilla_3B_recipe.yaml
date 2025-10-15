@@ -1,14 +1,15 @@
-# MMLU Evaluation Configuration for Local Fine-tuned Model
-# This config evaluates a local fine-tuned model on the MMLU benchmark
+# MMLU Evaluation Configuration for Vanilla HuggingFace Model
+# This config evaluates a vanilla (non-fine-tuned) model from HuggingFace on the MMLU benchmark
 # using automatic JSON answer extraction and accuracy calculation.
+# Use this to establish baseline performance before fine-tuning.
 
 evaluation:
-  # Model Configuration
-  # Path to the trained model to evaluate (local checkpoint)
-  model_path: "models/llama3_3B_Inst_SFT_lora_v1/checkpoint-100"
+  # Model Configuration - Vanilla HuggingFace Model
+  # HuggingFace model identifier (model will be downloaded if not cached locally)
+  model: "meta-llama/Llama-3.2-3B-Instruct"
   
   # Where to save evaluation results (CSV format with all dataset columns + accuracy)
-  output_file: "outputs/llama3_3B_Inst_SFT_lora_v1_checkpoint100_evaluation.csv"
+  output_file: "outputs/llama3_3B_Inst_vanilla_mmlu_evaluation.csv"
 
   # Dataset Configuration
   # Specifies which dataset and subset to evaluate on
@@ -42,4 +43,5 @@ evaluation:
   top_p: 0.9                                 # Nucleus sampling parameter - probability threshold for token selection (0.0-1.0, lower = more focused)
   max_new_tokens: 2000                       # Maximum tokens to generate per response
   do_sample: true                            # Whether to use sampling for generation (false = greedy decoding, true = stochastic sampling)
+
 

@@ -63,7 +63,7 @@ def parse_args():
         epilog="""
 Examples:
   # Using config file:
-  fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml
+  fai-rl-train --config recipes/training/sft/llama3_3B_lora.yaml
   
   # Mix config file with overrides:
   fai-rl-train --config config.yaml training.learning_rate=1e-5 training.num_train_epochs=3

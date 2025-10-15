@@ -281,7 +281,7 @@ class ExperimentConfig:
         
         # Validate API key if present
         if hasattr(config, 'api_key') and config.api_key:
-            if config.api_key == "YOUR_API_KEY":
+            if config.api_key == "<YOUR_API_KEY>":
                 raise ValueError(
                     "Error: api_key is still set to the placeholder 'YOUR_API_KEY'. "
                     "Please replace it with your actual API key in the configuration file."

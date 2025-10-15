@@ -126,32 +126,43 @@ def parse_args():
 
 def load_model_and_tokenizer(config):
     """Load model and tokenizer based on config."""
-    model_path = config.model_path
+    # Support both model_path (local) and model (HuggingFace hub)
+    if hasattr(config, 'model_path') and config.model_path:
+        model_identifier = config.model_path
+        is_local = True
+    elif hasattr(config, 'model') and config.model:
+        model_identifier = config.model
+        is_local = False
+    else:
+        raise ValueError("Either model_path or model must be specified in config")
     
-    # Handle relative paths by prepending current working directory
-    if not os.path.isabs(model_path):
-        model_path = os.path.join(os.getcwd(), model_path)
+    # Handle relative paths for local models
+    if is_local and not os.path.isabs(model_identifier):
+        model_identifier = os.path.join(os.getcwd(), model_identifier)
     
-    print(f"Loading model from: {model_path}")
+    print(f"Loading model from: {model_identifier}")
     
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model path does not exist: {model_path}")
+    # Check if path exists for local models
+    if is_local and not os.path.exists(model_identifier):
+        raise FileNotFoundError(f"Model path does not exist: {model_identifier}")
     
-    # Check if this is a PEFT checkpoint
-    adapter_config_path = os.path.join(model_path, "adapter_config.json")
-    is_peft_checkpoint = os.path.exists(adapter_config_path)
+    # Check if this is a PEFT checkpoint (only for local models)
+    is_peft_checkpoint = False
+    if is_local:
+        adapter_config_path = os.path.join(model_identifier, "adapter_config.json")
+        is_peft_checkpoint = os.path.exists(adapter_config_path)
     
     if is_peft_checkpoint:
         print("Detected PEFT/LoRA checkpoint, loading base model first...")
         
         # Load the PEFT config to get the base model name
-        peft_config = PeftConfig.from_pretrained(model_path)
+        peft_config = PeftConfig.from_pretrained(model_identifier)
         base_model_name = peft_config.base_model_name_or_path
         
         print(f"Base model: {base_model_name}")
         
         # Load tokenizer from checkpoint
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_identifier)
         
         # Set the pad token if it's not already set
         if tokenizer.pad_token is None:
@@ -177,18 +188,18 @@ def load_model_and_tokenizer(config):
         
         # Now load the PEFT adapter
         print("Loading PEFT adapter...")
-        model = PeftModel.from_pretrained(model, model_path)
+        model = PeftModel.from_pretrained(model, model_identifier)
         
         # Merge adapter weights for faster inference
         print("Merging adapter weights...")
         model = model.merge_and_unload()
         
     else:
-        # Regular model loading (non-PEFT)
-        print("Loading regular (non-PEFT) model...")
+        # Regular model loading (non-PEFT) - can be local or from HuggingFace hub
+        print(f"Loading regular model from {'local path' if is_local else 'HuggingFace hub'}...")
         
         # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_identifier)
         
         # Set the pad token if it's not already set
         if tokenizer.pad_token is None:
@@ -196,7 +207,7 @@ def load_model_and_tokenizer(config):
         
         # Load the model
         model = AutoModelForCausalLM.from_pretrained(
-            model_path,
+            model_identifier,
             torch_dtype=torch.bfloat16,
             device_map="auto"
         )
@@ -353,13 +364,21 @@ def generate_response_by_api(
 def run_inference(config, debug=False):
     """Run inference on the specified dataset."""
     # Determine if we should use API or local model
-    use_api = (config.model is not None) and (config.api_key is not None)
+    # API requires both model and api_key
+    use_api = (hasattr(config, 'model') and config.model is not None) and \
+              (hasattr(config, 'api_key') and config.api_key is not None)
     
     if use_api:
         print(f"Using API inference with model: {config.model}")
         model, tokenizer = None, None
     else:
-        print("Using local model inference")
+        # Local inference - supports both model_path (local fine-tuned) and model (HuggingFace vanilla)
+        if hasattr(config, 'model_path') and config.model_path:
+            print(f"Using local fine-tuned model from: {config.model_path}")
+        elif hasattr(config, 'model') and config.model:
+            print(f"Using vanilla HuggingFace model: {config.model}")
+        else:
+            raise ValueError("Either model_path or model must be specified for local inference")
         model, tokenizer = load_model_and_tokenizer(config)
 
     # Load dataset
@@ -439,14 +458,25 @@ def run_inference(config, debug=False):
     print(f"\nResults saved to: {config.output_file}")
     print(f"Processed {len(results)} examples successfully")
     
+    # Determine model info for summary
+    if use_api:
+        model_info = config.model
+        inference_type = 'api'
+    elif hasattr(config, 'model_path') and config.model_path:
+        model_info = config.model_path
+        inference_type = 'local_finetuned'
+    else:
+        model_info = config.model
+        inference_type = 'huggingface_vanilla'
+    
     # Create summary
     summary = {
         'total_examples': len(data_split),
         'successful_examples': len(results),
         'failed_examples': len(data_split) - len(results),
         'config': config.to_dict(),
-        'inference_type': 'api' if use_api else 'local',
-        'model_info': config.model if use_api else config.model_path,
+        'inference_type': inference_type,
+        'model_info': model_info,
         'dataset_name': config.dataset_name,
         'dataset_columns_used': config.dataset_columns,
         'system_prompt': config.system_prompt
@@ -468,16 +498,22 @@ def main():
     # Load configuration
     config = ExperimentConfig.load_inference_config(args.config)
     
-    # Check if we should use API-based inference
-    use_api = hasattr(config, 'api_key') and config.api_key
+    # Determine inference type
+    use_api = hasattr(config, 'api_key') and config.api_key and \
+              hasattr(config, 'model') and config.model
     
     print("Starting inference with the following configuration:")
     if use_api:
         print(f"  Model (API): {config.model}")
         print(f"  Inference type: API-based")
-    else:
+    elif hasattr(config, 'model_path') and config.model_path:
         print(f"  Model path: {config.model_path}")
-        print(f"  Inference type: Local model")
+        print(f"  Inference type: Local fine-tuned model")
+    elif hasattr(config, 'model') and config.model:
+        print(f"  Model: {config.model}")
+        print(f"  Inference type: HuggingFace vanilla model")
+    else:
+        raise ValueError("Either model_path or model must be specified in config")
     
     print(f"  Dataset: {config.dataset_name}")
     print(f"  Dataset columns: {config.dataset_columns}")

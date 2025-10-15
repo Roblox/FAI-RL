@@ -7,8 +7,11 @@ High-performance inference system for generating text completions from trained l
 ### Basic Inference
 
 ```bash
-# Run inference on a trained model
+# Run inference on a local fine-tuned model
 fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml
+
+# Run inference on a vanilla HuggingFace model
+fai-rl-inference --config configs/inference/llama3_vanilla_3B_recipe.yaml
 
 # Run inference with debug mode for detailed logging
 fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml --debug
@@ -22,7 +25,7 @@ Override configuration parameters directly from command line:
 # Override model path and output file
 fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml \
   inference.model_path=models/my_custom_model/checkpoint-100 \
-  inference.output_file=outputs/my_inference_results.csv
+  inference.output_file=outputs/your-output.csv
 
 # Override generation parameters
 fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml \
@@ -35,12 +38,49 @@ fai-rl-inference --config configs/inference/llama3_3B_recipe.yaml \
 
 Create inference configs in `../configs/inference/`:
 
+### Three Inference Modes
+
+**1. Local Fine-tuned Model (using `model_path`):**
+```yaml
+inference:
+  model_path: "models/your-local-model-path"        # Path to local fine-tuned model checkpoint
+  output_file: "your-output.csv"
+  # ... rest of config
+```
+
+**2. Vanilla HuggingFace Model (using `model` without `api_key`):**
+```yaml
+inference:
+  model: "meta-llama/Llama-3.2-3B-Instruct"         # HuggingFace model identifier
+  output_file: "your-output.csv"
+  # ... rest of config
+```
+
+**3. API-based Inference (using `model` + `api_key`):**
+```yaml
+inference:
+  model: "openai/gpt-4"                             # API model identifier
+  api_key: "your-api-key"                           # API authentication key
+  api_endpoint: "https://<YOUR_API_ENDPOINT>"       # custom endpoint
+  output_file: "your-output.csv"
+  # ... rest of config
+```
+
+### Full Configuration Example
+
 ```yaml
 # Inference Configuration
 # Defines model source and inference settings
 inference:
-  # Model Configuration - Choose ONE of the following options:
-  model_path: "models/your-local-model-path"        # Local model path for local inference
+  # Model Configuration - Choose ONE of the following:
+  # Option A: model_path (for local fine-tuned models)
+  # Option B: model (for vanilla HuggingFace models)
+  # Option C: model + api_key (for API-based inference)
+  
+  model_path: "models/your-local-model-path"        # OR
+  model: "meta-llama/Llama-3.2-3B-Instruct"         # OR
+  api_key: "your-api-key"                           # (Only for API inference)
+  
   output_file: "your-output.csv"                    # Path to save inference results (CSV format)
 
   # Dataset Configuration
@@ -64,7 +104,12 @@ inference:
 
 ### Configuration Parameters
 
-**Configuration Tips:**
+**Model Selection Tips:**
+- **Use `model_path`** for local fine-tuned models you've trained with this framework
+- **Use `model`** (without `api_key`) to test vanilla HuggingFace models before fine-tuning
+- **Use `model` + `api_key`** for API-based inference with commercial models
+
+**Generation Tips:**
 - **For consistent results**: Set `temperature: 0.0` and `do_sample: false`
 - **For creative generation**: Use `temperature: 0.8-1.2` with `top_p: 0.9`
 - **Memory considerations**: Reduce `max_new_tokens` if encountering memory issues

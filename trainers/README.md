@@ -8,13 +8,13 @@ Training implementations supporting SFT (Supervised Fine-Tuning), DPO (Direct Pr
 
 ```bash
 # Single GPU training with SFT
-fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 1
+fai-rl-train --config recipes/training/sft/llama3_3B_lora.yaml --num-gpus 1
 
 # Multi-GPU training with DPO (8 GPUs)
-fai-rl-train --config configs/training/dpo/llama3_3B_lora_recipe.yaml --num-gpus 8
+fai-rl-train --config recipes/training/dpo/llama3_3B_lora.yaml --num-gpus 8
 
 # Run training in background with nohup
-fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 8 --nohup
+fai-rl-train --config recipes/training/sft/llama3_3B_lora.yaml --num-gpus 8 --nohup
 ```
 
 ### Runtime Parameter Overrides
@@ -23,27 +23,27 @@ Override configuration parameters directly from command line:
 
 ```bash
 # Override model and training parameters
-fai-rl-train --config configs/training/sft/llama3_3B_lora_recipe.yaml --num-gpus 4 \
+fai-rl-train --config recipes/training/sft/llama3_3B_lora.yaml --num-gpus 4 \
   model.base_model_name=Qwen/Qwen3-4B-Instruct-2507 \
   training.num_train_epochs=3 \
   training.learning_rate=5.0e-5
 
 # Override dataset and output directory
-fai-rl-train --config configs/training/dpo/llama3_3B_lora_recipe.yaml --num-gpus 8 --nohup \
+fai-rl-train --config recipes/training/dpo/llama3_3B_lora.yaml --num-gpus 8 --nohup \
   data.datasets[0].name=your-org/your-dataset \
   training.output_dir=models/my_custom_model
 ```
 
 ## 🔧 Configuration
 
-All configuration files are located in `../configs/training/` and include comprehensive inline documentation. Each config file is fully self-documenting with detailed comments explaining every parameter.
+All configuration files are located in `../recipes/training/` and include comprehensive inline documentation. Each config file is fully self-documenting with detailed comments explaining every parameter.
 
 **Available Config Templates:**
-- **SFT (Supervised Fine-Tuning)**: `configs/training/sft/llama3_3B_lora_recipe.yaml`
-- **DPO (Direct Preference Optimization)**: `configs/training/dpo/llama3_3B_lora_recipe.yaml`
-- **PPO (Proximal Policy Optimization)**: `configs/training/ppo/llama3_3B_lora_recipe.yaml`
-- **GRPO (Group Relative Policy Optimization)**: `configs/training/grpo/llama3_3B_lora_recipe.yaml`
-- **GSPO (Group Sequence Policy Optimization)**: `configs/training/gspo/llama3_3B_lora_recipe.yaml`
+- **SFT (Supervised Fine-Tuning)**: `recipes/training/sft/llama3_3B_lora.yaml`
+- **DPO (Direct Preference Optimization)**: `recipes/training/dpo/llama3_3B_lora.yaml`
+- **PPO (Proximal Policy Optimization)**: `recipes/training/ppo/llama3_3B_lora.yaml`
+- **GRPO (Group Relative Policy Optimization)**: `recipes/training/grpo/llama3_3B_lora.yaml`
+- **GSPO (Group Sequence Policy Optimization)**: `recipes/training/gspo/llama3_3B_lora.yaml`
 
 Each config file contains four main sections:
 1. **Model Configuration** - Base model, quantization, and LoRA settings

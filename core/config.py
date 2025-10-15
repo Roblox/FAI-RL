@@ -2,6 +2,15 @@
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 import yaml
+import sys
+import os
+
+# Add project root to path for imports
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from utils.config_validation import validate_api_config
 
 
 @dataclass
@@ -210,7 +219,8 @@ class EvaluationConfig:
     model_path: Optional[str] = None
     model: Optional[str] = None
     
-    # API configuration  
+    # API configuration
+    api_endpoint: Optional[str] = None
     api_key: Optional[str] = None
     
     # Dataset configuration
@@ -278,13 +288,8 @@ class ExperimentConfig:
         
         config = InferenceConfig(**config_dict['inference'])
         
-        # Validate API key if present
-        if hasattr(config, 'api_key') and config.api_key:
-            if config.api_key == "YOUR_API_KEY":
-                raise ValueError(
-                    "Error: api_key is still set to the placeholder 'YOUR_API_KEY'. "
-                    "Please replace it with your actual API key in the configuration file."
-                )
+        # Validate API configuration
+        validate_api_config(config)
         
         return config
     
@@ -296,13 +301,8 @@ class ExperimentConfig:
         
         config = EvaluationConfig(**config_dict['evaluation'])
         
-        # Validate API key if present
-        if hasattr(config, 'api_key') and config.api_key:
-            if config.api_key == "YOUR_API_KEY":
-                raise ValueError(
-                    "Error: api_key is still set to the placeholder 'YOUR_API_KEY'. "
-                    "Please replace it with your actual API key in the configuration file."
-                )
+        # Validate API configuration
+        validate_api_config(config)
         
         return config
     

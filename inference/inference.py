@@ -25,6 +25,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from core.config import ExperimentConfig
+from utils.config_validation import validate_api_config
 
 
 def format_multiple_choice_for_inference(choices, choice_labels=None):
@@ -314,22 +315,13 @@ def _parse_api_response(response_json: dict, model: str) -> str:
         return ""
 
 
-def _validate_api_key(api_key: str) -> None:
-    """Validate that the API key is not a placeholder."""
-    if api_key == "YOUR_API_KEY":
-        raise ValueError(
-            "Error: api_key is still set to the placeholder 'YOUR_API_KEY'. "
-            "Please replace it with your actual API key in the configuration file."
-        )
-
-
 def generate_response_by_api(
     prompt: str,
     config
 ) -> Union[Dict[str, Any], str]:
     """Generate response using API-based inference."""
-    _validate_api_key(config.api_key)
-    
+    validate_api_config(config)
+
     try:
         # Get the appropriate API endpoint
         api_endpoint = getattr(config, 'api_endpoint', None)

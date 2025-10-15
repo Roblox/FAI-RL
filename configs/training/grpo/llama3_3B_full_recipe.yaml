@@ -1,60 +1,73 @@
+# Model Configuration
+# Defines the base model and its loading parameters
 model:
-  base_model_name: "meta-llama/Llama-3.2-3B-Instruct"
-  torch_dtype: "bfloat16"
-  low_cpu_mem_usage: true
-  load_in_8bit: false
-  load_in_4bit: false
-  use_flash_attention: false
+  base_model_name: "meta-llama/Llama-3.2-3B-Instruct"   # HuggingFace model name or local path
+  torch_dtype: "bfloat16"                               # Data type for model weights (bfloat16/float16/float32)
+  low_cpu_mem_usage: true                               # Reduce CPU memory usage during model loading
+  load_in_8bit: false                                   # Enable 8-bit quantization
+  load_in_4bit: false                                   # Enable 4-bit quantization (for QLoRA)
+  use_flash_attention: false                            # Use Flash Attention for faster training (if supported)
 
+# Data Configuration
+# Specifies datasets and preprocessing settings
 data:
   datasets: # YOUR TRAINING DATASET
-    - name: "openai/gsm8k"
-      subset: "main"
-      split: "train"
-      prompt_column: "question"
-      answer_column: "answer"
-    - name: "nvidia/OpenMathInstruct-2"
+    # Supports multiple datasets.
+    # Add additional entries here for combined training across datasets.
+    # For GRPO (math/reasoning tasks):
+    - name: "openai/gsm8k"                              # HuggingFace dataset name/path (required)
+      subset: "main"                                    # Dataset subset/config name (optional)
+      split: "train"                                    # Dataset split to use (default: "train")
+      prompt_column: "question"                         # Name of question/prompt column
+      answer_column: "answer"                           # Name of answer column
+    - name: "nvidia/OpenMathInstruct-2"                 # Optional: add multiple datasets for combined training
       split: "train_1M"
       prompt_column: "problem"
       answer_column: "expected_answer"
-  max_length: 2048
-  max_prompt_length: 1024
-  remove_unused_columns: false
-
-training:
-  algorithm: "grpo"
-  output_dir: "models/llama3_3B_Inst_GRPO_full_v1"
   
-  # Training hyperparameters
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 16
-  learning_rate: 1.0e-5
-  num_train_epochs: 1
-  max_steps: -1
-  warmup_steps: 50
+  # Text processing settings
+  max_length: 2048                                      # Maximum sequence length for model input
+  max_prompt_length: 1024                               # Maximum length for prompts (rest reserved for responses)
+  remove_unused_columns: false                          # Keep all dataset columns (set true to save memory)
+
+# Training Configuration
+# Controls the training process and optimization settings
+training:
+  algorithm: "grpo"                                     # Training algorithm: sft, dpo, ppo, grpo, gspo
+  output_dir: "models/llama3_3B_Inst_GRPO_full_v1"      # Directory to save trained model and checkpoints
+  
+  # Core training hyperparameters
+  per_device_train_batch_size: 1                        # Batch size per GPU (adjust based on GPU memory)
+  gradient_accumulation_steps: 16                       # Steps to accumulate gradients (effective batch = batch_size × accum_steps × num_gpus)
+  learning_rate: 1.0e-5                                 # Learning rate (1e-5 for full fine-tuning)
+  num_train_epochs: 1                                   # Number of complete passes through the dataset
+  max_steps: -1                                         # Maximum number of training steps (-1 = train for num_train_epochs)
+  warmup_steps: 50                                      # Linear warmup steps for learning rate scheduler
   
   # Logging and checkpointing
-  logging_steps: 5
-  save_steps: 100
-  eval_steps: 100
+  logging_steps: 5                                      # Log training metrics every N steps
+  save_steps: 100                                       # Save model checkpoint every N steps
+  eval_steps: 100                                       # Evaluate model every N steps (optional, used by DPO/GRPO/GSPO/SFT)
   
-  # Optimization settings
-  bf16: true
-  fp16: false
-  gradient_checkpointing: true
+  # Memory and precision optimization
+  bf16: true                                            # Use bfloat16 precision (recommended for modern GPUs)
+  fp16: false                                           # Use float16 precision (alternative to bf16)
+  gradient_checkpointing: true                          # Trade compute for memory (enables larger models/batch sizes)
   
-  # DataLoader settings
-  dataloader_num_workers: 0
-  dataloader_pin_memory: false
-  dataloader_drop_last: true
+  # Data loading optimization
+  dataloader_num_workers: 0                             # Number of CPU workers for data loading (0 = main process only)
+  dataloader_pin_memory: false                          # Pin memory for faster GPU transfer (set true if sufficient RAM)
+  dataloader_drop_last: true                            # Drop last incomplete batch to ensure consistent batch sizes
   
-  # Miscellaneous
-  save_only_model: true
-  prediction_loss_only: true
+  # Output and evaluation settings
+  save_only_model: true                                 # Save only model weights (not optimizer states) to reduce disk usage
+  prediction_loss_only: true                            # Only compute prediction loss during evaluation
 
+# Weights & Biases Integration
+# Optional experiment tracking and monitoring
 wandb:
-  enabled: false
-  project: "rl"
-  entity: "fai-llmaas"
-  name: "Llama-3.1-3B-Inst-Full-GRPO-FAIRL"
-  tags: ["GRPO", "llama3", "3B-Inst", "GSM8K", "OpenMathInstruct-2"]
+  enabled: false                                        # Enable W&B logging
+  project: "rl"                                         # W&B project name
+  entity: "fai-llmaas"                                  # W&B username or team name
+  name: "Llama-3.1-3B-Inst-Full-GRPO-FAIRL"             # Experiment name in W&B
+  tags: ["GRPO", "llama3", "3B-Inst", "GSM8K", "OpenMathInstruct-2"]  # Tags for organizing experiments

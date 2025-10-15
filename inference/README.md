@@ -88,6 +88,7 @@ inference:
   dataset_name: "your-huggingface-dataset"          # HuggingFace dataset identifier (e.g., "Anthropic/hh-rlhf")
   dataset_split: "test"                             # Dataset split to use: train, test, validation
   dataset_columns: ["persona", "prompt"]            # List of columns to concatenate as model input
+  response_column: "response"                       # Name of column to store model responses (default: "response")
 
   # System Prompt
   # Provides context and instructions to the model
@@ -130,7 +131,7 @@ outputs/
 
 The CSV file contains the following columns:
 - **Input columns**: All columns specified in `dataset_columns` (e.g., `persona`, `prompt`)
-- **`generated_text`**: The model's generated response
+- **Response column**: The model's generated response (column name specified by `response_column`, default is `response`)
 - **Metadata**: Generation parameters used (temperature, top_p, max_new_tokens)
 
 ## 🐛 Troubleshooting

@@ -48,6 +48,7 @@ evaluation:
   dataset_split: "test"                      # Which split to evaluate on (test/validation/dev)
   dataset_columns: ["question", "choices", "answer"]  # List of dataset columns to include in evaluation
   ground_truth_column: "answer"              # Column containing the correct answers
+  response_column: "response"                # Name of column to store/read model responses (default: "response")
   
   # System prompt template with placeholders
   # Template for evaluation prompts (supports variable substitution with {variable})

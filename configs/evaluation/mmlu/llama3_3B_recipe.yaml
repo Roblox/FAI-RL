@@ -9,6 +9,7 @@ evaluation:
   dataset_split: "test"
   dataset_columns: ["question", "choices", "answer"]
   ground_truth_column: "answer"
+  response_column: "response"  # Name of the column to store/read model responses (default: "response")
   
   # Use a special prompt template that will be post-processed
   system_prompt: |

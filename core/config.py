@@ -191,6 +191,7 @@ class InferenceConfig:
     
     # Dataset column configuration
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
+    response_column: str = "response"
     
     # Generation parameters
     temperature: float = 1.0
@@ -222,6 +223,7 @@ class EvaluationConfig:
     # Dataset column configuration
     dataset_columns: List[str] = field(default_factory=lambda: ["question", "choices", "answer"])
     ground_truth_column: str = "answer"
+    response_column: str = "response"
     
     # Prompt configuration
     prompt_template: Optional[str] = None

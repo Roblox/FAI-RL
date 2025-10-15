@@ -312,8 +312,9 @@ def run_comprehensive_evaluation(config_path: str,
         
         # Extract predicted answers
         print("Extracting predicted answers...")
+        response_col = getattr(config, 'response_column', 'response')
         predicted_answers = []
-        for response in inference_results['response']:
+        for response in inference_results[response_col]:
             pred_answer = extract_predicted_answer(
                 response, 
                 output_type=output_type,

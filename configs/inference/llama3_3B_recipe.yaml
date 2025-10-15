@@ -6,6 +6,7 @@ inference:
   dataset_name: "Roblox/FAI-RL-inference-dataset"
   dataset_split: "test"
   dataset_columns: ["persona", "prompt"]
+  response_column: "response"  # Name of the column to store model responses (default: "response")
   
   system_prompt: |
     You are RobloxAI, an AI built by Roblox. You are a large language model designed to assist users with their queries in a safe, accurate, and ethical manner.

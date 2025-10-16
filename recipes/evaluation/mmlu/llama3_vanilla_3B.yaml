@@ -32,19 +32,33 @@ evaluation:
     
     Please respond **only in valid JSON format** with the following keys:
     {{
+      "reasoning": "<your thought process>",
       "answer": "<the letter of the chosen option, e.g., A, B, C, D>"
     }}
 
     Let's think step by step.
   
   # JSON Schema for Structured Output (Optional)
-  schema: |
+  response_format: |
     {
-      "type": "object",
-      "properties": {
-          "answer": {"type": "string"}
-      },
-      "required": ["answer"]
+      "type": "json_schema",
+      "json_schema": {
+        "name": "AI_response",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "answer": {
+              "type": "string",
+              "description": "The assistant's answer to the user question"
+            },
+            "reasoning": {
+              "type": "string",
+              "description": "Explanation of how the answer was derived"
+            }
+          },
+          "required": ["answer", "reasoning"]
+        }
+      }
     }
   
   # Generation Parameters

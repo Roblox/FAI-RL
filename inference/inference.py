@@ -248,14 +248,12 @@ def generate_response(model, tokenizer, prompt: str, config):
     }
     
     # Add structured output schema if provided
-    # Note: This requires transformers with guided generation support
-    # For models without this support, the schema acts as a prompt hint only
-    if hasattr(config, 'schema') and config.schema:
+    if hasattr(config, 'response_format') and config.schema:
         try:
-            schema_dict = json.loads(config.schema)
+            response_format_dict = json.loads(config.response_format)
             # Try to use guided generation if available
-            if hasattr(model.generation_config, 'guided_json'):
-                generation_kwargs['guided_json'] = schema_dict
+            if hasattr(model.response_format, 'response_format'):
+                generation_kwargs['response_format'] = response_format_dict
         except json.JSONDecodeError:
             print("Warning: Schema is not valid JSON, ignoring structured output")
         except Exception as e:
@@ -277,57 +275,6 @@ def generate_response(model, tokenizer, prompt: str, config):
     return response_text
 
 
-
-def _build_google_request_data(prompt: str, config) -> dict:
-    """Build request data for Google/Gemini models."""
-    data = {
-        "contents": {
-            "role": "user",
-            "parts": [{"text": prompt}]
-        },
-        "generationConfig": {
-            "maxOutputTokens": config.max_new_tokens
-        }
-    }
-    
-    # Add schema for structured output if provided
-    if hasattr(config, 'schema') and config.schema:
-        try:
-            schema_dict = json.loads(config.schema)
-            data["generationConfig"]["response_mime_type"] = "application/json"
-            data["generationConfig"]["response_schema"] = schema_dict
-        except json.JSONDecodeError:
-            print("Warning: Schema is not valid JSON, ignoring structured output")
-    
-    return data
-
-
-def _build_openai_request_data(prompt: str, config) -> dict:
-    """Build request data for OpenAI models."""
-    data = {
-        "model": config.model,
-        "messages": [{"content": prompt, "role": "user"}]
-    }
-    
-    # Add schema for structured output if provided
-    # OpenAI uses response_format parameter
-    if hasattr(config, 'schema') and config.schema:
-        try:
-            schema_dict = json.loads(config.schema)
-            data["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "response",
-                    "strict": True,
-                    "schema": schema_dict
-                }
-            }
-        except json.JSONDecodeError:
-            print("Warning: Schema is not valid JSON, ignoring structured output")
-    
-    return data
-
-
 def _build_default_request_data(prompt: str, config) -> dict:
     """Build request data for other models (Anthropic, etc.)."""
     data = {
@@ -338,22 +285,12 @@ def _build_default_request_data(prompt: str, config) -> dict:
     }
     
     # Add schema for structured output if provided
-    # For Anthropic and other providers, add as part of the prompt for now
-    # Different providers may have different schema formats
-    if hasattr(config, 'schema') and config.schema:
+    if hasattr(config, 'response_format') and config.response_format:
         try:
-            schema_dict = json.loads(config.schema)
-            # Try to add as a structured output parameter if the API supports it
-            # This is a placeholder - different APIs may handle this differently
-            if "anthropic" in config.model.lower():
-                # Anthropic Claude doesn't have native JSON schema support yet
-                # but we can hint via the prompt (already done in system_prompt)
-                pass
-            else:
-                # Generic approach: try to add schema as a parameter
-                data["response_format"] = {"type": "json_object", "schema": schema_dict}
+            response_format_dict = json.loads(config.response_format)
+            data["response_format"] = response_format_dict
         except json.JSONDecodeError:
-            print("Warning: Schema is not valid JSON, ignoring structured output")
+            print("Warning: response_format is not valid JSON, ignoring structured output")
     
     return data
 
@@ -392,12 +329,7 @@ def generate_response_by_api(
         }
         
         # Build request data based on model type
-        if config.model.startswith("google/"):
-            data = _build_google_request_data(prompt, config)
-        elif config.model.startswith("openai/"):
-            data = _build_openai_request_data(prompt, config)
-        else:
-            data = _build_default_request_data(prompt, config)
+        data = _build_default_request_data(prompt, config)
         
         # Make the API request
         response = _make_api_request(api_endpoint, headers, data, config.model)

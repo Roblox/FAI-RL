@@ -53,8 +53,8 @@ def extract_multiple_choice_answer(text, choice_labels=None):
     if match:
         return match.group(1)
     
-    # Pattern 1: "The best/final answer/option is A" or "The answer/option is A"
-    pattern1 = r'(?:THE\s+)?(?:BEST|FINAL)?\s*(?:ANSWER|OPTION)\s+IS\s+([' + ''.join(choice_labels) + r'])'
+    # Pattern 1: "The best/final/correct answer/option is A" or "The answer/option is A"
+    pattern1 = r'(?:THE\s+)?(?:BEST|FINAL|CORRECT)?\s*(?:ANSWER|OPTION)\s+IS\s+([' + ''.join(choice_labels) + r'])'
     match = re.search(pattern1, text_upper)
     if match:
         return match.group(1)
@@ -71,7 +71,19 @@ def extract_multiple_choice_answer(text, choice_labels=None):
     if match:
         return match.group(1)
 
-    # Pattern 4: "A."
+    # Pattern 4: "the answer/option is option/answer C" (e.g., "the answer is option C")
+    pattern4 = r'(?:THE\s+)?(?:ANSWER|OPTION)\s+IS\s+(?:OPTION|ANSWER)\s+([' + ''.join(choice_labels) + r'])'
+    match = re.search(pattern4, text_upper)
+    if match:
+        return match.group(1)
+
+    # Pattern 5: "the answer/option should/would/must be C" (with optional adjectives like "correct")
+    pattern5 = r'(?:THE\s+)?(?:BEST|FINAL|CORRECT)?\s*(?:ANSWER|OPTION)\s+(?:SHOULD|WOULD|MUST|COULD)\s+BE\s+([' + ''.join(choice_labels) + r'])'
+    match = re.search(pattern5, text_upper)
+    if match:
+        return match.group(1)
+
+    # Pattern 6: Fallback to first character
     first_char = text.strip().upper()[0]
     
     return first_char if first_char in choice_labels else None

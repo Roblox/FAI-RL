@@ -248,14 +248,14 @@ def generate_response(model, tokenizer, prompt: str, config):
     }
     
     # Add structured output schema if provided
-    if hasattr(config, 'response_format') and config.schema:
+    if hasattr(config, 'response_format') and config.response_format:
         try:
             response_format_dict = json.loads(config.response_format)
             # Try to use guided generation if available
             if hasattr(model.response_format, 'response_format'):
                 generation_kwargs['response_format'] = response_format_dict
         except json.JSONDecodeError:
-            print("Warning: Schema is not valid JSON, ignoring structured output")
+            print("Warning: Response format is not valid JSON, ignoring structured output")
         except Exception as e:
             print(f"Warning: Could not enable structured output: {e}")
     

@@ -203,7 +203,7 @@ class InferenceConfig:
     response_column: str = "response"
     
     # JSON schema for structured output (optional)
-    schema: Optional[str] = None
+    response_format: Optional[str] = None
     
     # Generation parameters
     temperature: float = 1.0
@@ -246,7 +246,7 @@ class EvaluationConfig:
     choice_labels: List[str] = field(default_factory=lambda: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
     
     # JSON schema for structured output (optional)
-    schema: Optional[str] = None
+    response_format: Optional[str] = None
     
     # Generation parameters
     temperature: float = 1.0

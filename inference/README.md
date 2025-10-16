@@ -15,6 +15,9 @@ fai-rl-inference --config recipes/inference/llama3_vanilla_3B.yaml
 
 # Run inference with debug mode for detailed logging
 fai-rl-inference --config recipes/inference/llama3_3B.yaml --debug
+
+# Run inference in background with nohup
+fai-rl-inference --config recipes/inference/llama3_3B.yaml --nohup
 ```
 
 ### Runtime Parameter Overrides

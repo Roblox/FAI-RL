@@ -12,6 +12,9 @@ fai-rl-eval --config recipes/evaluation/mmlu/llama3_3B.yaml
 
 # Evaluate with debug mode for detailed logging
 fai-rl-eval --config recipes/evaluation/mmlu/llama3_3B.yaml --debug
+
+# Run evaluation in background with nohup
+fai-rl-eval --config recipes/evaluation/mmlu/llama3_3B.yaml --nohup
 ```
 
 ### Runtime Parameter Overrides

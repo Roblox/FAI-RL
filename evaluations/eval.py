@@ -9,7 +9,8 @@ import re
 import json, csv
 import pandas as pd
 import warnings
-from datetime import datetime
+import subprocess
+import datetime
 from typing import Dict, List, Tuple, Any, Optional
 from datasets import load_dataset
 import numpy as np
@@ -503,6 +504,11 @@ def parse_args():
         action="store_true",
         help="Enable debug mode with verbose logging"
     )
+    parser.add_argument(
+        "--nohup",
+        action="store_true",
+        help="Run evaluation in background with nohup (output redirected to evaluation_<timestamp>.log)"
+    )
     
     return parser.parse_args()
 
@@ -510,6 +516,34 @@ def parse_args():
 def main():
     """Main evaluation function."""
     args = parse_args()
+    
+    # Handle nohup mode
+    if args.nohup:
+        # Generate log filename with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = f"evaluation_{timestamp}.log"
+        
+        print(f"Running evaluation in background with nohup. Output will be saved to: {log_file}")
+        
+        # Build command to run the script without --nohup
+        script_path = os.path.abspath(__file__)
+        cmd_args = [sys.executable, script_path, "--config", args.config]
+        if args.debug:
+            cmd_args.append("--debug")
+        
+        # Prepare nohup command: nohup <command> > log_file 2>&1 &
+        cmd_str = " ".join(cmd_args) + f" > {log_file} 2>&1 &"
+        full_cmd = f"nohup {cmd_str}"
+        
+        print(f"Executing: {full_cmd}")
+        
+        # Execute with shell to handle redirection and background
+        result = subprocess.call(full_cmd, shell=True)
+        
+        if result == 0:
+            print(f"Evaluation started in background. Monitor progress with: tail -f {log_file}")
+        
+        return result
     
     # Create necessary directories
     os.makedirs("logs", exist_ok=True)

@@ -251,9 +251,13 @@ def generate_response(model, tokenizer, prompt: str, config):
     if hasattr(config, 'response_format') and config.response_format:
         try:
             response_format_dict = json.loads(config.response_format)
-            # Try to use guided generation if available
-            if hasattr(model.response_format, 'response_format'):
+            # Try to use guided generation if available (supported by some models/libraries)
+            if hasattr(model, 'response_format'):
                 generation_kwargs['response_format'] = response_format_dict
+            else:
+                # Standard HuggingFace models don't support native structured output
+                # The response_format will be used in the prompt instead (handled by template)
+                print("Info: Model does not support native structured output parameter. Relying on prompt-based guidance.")
         except json.JSONDecodeError:
             print("Warning: Response format is not valid JSON, ignoring structured output")
         except Exception as e:

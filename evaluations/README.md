@@ -46,7 +46,7 @@ The evaluation system supports an optional `schema` field that enforces structur
 evaluation:
   # ... other configuration ...
   
-  schema: |
+  response_format: |
     {
       "type": "object",
       "properties": {

@@ -50,7 +50,7 @@ The inference system supports an optional `schema` field that enforces structure
 inference:
   # ... other configuration ...
   
-  schema: |
+  response_format: |
     {
       "type": "object",
       "properties": {

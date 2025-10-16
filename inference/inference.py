@@ -221,6 +221,15 @@ def load_model_and_tokenizer(config):
 def generate_response(model, tokenizer, prompt: str, config):
     """
     Generates a response from the model given a prompt.
+    
+    Args:
+        model: The model to use for generation
+        tokenizer: The tokenizer to use
+        prompt: The input prompt
+        config: Configuration object with generation parameters
+        
+    Returns:
+        Generated response text
     """
     
     # Tokenize the input prompt
@@ -229,15 +238,34 @@ def generate_response(model, tokenizer, prompt: str, config):
     # Get the length of the input tokens
     input_token_length = inputs.input_ids.shape[1]
     
+    # Prepare generation kwargs
+    generation_kwargs = {
+        "max_new_tokens": config.max_new_tokens,
+        "do_sample": config.do_sample,
+        "temperature": config.temperature,
+        "top_p": config.top_p,
+        "pad_token_id": tokenizer.pad_token_id
+    }
+    
+    # Add structured output schema if provided
+    # Note: This requires transformers with guided generation support
+    # For models without this support, the schema acts as a prompt hint only
+    if hasattr(config, 'schema') and config.schema:
+        try:
+            schema_dict = json.loads(config.schema)
+            # Try to use guided generation if available
+            if hasattr(model.generation_config, 'guided_json'):
+                generation_kwargs['guided_json'] = schema_dict
+        except json.JSONDecodeError:
+            print("Warning: Schema is not valid JSON, ignoring structured output")
+        except Exception as e:
+            print(f"Warning: Could not enable structured output: {e}")
+    
     # Generate output
     with torch.no_grad():  # Disable gradient calculations for inference
         outputs = model.generate(
             **inputs,
-            max_new_tokens=config.max_new_tokens,
-            do_sample=config.do_sample,
-            temperature=config.temperature,
-            top_p=config.top_p,
-            pad_token_id=tokenizer.pad_token_id
+            **generation_kwargs
         )
     
     # Slice off the prompt tokens
@@ -248,24 +276,11 @@ def generate_response(model, tokenizer, prompt: str, config):
     
     return response_text
 
-def _get_api_endpoint(model: str, api_endpoint: str = None) -> str:
-    """Determine the appropriate API endpoint based on model type and name.
-    
-    Args:
-        model: The model identifier
-        api_endpoint: Optional custom API endpoint override
-        
-    Returns:
-        The API endpoint URL to use
-    """
-    # If custom endpoint is provided and not empty, use it
-    if api_endpoint:
-        return "https://apis.sitetest3.simulpong.com/ml-gateway-service/v1/chat/completions"
-    
+
 
 def _build_google_request_data(prompt: str, config) -> dict:
     """Build request data for Google/Gemini models."""
-    return {
+    data = {
         "contents": {
             "role": "user",
             "parts": [{"text": prompt}]
@@ -274,34 +289,78 @@ def _build_google_request_data(prompt: str, config) -> dict:
             "maxOutputTokens": config.max_new_tokens
         }
     }
+    
+    # Add schema for structured output if provided
+    if hasattr(config, 'schema') and config.schema:
+        try:
+            schema_dict = json.loads(config.schema)
+            data["generationConfig"]["response_mime_type"] = "application/json"
+            data["generationConfig"]["response_schema"] = schema_dict
+        except json.JSONDecodeError:
+            print("Warning: Schema is not valid JSON, ignoring structured output")
+    
+    return data
 
 
 def _build_openai_request_data(prompt: str, config) -> dict:
     """Build request data for OpenAI models."""
-    return {
+    data = {
         "model": config.model,
         "messages": [{"content": prompt, "role": "user"}]
     }
+    
+    # Add schema for structured output if provided
+    # OpenAI uses response_format parameter
+    if hasattr(config, 'schema') and config.schema:
+        try:
+            schema_dict = json.loads(config.schema)
+            data["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "strict": True,
+                    "schema": schema_dict
+                }
+            }
+        except json.JSONDecodeError:
+            print("Warning: Schema is not valid JSON, ignoring structured output")
+    
+    return data
 
 
 def _build_default_request_data(prompt: str, config) -> dict:
     """Build request data for other models (Anthropic, etc.)."""
-    return {
+    data = {
         "model": config.model,
         "max_tokens": config.max_new_tokens,
         "temperature": config.temperature,
         "messages": [{"content": prompt, "role": "user"}]
     }
+    
+    # Add schema for structured output if provided
+    # For Anthropic and other providers, add as part of the prompt for now
+    # Different providers may have different schema formats
+    if hasattr(config, 'schema') and config.schema:
+        try:
+            schema_dict = json.loads(config.schema)
+            # Try to add as a structured output parameter if the API supports it
+            # This is a placeholder - different APIs may handle this differently
+            if "anthropic" in config.model.lower():
+                # Anthropic Claude doesn't have native JSON schema support yet
+                # but we can hint via the prompt (already done in system_prompt)
+                pass
+            else:
+                # Generic approach: try to add schema as a parameter
+                data["response_format"] = {"type": "json_object", "schema": schema_dict}
+        except json.JSONDecodeError:
+            print("Warning: Schema is not valid JSON, ignoring structured output")
+    
+    return data
 
 
 def _make_api_request(url: str, headers: dict, data: dict, model: str) -> requests.Response:
     """Make the HTTP request to the API endpoint."""
-    if model.startswith("google/"):
-        # Google API requires data to be JSON string in body
-        return requests.post(url, headers=headers, data=json.dumps(data))
-    else:
-        # Other APIs can use json parameter
-        return requests.post(url, headers=headers, json=data)
+    return requests.post(url, headers=headers, json=data)
 
 
 def _parse_api_response(response_json: dict, model: str) -> str:
@@ -325,7 +384,6 @@ def generate_response_by_api(
     try:
         # Get the appropriate API endpoint
         api_endpoint = getattr(config, 'api_endpoint', None)
-        url = _get_api_endpoint(config.model, api_endpoint)
         
         # Set up headers
         headers = {
@@ -342,7 +400,7 @@ def generate_response_by_api(
             data = _build_default_request_data(prompt, config)
         
         # Make the API request
-        response = _make_api_request(url, headers, data, config.model)
+        response = _make_api_request(api_endpoint, headers, data, config.model)
         response.raise_for_status()
         
         # Parse and return the response

@@ -31,6 +31,33 @@ fai-rl-eval --config recipes/evaluation/mmlu/llama3_3B.yaml \
   evaluation.do_sample=false
 ```
 
+## 🎯 Structured Output with JSON Schema (Optional)
+
+The evaluation system supports an optional `schema` field that enforces structured JSON output from models. This feature improves output consistency and reduces parsing errors.
+
+### Benefits
+- Enforces consistent response format across different prompts
+- Reduces parsing errors in evaluation pipelines
+- Falls back gracefully for models without schema support
+
+### Example Usage
+
+```yaml
+evaluation:
+  # ... other configuration ...
+  
+  schema: |
+    {
+      "type": "object",
+      "properties": {
+          "answer": {"type": "string", "enum": ["A", "B", "C", "D"]},
+          "confidence": {"type": "string", "enum": ["low", "medium", "high"]}
+      },
+      "required": ["answer"]
+    }
+```
+
+
 ## 📊 Output
 
 ### Output Files

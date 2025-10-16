@@ -202,6 +202,9 @@ class InferenceConfig:
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     response_column: str = "response"
     
+    # JSON schema for structured output (optional)
+    schema: Optional[str] = None
+    
     # Generation parameters
     temperature: float = 1.0
     top_p: float = 0.9
@@ -241,6 +244,9 @@ class EvaluationConfig:
     # Multiple choice configuration
     output_type: str = "numerical"  # "numerical" or "multiple_choice"
     choice_labels: List[str] = field(default_factory=lambda: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
+    
+    # JSON schema for structured output (optional)
+    schema: Optional[str] = None
     
     # Generation parameters
     temperature: float = 1.0

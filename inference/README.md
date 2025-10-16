@@ -34,6 +34,37 @@ fai-rl-inference --config recipes/inference/llama3_3B.yaml \
   inference.do_sample=false
 ```
 
+## 🎯 Structured Output with JSON Schema (Optional)
+
+The inference system supports an optional `schema` field that enforces structured JSON output from models. This feature is useful for extracting structured data, ensuring consistent formats, and improving downstream processing.
+
+### Benefits
+- Enforces consistent response format across different prompts
+- Enables reliable structured data extraction
+- Supported by major API providers (OpenAI, Google/Gemini)
+- Falls back gracefully for models without schema support
+
+### Example Usage
+
+```yaml
+inference:
+  # ... other configuration ...
+  
+  schema: |
+    {
+      "type": "object",
+      "properties": {
+          "summary": {"type": "string"},
+          "sentiment": {"type": "string", "enum": ["positive", "negative", "neutral"]},
+          "key_points": {
+              "type": "array",
+              "items": {"type": "string"}
+          }
+      },
+      "required": ["summary", "sentiment"]
+    }
+```
+
 ## 📊 Output
 
 ### Output Files

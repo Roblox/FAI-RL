@@ -39,6 +39,16 @@ evaluation:
 
     Let's think step by step.
   
+  # JSON Schema for Structured Output (Optional)
+  schema: |
+    {
+      "type": "object",
+      "properties": {
+          "answer": {"type": "string"}
+      },
+      "required": ["answer"]
+    }
+  
   # Generation Parameters
   # Controls how the model generates responses during evaluation
   temperature: 1.0                           # Sampling temperature for response generation (0.0 = deterministic, 2.0 = very random)

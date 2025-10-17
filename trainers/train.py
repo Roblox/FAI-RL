@@ -62,18 +62,18 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Using config file:
-  fai-rl-train --config recipes/training/sft/llama3_3B_lora.yaml
+  # Using recipe file:
+  fai-rl-train --recipe recipes/training/sft/llama3_3B_lora.yaml
   
-  # Mix config file with overrides:
-  fai-rl-train --config config.yaml training.learning_rate=1e-5 training.num_train_epochs=3
+  # Mix recipe file with overrides:
+  fai-rl-train --recipe recipe.yaml training.learning_rate=1e-5 training.num_train_epochs=3
 """
     )
     parser.add_argument(
-        "--config",
+        "--recipe",
         type=str,
         default=None,
-        help="Path to configuration YAML file (optional if using CLI arguments)"
+        help="Path to recipe YAML file (optional if using CLI arguments)"
     )
     parser.add_argument(
         "--num-gpus",
@@ -126,16 +126,16 @@ def launch_distributed_training(args):
     # Build base command arguments (don't pass --num-gpus and --nohup, launcher handles GPU allocation)
     cmd_args = []
     
-    # Add config file if provided
-    if args.config:
-        cmd_args.extend(["--config", args.config])
+    # Add recipe file if provided
+    if args.recipe:
+        cmd_args.extend(["--recipe", args.recipe])
     
     # Add overrides
     if args.overrides:
         cmd_args.extend(args.overrides)
     
-    # Check if using quantization (only if config file is provided)
-    uses_quantization = check_uses_quantization(args.config) if args.config else False
+    # Check if using quantization (only if recipe file is provided)
+    uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
     
     if uses_quantization:
         # QLoRA is incompatible with DeepSpeed, use torchrun
@@ -187,17 +187,17 @@ def load_config_with_overrides(args) -> ExperimentConfig:
     
     Priority (highest to lowest):
     1. Command-line overrides
-    2. Config file values
+    2. Recipe file values
     3. Default values from dataclasses
     """
     # Start with an empty config dict
     config_dict = {}
     
-    # Load from config file if provided
-    if args.config:
-        with open(args.config, 'r') as f:
+    # Load from recipe file if provided
+    if args.recipe:
+        with open(args.recipe, 'r') as f:
             config_dict = yaml.safe_load(f)
-        print(f"Loaded base configuration from: {args.config}")
+        print(f"Loaded base configuration from: {args.recipe}")
     else:
         # Initialize with empty sections
         config_dict = {
@@ -206,7 +206,7 @@ def load_config_with_overrides(args) -> ExperimentConfig:
             'training': {},
             'wandb': {}
         }
-        print("No config file provided, using defaults with CLI overrides")
+        print("No recipe file provided, using defaults with CLI overrides")
     
     # Parse and apply command-line overrides
     if args.overrides:
@@ -225,19 +225,19 @@ def load_config_with_overrides(args) -> ExperimentConfig:
     if not config_dict.get('model', {}).get('base_model_name'):
         raise ValueError(
             "model.base_model_name is required. "
-            "Provide it via config file or CLI: model.base_model_name='model-name'"
+            "Provide it via recipe file or CLI: model.base_model_name='model-name'"
         )
     
     if not config_dict.get('training', {}).get('output_dir'):
         raise ValueError(
             "training.output_dir is required. "
-            "Provide it via config file or CLI: training.output_dir='./output'"
+            "Provide it via recipe file or CLI: training.output_dir='./output'"
         )
     
     if not config_dict.get('training', {}).get('algorithm'):
         raise ValueError(
             "training.algorithm is required. "
-            "Provide it via config file or CLI: training.algorithm='sft' (options: sft, dpo, ppo, grpo, gspo)"
+            "Provide it via recipe file or CLI: training.algorithm='sft' (options: sft, dpo, ppo, grpo, gspo)"
         )
     
     # Handle datasets configuration

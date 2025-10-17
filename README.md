@@ -25,7 +25,7 @@ Train a model using SFT, DPO, PPO, GRPO, or GSPO:
 
 ```bash
 # Single GPU training
-fai-rl-train --config recipes/training/sft/llama3_3B_lora.yaml --num-gpus 1
+fai-rl-train --recipe recipes/training/sft/llama3_3B_lora.yaml --num-gpus 1
 ```
 
 📖 **[See detailed Training Guide →](./trainers/README.md)**
@@ -36,7 +36,7 @@ Generate responses from your trained models:
 
 ```bash
 # Run inference with debug mode
-fai-rl-inference --config recipes/inference/llama3_3B.yaml --debug
+fai-rl-inference --recipe recipes/inference/llama3_3B.yaml --debug
 ```
 
 📖 **[See detailed Inference Guide →](./inference/README.md)**
@@ -47,7 +47,7 @@ Evaluate model performance on benchmarks:
 
 ```bash
 # Evaluate with debug output
-fai-rl-eval --config recipes/evaluation/mmlu/llama3_3B.yaml --debug
+fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --debug
 ```
 
 📖 **[See detailed Evaluation Guide →](./evaluations/README.md)**

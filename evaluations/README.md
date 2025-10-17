@@ -8,13 +8,13 @@ Comprehensive model evaluation system for assessing language model performance o
 
 ```bash
 # Evaluate on MMLU benchmark
-fai-rl-eval --config recipes/evaluation/mmlu/llama3_3B.yaml
+fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml
 
 # Evaluate with debug mode for detailed logging
-fai-rl-eval --config recipes/evaluation/mmlu/llama3_3B.yaml --debug
+fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --debug
 
 # Run evaluation in background with nohup
-fai-rl-eval --config recipes/evaluation/mmlu/llama3_3B.yaml --nohup
+fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --nohup
 ```
 
 ### Runtime Parameter Overrides
@@ -23,12 +23,12 @@ Override configuration parameters directly from command line:
 
 ```bash
 # Override model path and output file
-fai-rl-eval --config recipes/evaluation/mmlu/llama3_3B.yaml \
+fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml \
   evaluation.model_path=models/my_custom_model/checkpoint-100 \
   evaluation.output_file=outputs/my_eval_results.csv
 
 # Override dataset subset and generation parameters
-fai-rl-eval --config recipes/evaluation/mmlu/llama3_3B.yaml \
+fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml \
   evaluation.dataset_subset=college_mathematics \
   evaluation.temperature=0.0 \
   evaluation.do_sample=false

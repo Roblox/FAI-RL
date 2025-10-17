@@ -8,13 +8,13 @@ Training implementations supporting SFT (Supervised Fine-Tuning), DPO (Direct Pr
 
 ```bash
 # Single GPU training with SFT
-fai-rl-train --config recipes/training/sft/llama3_3B_lora.yaml --num-gpus 1
+fai-rl-train --recipe recipes/training/sft/llama3_3B_lora.yaml --num-gpus 1
 
 # Multi-GPU training with DPO (8 GPUs)
-fai-rl-train --config recipes/training/dpo/llama3_3B_lora.yaml --num-gpus 8
+fai-rl-train --recipe recipes/training/dpo/llama3_3B_lora.yaml --num-gpus 8
 
 # Run training in background with nohup
-fai-rl-train --config recipes/training/sft/llama3_3B_lora.yaml --num-gpus 8 --nohup
+fai-rl-train --recipe recipes/training/sft/llama3_3B_lora.yaml --num-gpus 8 --nohup
 ```
 
 ### Runtime Parameter Overrides
@@ -23,13 +23,13 @@ Override configuration parameters directly from command line:
 
 ```bash
 # Override model and training parameters
-fai-rl-train --config recipes/training/sft/llama3_3B_lora.yaml --num-gpus 4 \
+fai-rl-train --recipe recipes/training/sft/llama3_3B_lora.yaml --num-gpus 4 \
   model.base_model_name=Qwen/Qwen3-4B-Instruct-2507 \
   training.num_train_epochs=3 \
   training.learning_rate=5.0e-5
 
 # Override dataset and output directory
-fai-rl-train --config recipes/training/dpo/llama3_3B_lora.yaml --num-gpus 8 --nohup \
+fai-rl-train --recipe recipes/training/dpo/llama3_3B_lora.yaml --num-gpus 8 --nohup \
   data.datasets[0].name=your-org/your-dataset \
   training.output_dir=models/my_custom_model
 ```

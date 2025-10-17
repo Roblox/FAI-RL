@@ -113,10 +113,10 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Run model inference")
     parser.add_argument(
-        "--config",
+        "--recipe",
         type=str,
         required=True,
-        help="Path to inference configuration YAML file"
+        help="Path to inference recipe YAML file"
     )
     parser.add_argument(
         "--debug",
@@ -505,7 +505,7 @@ def main():
         
         # Build command to run the script without --nohup
         script_path = os.path.abspath(__file__)
-        cmd_args = [sys.executable, script_path, "--config", args.config]
+        cmd_args = [sys.executable, script_path, "--recipe", args.recipe]
         if args.debug:
             cmd_args.append("--debug")
         
@@ -524,7 +524,7 @@ def main():
         return result
     
     # Load configuration
-    config = ExperimentConfig.load_inference_config(args.config)
+    config = ExperimentConfig.load_inference_config(args.recipe)
     
     # Determine inference type
     use_api = hasattr(config, 'api_key') and config.api_key and \

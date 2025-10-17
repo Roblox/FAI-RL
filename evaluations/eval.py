@@ -368,7 +368,7 @@ def run_comprehensive_evaluation(config_path: str,
         print(f"Extraction Success Rate: {metrics['extraction_success_rate']:.4f} ({metrics['valid_predictions']}/{metrics['total_examples']})")
         
         # Save detailed results
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         evaluation_results = {
             'config_path': config_path,
             'evaluation_dataset': evaluation_dataset_name,
@@ -500,10 +500,10 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Run comprehensive model evaluation")
     parser.add_argument(
-        "--config",
+        "--recipe",
         type=str,
         required=True,
-        help="Path to inference configuration YAML file"
+        help="Path to inference recipe YAML file"
     )
     parser.add_argument(
         "--debug",
@@ -533,7 +533,7 @@ def main():
         
         # Build command to run the script without --nohup
         script_path = os.path.abspath(__file__)
-        cmd_args = [sys.executable, script_path, "--config", args.config]
+        cmd_args = [sys.executable, script_path, "--recipe", args.recipe]
         if args.debug:
             cmd_args.append("--debug")
         
@@ -556,12 +556,12 @@ def main():
     os.makedirs("outputs", exist_ok=True)
     
     print("Starting Comprehensive Model Evaluation")
-    print(f"Config: {args.config}")
+    print(f"Recipe: {args.recipe}")
     print()
     
     try:
         results = run_comprehensive_evaluation(
-            config_path=args.config,
+            config_path=args.recipe,
             debug=args.debug
         )
         

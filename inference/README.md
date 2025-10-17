@@ -8,16 +8,16 @@ High-performance inference system for generating text completions from trained l
 
 ```bash
 # Run inference on a local fine-tuned model
-fai-rl-inference --config recipes/inference/llama3_3B.yaml
+fai-rl-inference --recipe recipes/inference/llama3_3B.yaml
 
 # Run inference on a vanilla HuggingFace model
-fai-rl-inference --config recipes/inference/llama3_vanilla_3B.yaml
+fai-rl-inference --recipe recipes/inference/llama3_vanilla_3B.yaml
 
 # Run inference with debug mode for detailed logging
-fai-rl-inference --config recipes/inference/llama3_3B.yaml --debug
+fai-rl-inference --recipe recipes/inference/llama3_3B.yaml --debug
 
 # Run inference in background with nohup
-fai-rl-inference --config recipes/inference/llama3_3B.yaml --nohup
+fai-rl-inference --recipe recipes/inference/llama3_3B.yaml --nohup
 ```
 
 ### Runtime Parameter Overrides
@@ -26,12 +26,12 @@ Override configuration parameters directly from command line:
 
 ```bash
 # Override model path and output file
-fai-rl-inference --config recipes/inference/llama3_3B.yaml \
+fai-rl-inference --recipe recipes/inference/llama3_3B.yaml \
   inference.model_path=models/my_custom_model/checkpoint-100 \
   inference.output_file=outputs/your-output.csv
 
 # Override generation parameters
-fai-rl-inference --config recipes/inference/llama3_3B.yaml \
+fai-rl-inference --recipe recipes/inference/llama3_3B.yaml \
   inference.temperature=0.7 \
   inference.max_new_tokens=512 \
   inference.do_sample=false

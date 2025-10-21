@@ -7,6 +7,7 @@ import torch
 import os
 import json, csv
 import sys
+import yaml
 import pandas as pd
 import requests
 import re
@@ -19,6 +20,7 @@ from datasets import load_dataset
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
+warnings.filterwarnings("ignore", message=".*'repr' attribute.*has no effect.*")
 from pathlib import Path
 from peft import PeftModel, PeftConfig
 
@@ -28,6 +30,7 @@ if project_root not in sys.path:
 
 from core.config import ExperimentConfig
 from utils.config_validation import validate_api_config
+from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 
 
 def format_multiple_choice_for_inference(choices, choice_labels=None):
@@ -111,11 +114,25 @@ def format_template_prompt(template, example, config):
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Run model inference")
+    parser = argparse.ArgumentParser(
+        description="Run model inference",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Using recipe file:
+  fai-rl-inference --recipe recipes/inference/llama3_3B.yaml
+  
+  # Mix recipe file with overrides:
+  fai-rl-inference --recipe recipe.yaml model_path='./my_model' temperature=0.7
+  
+  # Override inference parameters:
+  fai-rl-inference --recipe recipe.yaml max_new_tokens=512 do_sample=True
+"""
+    )
     parser.add_argument(
         "--recipe",
         type=str,
-        required=True,
+        default=None,
         help="Path to inference recipe YAML file"
     )
     parser.add_argument(
@@ -128,8 +145,20 @@ def parse_args():
         action="store_true",
         help="Run inference in background with nohup (output redirected to inference_<timestamp>.log)"
     )
+    parser.add_argument(
+        "overrides",
+        nargs="*",
+        help="Recipe overrides in key=value format (e.g., model_path='./output' temperature=0.7)"
+    )
     
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    # Add this check: if no arguments provided at all, show help and exit
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+    
+    return args
 
 
 def load_model_and_tokenizer(config):
@@ -490,6 +519,40 @@ def run_inference(config, debug=False):
     print(f"Summary saved to: {summary_file}")
 
 
+def load_inference_recipe_with_overrides(args):
+    """Load inference recipe from file and/or command-line arguments.
+    
+    Priority (highest to lowest):
+    1. Command-line overrides
+    2. Recipe file values
+    3. Default values
+    """
+    if not args.recipe:
+        raise ValueError("--recipe argument is required")
+    
+    # Load base recipe from YAML
+    recipe_dict = load_recipe_from_yaml(args.recipe)
+    
+    # Apply command-line overrides
+    if args.overrides:
+        recipe_dict = apply_overrides_to_recipe(recipe_dict, args.overrides)
+    
+    # Write temporary recipe file with overrides applied
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp_file:
+        yaml.dump(recipe_dict, tmp_file)
+        tmp_recipe_path = tmp_file.name
+    
+    try:
+        # Load using existing config loader
+        config = ExperimentConfig.load_inference_config(tmp_recipe_path)
+    finally:
+        # Clean up temporary file
+        os.unlink(tmp_recipe_path)
+    
+    return config
+
+
 def main():
     """Main inference function."""
     global args
@@ -509,6 +572,10 @@ def main():
         if args.debug:
             cmd_args.append("--debug")
         
+        # Add overrides to command
+        if args.overrides:
+            cmd_args.extend(args.overrides)
+        
         # Prepare nohup command: nohup <command> > log_file 2>&1 &
         cmd_str = " ".join(cmd_args) + f" > {log_file} 2>&1 &"
         full_cmd = f"nohup {cmd_str}"
@@ -523,8 +590,8 @@ def main():
         
         return result
     
-    # Load configuration
-    config = ExperimentConfig.load_inference_config(args.recipe)
+    # Load recipe with overrides
+    config = load_inference_recipe_with_overrides(args)
     
     # Determine inference type
     use_api = hasattr(config, 'api_key') and config.api_key and \

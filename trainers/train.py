@@ -5,12 +5,12 @@ import sys
 import os
 import subprocess
 import yaml
-import ast
 import warnings
-from typing import Any, Dict
+from typing import Dict
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
+warnings.filterwarnings("ignore", message=".*'repr' attribute.*has no effect.*")
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
@@ -23,36 +23,7 @@ from trainers.gspo_trainer import GSPOTrainer
 from trainers.ppo_trainer import PPOTrainer
 from trainers.sft_trainer import SFTTrainer
 from utils.logging_utils import TrainingLogger, log_system_info
-
-
-def parse_value(value_str: str) -> Any:
-    """Parse a string value to its appropriate Python type."""
-    # Try to evaluate as Python literal (handles int, float, bool, list, dict, etc.)
-    try:
-        return ast.literal_eval(value_str)
-    except (ValueError, SyntaxError):
-        # If it fails, return as string
-        return value_str
-
-
-def set_nested_value(config_dict: Dict, key_path: str, value: Any) -> None:
-    """Set a value in a nested dictionary using dot notation.
-    
-    Example: 
-        set_nested_value(config, "model.base_model_name", "llama")
-        sets config["model"]["base_model_name"] = "llama"
-    """
-    keys = key_path.split('.')
-    current = config_dict
-    
-    # Navigate to the nested location
-    for key in keys[:-1]:
-        if key not in current:
-            current[key] = {}
-        current = current[key]
-    
-    # Set the final value
-    current[keys[-1]] = value
+from utils.recipe_overrides import apply_overrides_to_recipe, parse_value, set_nested_value, load_recipe_from_yaml
 
 
 def parse_args():
@@ -89,7 +60,7 @@ Examples:
     parser.add_argument(
         "overrides",
         nargs="*",
-        help="Config overrides in key=value format (e.g., model.base_model_name='meta-llama/Llama-3.2-3B-Instruct')"
+        help="Recipe overrides in key=value format (e.g., model.base_model_name='meta-llama/Llama-3.2-3B-Instruct')"
     )
 
     # Use parse_known_args to allow distributed launchers to pass additional args like --local_rank
@@ -103,12 +74,12 @@ Examples:
     return args
 
 
-def check_uses_quantization(config_path):
-    """Check if config uses quantization (QLoRA)."""
+def check_uses_quantization(recipe_path):
+    """Check if recipe uses quantization (QLoRA)."""
     try:
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        model = config.get('model', {})
+        with open(recipe_path, 'r') as f:
+            recipe = yaml.safe_load(f)
+        model = recipe.get('model', {})
         return model.get('load_in_4bit', False) or model.get('load_in_8bit', False)
     except Exception:
         return False
@@ -182,25 +153,23 @@ def launch_distributed_training(args):
         return subprocess.call(cmd)
 
 
-def load_config_with_overrides(args) -> ExperimentConfig:
-    """Load configuration from file and/or command-line arguments.
+def load_recipe_with_overrides(args) -> ExperimentConfig:
+    """Load recipe from file and/or command-line arguments.
     
     Priority (highest to lowest):
     1. Command-line overrides
     2. Recipe file values
     3. Default values from dataclasses
     """
-    # Start with an empty config dict
-    config_dict = {}
+    # Start with an empty recipe dict
+    recipe_dict = {}
     
     # Load from recipe file if provided
     if args.recipe:
-        with open(args.recipe, 'r') as f:
-            config_dict = yaml.safe_load(f)
-        print(f"Loaded base configuration from: {args.recipe}")
+        recipe_dict = load_recipe_from_yaml(args.recipe)
     else:
         # Initialize with empty sections
-        config_dict = {
+        recipe_dict = {
             'model': {},
             'data': {},
             'training': {},
@@ -208,40 +177,31 @@ def load_config_with_overrides(args) -> ExperimentConfig:
         }
         print("No recipe file provided, using defaults with CLI overrides")
     
-    # Parse and apply command-line overrides
+    # Apply command-line overrides using common utility
     if args.overrides:
-        print("Applying command-line overrides:")
-        for override in args.overrides:
-            if '=' not in override:
-                print(f"  Warning: Skipping invalid override '{override}' (expected key=value format)")
-                continue
-            
-            key, value_str = override.split('=', 1)
-            value = parse_value(value_str)
-            set_nested_value(config_dict, key, value)
-            print(f"  {key} = {value}")
+        recipe_dict = apply_overrides_to_recipe(recipe_dict, args.overrides)
     
     # Ensure required fields have at least some value
-    if not config_dict.get('model', {}).get('base_model_name'):
+    if not recipe_dict.get('model', {}).get('base_model_name'):
         raise ValueError(
             "model.base_model_name is required. "
             "Provide it via recipe file or CLI: model.base_model_name='model-name'"
         )
     
-    if not config_dict.get('training', {}).get('output_dir'):
+    if not recipe_dict.get('training', {}).get('output_dir'):
         raise ValueError(
             "training.output_dir is required. "
             "Provide it via recipe file or CLI: training.output_dir='./output'"
         )
     
-    if not config_dict.get('training', {}).get('algorithm'):
+    if not recipe_dict.get('training', {}).get('algorithm'):
         raise ValueError(
             "training.algorithm is required. "
             "Provide it via recipe file or CLI: training.algorithm='sft' (options: sft, dpo, ppo, grpo, gspo)"
         )
     
     # Handle datasets configuration
-    data_config = config_dict.get('data', {}).copy()
+    data_config = recipe_dict.get('data', {}).copy()
     if 'datasets' in data_config and data_config['datasets']:
         # Convert to DatasetInfo objects if they're dicts
         if isinstance(data_config['datasets'][0], dict):
@@ -254,10 +214,10 @@ def load_config_with_overrides(args) -> ExperimentConfig:
     
     # Create config objects with defaults
     return ExperimentConfig(
-        model=ModelConfig(**config_dict.get('model', {})),
+        model=ModelConfig(**recipe_dict.get('model', {})),
         data=DataConfig(**data_config),
-        training=TrainingConfig(**config_dict.get('training', {})),
-        wandb=WandbConfig(**config_dict.get('wandb', {})),
+        training=TrainingConfig(**recipe_dict.get('training', {})),
+        wandb=WandbConfig(**recipe_dict.get('wandb', {})),
     )
 
 
@@ -276,8 +236,8 @@ def main():
     else:
         print(f"Running as distributed process (rank: {os.environ.get('RANK', 'unknown')})...")
 
-    # Load configuration from file and/or CLI arguments
-    config = load_config_with_overrides(args)
+    # Load recipe from file and/or CLI arguments
+    config = load_recipe_with_overrides(args)
     
     # Get deepspeed config from environment variable (auto-set by launcher)
     if 'DEEPSPEED_CONFIG' in os.environ:

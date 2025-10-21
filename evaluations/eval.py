@@ -7,6 +7,7 @@ import os
 import sys
 import re
 import json, csv
+import yaml
 import pandas as pd
 import warnings
 import subprocess
@@ -17,6 +18,7 @@ import numpy as np
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
+warnings.filterwarnings("ignore", message=".*'repr' attribute.*has no effect.*")
 
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -26,6 +28,7 @@ if project_root not in sys.path:
 # Import existing modules
 from core.config import ExperimentConfig
 from inference.inference import run_inference, load_model_and_tokenizer, generate_response, generate_response_by_api
+from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 
 
 def extract_multiple_choice_answer(text, choice_labels=None):
@@ -288,8 +291,43 @@ def calculate_accuracy_metrics(predictions: List[Optional[str]],
     return metrics, detailed_results
 
 
-def run_comprehensive_evaluation(config_path: str, 
-                                debug: bool = False) -> Dict[str, Any]:
+def load_eval_recipe_with_overrides(recipe_path: str, overrides: list):
+    """Load evaluation recipe from file and/or command-line arguments.
+    
+    Priority (highest to lowest):
+    1. Command-line overrides
+    2. Recipe file values
+    3. Default values
+    """
+    if not recipe_path:
+        raise ValueError("recipe_path is required")
+    
+    # Load base recipe from YAML
+    recipe_dict = load_recipe_from_yaml(recipe_path)
+    
+    # Apply command-line overrides
+    if overrides:
+        recipe_dict = apply_overrides_to_recipe(recipe_dict, overrides)
+    
+    # Write temporary recipe file with overrides applied
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp_file:
+        yaml.dump(recipe_dict, tmp_file)
+        tmp_recipe_path = tmp_file.name
+    
+    try:
+        # Load using existing config loader
+        config = ExperimentConfig.load_eval_config(tmp_recipe_path)
+    finally:
+        # Clean up temporary file
+        os.unlink(tmp_recipe_path)
+    
+    return config
+
+
+def run_comprehensive_evaluation(recipe_path: str, 
+                                debug: bool = False,
+                                overrides: list = None) -> Dict[str, Any]:
     """
     Run comprehensive evaluation by:
     1. Loading evaluation dataset
@@ -298,18 +336,19 @@ def run_comprehensive_evaluation(config_path: str,
     4. Calculating accuracy metrics
     
     Args:
-        config_path: Path to evaluation configuration file
+        recipe_path: Path to evaluation recipe file
         debug: Enable debug logging
+        overrides: List of recipe overrides
         
     Returns:
         Dictionary containing evaluation results
     """
     print("Starting comprehensive evaluation...")
-    print(f"Config: {config_path}")
+    print(f"Recipe: {recipe_path}")
     
     try:
-        # Load configuration to get dataset name and other settings
-        config = ExperimentConfig.load_eval_config(config_path)
+        # Load recipe to get dataset name and other settings with overrides
+        config = load_eval_recipe_with_overrides(recipe_path, overrides or [])
         output_type = getattr(config, 'output_type', 'numerical')
         choice_labels = getattr(config, 'choice_labels', None)
         dataset_subset = getattr(config, 'dataset_subset', None)
@@ -370,7 +409,7 @@ def run_comprehensive_evaluation(config_path: str,
         # Save detailed results
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         evaluation_results = {
-            'config_path': config_path,
+            'recipe_path': recipe_path,
             'evaluation_dataset': evaluation_dataset_name,
             'evaluation_split': evaluation_split,
             'ground_truth_column': ground_truth_column,
@@ -498,12 +537,26 @@ def calculate_accuracy_metrics_with_dataset_columns(predictions: List[Optional[s
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Run comprehensive model evaluation")
+    parser = argparse.ArgumentParser(
+        description="Run comprehensive model evaluation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Using recipe file:
+  fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml
+  
+  # Mix recipe file with overrides:
+  fai-rl-eval --recipe recipe.yaml model_path='./my_model' temperature=0.7
+  
+  # Override evaluation parameters:
+  fai-rl-eval --recipe recipe.yaml dataset_split='validation' max_new_tokens=256
+"""
+    )
     parser.add_argument(
         "--recipe",
         type=str,
-        required=True,
-        help="Path to inference recipe YAML file"
+        default=None,
+        help="Path to evaluation recipe YAML file"
     )
     parser.add_argument(
         "--debug",
@@ -515,8 +568,20 @@ def parse_args():
         action="store_true",
         help="Run evaluation in background with nohup (output redirected to evaluation_<timestamp>.log)"
     )
+    parser.add_argument(
+        "overrides",
+        nargs="*",
+        help="Recipe overrides in key=value format (e.g., model_path='./output' dataset_split='test')"
+    )
     
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    # Add this check: if no arguments provided at all, show help and exit
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+    
+    return args
 
 
 def main():
@@ -536,6 +601,10 @@ def main():
         cmd_args = [sys.executable, script_path, "--recipe", args.recipe]
         if args.debug:
             cmd_args.append("--debug")
+        
+        # Add overrides to command
+        if args.overrides:
+            cmd_args.extend(args.overrides)
         
         # Prepare nohup command: nohup <command> > log_file 2>&1 &
         cmd_str = " ".join(cmd_args) + f" > {log_file} 2>&1 &"
@@ -561,8 +630,9 @@ def main():
     
     try:
         results = run_comprehensive_evaluation(
-            config_path=args.recipe,
-            debug=args.debug
+            recipe_path=args.recipe,
+            debug=args.debug,
+            overrides=args.overrides
         )
         
         return results

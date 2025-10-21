@@ -17,6 +17,7 @@ import numpy as np
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
+warnings.filterwarnings("ignore", message=".*'repr' attribute.*has no effect.*")
 
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

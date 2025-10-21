@@ -11,6 +11,7 @@ from typing import Any, Dict
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
+warnings.filterwarnings("ignore", message=".*'repr' attribute.*has no effect.*")
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:

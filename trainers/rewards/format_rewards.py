@@ -12,9 +12,9 @@ def structured_xml_reward_func(completions: List[str], **kwargs) -> List[float]:
 def count_xml(text) -> float:
     """Counts XML tags and penalizes extra content."""
     count = 0.0
-    if text.count("<reasoning>") == 1:
+    if text.count("<think>") == 1:
         count += 0.125
-    if text.count("</reasoning>") == 1:
+    if text.count("</think>") == 1:
         count += 0.125
     if text.count("<answer>") == 1:
         count += 0.125

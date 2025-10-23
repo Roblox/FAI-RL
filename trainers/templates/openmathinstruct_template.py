@@ -3,18 +3,18 @@
 SYSTEM_PROMPT = """
 Respond in the following format:
 
-<reasoning>
+<think>
 ...
-</reasoning>
+</think>
 <answer>
 ...
 </answer>
 """
 
 XML_COT_FORMAT = """\
-<reasoning>
+<think>
 {reasoning}
-</reasoning>
+</think>
 <answer>
 {answer}
 </answer>

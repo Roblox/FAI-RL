@@ -150,7 +150,7 @@ FAI-RL supports various techniques to train large models efficiently:
 
 ## 🧪 System Requirements
 
-### Validated on Production Hardware
+### Validated on Hardware
 
 This framework has been validated on:
 
@@ -160,13 +160,6 @@ This framework has been validated on:
 * **Memory:** 1152 GiB
 * **Storage:** 8TB NVMe SSD
 * **Network:** 400 Gbps
-
-### Minimum Requirements
-
-- **Python**: 3.8 or higher
-- **CUDA**: 11.8 or higher (for GPU support)
-- **GPU Memory**: 6GB+ (with QLoRA), 12GB+ recommended
-- **OS**: Linux (Ubuntu 20.04+), macOS (limited GPU support)
 
 ## ⭐ For Maintainers
 

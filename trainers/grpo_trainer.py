@@ -93,6 +93,21 @@ class GRPOTrainer(BaseTrainer):
         else:
             self.train_dataset = concatenate_datasets(datasets)
 
+        # Convert message dictionaries to strings using chat template
+        # This is required because GRPO expects prompts to be strings, not message dicts
+        def apply_chat_template(example):
+            prompt = example['prompt']
+            # If prompt is a list of message dicts, apply chat template
+            if isinstance(prompt, list) and len(prompt) > 0 and isinstance(prompt[0], dict):
+                example['prompt'] = self.tokenizer.apply_chat_template(
+                    prompt, 
+                    tokenize=False, 
+                    add_generation_prompt=True
+                )
+            return example
+        
+        self.train_dataset = self.train_dataset.map(apply_chat_template)
+
         self.logger.info(f"Total dataset loaded with {total_examples} examples from {len(datasets)} datasets")
 
     def setup_training_args(self) -> GRPOConfig:

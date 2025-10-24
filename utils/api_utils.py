@@ -122,6 +122,8 @@ def generate_response_by_api_for_reward_function(
     api_endpoint: str,
     api_key: str,
     model: str,
+    max_new_tokens: int = 8192,
+    temperature: float = 0.2,
     timeout: int = 30
 ) -> Dict[str, Any]:
     """
@@ -136,6 +138,8 @@ def generate_response_by_api_for_reward_function(
         api_endpoint: URL of the evaluation API
         api_key: API key for authentication
         model: Model identifier for the evaluation API
+        max_new_tokens: Maximum number of tokens to generate
+        temperature: Sampling temperature
         timeout: Request timeout in seconds
     """
     # Create SYSTEM_PROMPT that includes all responses for evaluation
@@ -174,23 +178,37 @@ Example output format:
         'Authorization': api_key
     }
     
-    # Build request payload with structured prompt
-    payload = {
-        'model': model,
-        'prompt': evaluation_prompt,
-        'completions': completions  # Keep for backward compatibility
-    }
+    # Build request data based on model type (same pattern as generate_response_by_api)
+    if model.startswith("google/"):
+        data = _build_google_request_data(evaluation_prompt, type('Config', (), {
+            'max_new_tokens': max_new_tokens
+        })())
+    elif model.startswith("openai/"):
+        data = _build_openai_request_data(evaluation_prompt, type('Config', (), {
+            'model': model
+        })())
+    else:
+        data = _build_default_request_data(evaluation_prompt, type('Config', (), {
+            'model': model,
+            'max_new_tokens': max_new_tokens,
+            'temperature': temperature
+        })())
     
     try:
-        # Make API request
-        response = requests.post(
-            api_endpoint,
-            headers=headers,
-            json=payload,
-            timeout=timeout
-        )
+        # Make the API request (same pattern as generate_response_by_api)
+        response = _make_api_request(api_endpoint, headers, data, model)
         response.raise_for_status()
-        return response.json()
+        
+        # Parse and return the response (same pattern as generate_response_by_api)
+        response_json = response.json()
+        response_text = _parse_api_response(response_json, model)
+        
+        # Parse the JSON response text for evaluation results
+        try:
+            return json.loads(response_text)
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Failed to parse evaluation response as JSON: {response_text}")
+            
     except requests.exceptions.RequestException as e:
         raise RuntimeError(f"API evaluation failed: {str(e)}")
 

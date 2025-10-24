@@ -16,6 +16,7 @@ from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
 from utils.dataset_utils import is_math_dataset, is_unverifiable_domain_dataset, get_template_for_dataset
+from utils.config_validation import validate_api_endpoint, validate_api_key
 from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
 from .rewards.format_rewards import structured_xml_reward_func
 from .rewards.subjective_rewards import subjective_api_reward_func, subjective_api_reward_func_simple
@@ -173,6 +174,10 @@ class GRPOTrainer(BaseTrainer):
                     "Reward API key is required when using subjective rewards. "
                     "Please set 'reward_api.key' in your config file."
                 )
+            
+            # Validate that placeholder values have been replaced
+            validate_api_endpoint(api_endpoint)
+            validate_api_key(api_key)
             
             # Log configuration source
             self.logger.info(f"Using Reward API endpoint from config: {api_endpoint}")

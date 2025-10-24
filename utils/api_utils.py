@@ -116,11 +116,12 @@ def generate_response_by_api(
         return ""
 
 
-def generate_response_by_api_for_evaluation(
+def generate_response_by_api_for_reward_function(
     prompt: str,
     completions: List[str],
     api_endpoint: str,
     api_key: str,
+    model: str,
     timeout: int = 30
 ) -> Dict[str, Any]:
     """
@@ -134,6 +135,7 @@ def generate_response_by_api_for_evaluation(
         completions: List of model-generated completions to evaluate
         api_endpoint: URL of the evaluation API
         api_key: API key for authentication
+        model: Model identifier for the evaluation API
         timeout: Request timeout in seconds
     """
     # Create SYSTEM_PROMPT that includes all responses for evaluation
@@ -174,6 +176,7 @@ Example output format:
     
     # Build request payload with structured prompt
     payload = {
+        'model': model,
         'prompt': evaluation_prompt,
         'completions': completions  # Keep for backward compatibility
     }

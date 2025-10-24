@@ -169,11 +169,13 @@ class RewardAPIConfig:
     """Configuration for Reward API"""
     endpoint: Optional[str] = None
     key: Optional[str] = None
+    model: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         return {
             "endpoint": self.endpoint,
             "key": self.key,
+            "model": self.model,
         }
 
 

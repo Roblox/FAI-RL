@@ -2,7 +2,7 @@
 import os
 import sys
 from typing import List, Dict, Any, Optional
-from utils.api_utils import generate_response_by_api_for_evaluation
+from utils.api_utils import generate_response_by_api_for_reward_function
 
 # Add project root to path for imports
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
@@ -24,6 +24,7 @@ def subjective_api_reward_func(
     completions: List[str],
     api_endpoint: Optional[str] = None,
     api_key: Optional[str] = None,
+    api_model: Optional[str] = None,
     best_reward: float = 2.0,
     worst_penalty: float = -2.0,
     neutral_reward: float = 0.0,
@@ -41,6 +42,7 @@ def subjective_api_reward_func(
         completions: List of model-generated completions (list of message dicts)
         api_endpoint: URL of the evaluation API
         api_key: API key for authentication
+        api_model: Model identifier for the evaluation API
         best_reward: Reward value for the best response (default: 2.0)
         worst_penalty: Penalty value for the worst response (default: -2.0)
         neutral_reward: Reward for neutral/middle responses (default: 0.0)
@@ -90,11 +92,12 @@ def subjective_api_reward_func(
             if logger:
                 logger.info(f"Calling subjective API evaluator for group {group_idx + 1}/{num_groups} (completions {start_idx}-{end_idx-1})")
             
-            result = generate_response_by_api_for_evaluation(
+            result = generate_response_by_api_for_reward_function(
                 prompt=group_prompt,
                 completions=group_completions,
                 api_endpoint=api_endpoint,
-                api_key=api_key
+                api_key=api_key,
+                model=api_model
             )
             
             best_idx = result.get('best_idx')

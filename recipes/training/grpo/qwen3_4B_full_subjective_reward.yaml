@@ -4,6 +4,7 @@
 reward_api:
   endpoint: "https://<YOUR_API_ENDPOINT>"  # Custom API endpoint URL for hosted model
   key: "<YOUR_API_KEY>"                    # API authentication key (e.g., OpenAI API key)
+  model: "<YOUR_MODEL_IDENTIFIER>"         # API model identifier (format depends on API provider)
 
 # Model Configuration
 # Defines the base model and its loading parameters

@@ -15,10 +15,10 @@ if project_root not in sys.path:
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
+from utils.dataset_utils import is_math_dataset, is_unverifiable_domain_dataset, get_template_for_dataset
 from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
 from .rewards.format_rewards import structured_xml_reward_func
-from .templates.gsm8k_template import GSM8KTemplate
-from .templates.openmathinstruct_template import OpenMathInstructTemplate
+from .rewards.subjective_rewards import subjective_api_reward_func, subjective_api_reward_func_simple
 
 class GRPOTrainer(BaseTrainer):
     """GRPO (Group Relative Policy Optimization) trainer implementation."""
@@ -76,18 +76,11 @@ class GRPOTrainer(BaseTrainer):
             prompt_col = getattr(dataset_info, "prompt_column", "question")
             answer_col = getattr(dataset_info, "answer_column", "answer")
 
-            # Handle different dataset formats
-            if dataset_info.name == "openai/gsm8k":
-                processed_dataset = dataset.map(
-                    lambda example: GSM8KTemplate.format_for_training(example, prompt_col, answer_col)
-                )
-            elif dataset_info.name == "nvidia/OpenMathInstruct-2":
-                processed_dataset = dataset.map(
-                    lambda example: OpenMathInstructTemplate.format_for_training(example, prompt_col, answer_col)
-                )
-            else:
-                raise ValueError(f"Dataset {dataset_info.name} doesn't have expected columns. "
-                               f"Expected either ('{prompt_col}', '{answer_col}') or '{prompt_col}'")
+            # Get appropriate template for this dataset
+            template_class = get_template_for_dataset(dataset_info.name, logger=self.logger)
+            processed_dataset = dataset.map(
+                lambda example: template_class.format_for_training(example, prompt_col, answer_col)
+            )
 
             datasets.append(processed_dataset)
             total_examples += len(processed_dataset)
@@ -137,6 +130,7 @@ class GRPOTrainer(BaseTrainer):
             report_to=report_to,
             ddp_find_unused_parameters=False,  # Critical for LoRA + DDP stability
             # GRPO specific parameters
+            num_generations=self.config.training.num_generations,
             max_prompt_length=self.config.data.max_prompt_length,
             max_completion_length=self.config.data.max_length - self.config.data.max_prompt_length,
         )
@@ -145,26 +139,83 @@ class GRPOTrainer(BaseTrainer):
         """Initialize the GRPO trainer."""
         training_args = self.setup_training_args()
 
-        # Create wrapper functions that inject the logger into reward functions
-        def exact_match_with_logger(completions, answer, **kwargs):
-            kwargs['logger'] = self.logger
-            return exact_match_reward_func(completions, answer, **kwargs)
-        
-        def structured_xml_with_logger(completions, **kwargs):
-            kwargs['logger'] = self.logger
-            return structured_xml_reward_func(completions, **kwargs)
-        
-        def digit_with_logger(completions, **kwargs):
-            kwargs['logger'] = self.logger
-            return digit_reward_func(completions, **kwargs)
+        # Determine which reward functions to use based on dataset
+        use_subjective_rewards = any(
+            is_unverifiable_domain_dataset(dataset_info.name)
+            for dataset_info in self.config.data.datasets
+        )
 
-        self.trainer = TRLGRPOTrainer(
-            model=self.model,
-            reward_funcs=[
+        if use_subjective_rewards:
+            self.logger.info("Using subjective API-based reward function")
+            
+            # Get Reward API configuration from config
+            api_endpoint = None
+            api_key = None
+            
+            if self.config.reward_api is not None:
+                if self.config.reward_api.endpoint:
+                    api_endpoint = self.config.reward_api.endpoint
+                if self.config.reward_api.key:
+                    api_key = self.config.reward_api.key
+            
+            # Validate required API configuration
+            if not api_endpoint:
+                raise ValueError(
+                    "Reward API endpoint is required when using subjective rewards. "
+                    "Please set 'reward_api.endpoint' in your config file."
+                )
+            
+            if not api_key:
+                raise ValueError(
+                    "Reward API key is required when using subjective rewards. "
+                    "Please set 'reward_api.key' in your config file."
+                )
+            
+            # Log configuration source
+            self.logger.info(f"Using Reward API endpoint from config: {api_endpoint}")
+            self.logger.info("Using Reward API key from config")
+            
+            # Create wrapper function for subjective rewards
+            def subjective_with_logger(completions, prompt=None, **kwargs):
+                kwargs['logger'] = self.logger
+                # Pass API configuration if available
+                if api_endpoint:
+                    kwargs['api_endpoint'] = api_endpoint
+                if api_key:
+                    kwargs['api_key'] = api_key
+                # Pass num_generations from training config
+                kwargs['num_generations'] = self.config.training.num_generations
+                # Pass prompt if available (TRL passes it from the dataset batch)
+                if prompt is not None:
+                    kwargs['prompt'] = prompt
+                return subjective_api_reward_func_simple(completions, **kwargs)
+            
+            reward_funcs = [subjective_with_logger]
+        else:
+            self.logger.info("Using math-specific reward functions")
+            
+            # Create wrapper functions that inject the logger into reward functions
+            def exact_match_with_logger(completions, answer, **kwargs):
+                kwargs['logger'] = self.logger
+                return exact_match_reward_func(completions, answer, **kwargs)
+            
+            def structured_xml_with_logger(completions, **kwargs):
+                kwargs['logger'] = self.logger
+                return structured_xml_reward_func(completions, **kwargs)
+            
+            def digit_with_logger(completions, **kwargs):
+                kwargs['logger'] = self.logger
+                return digit_reward_func(completions, **kwargs)
+            
+            reward_funcs = [
                 exact_match_with_logger,
                 structured_xml_with_logger,
                 digit_with_logger,
-            ],
+            ]
+
+        self.trainer = TRLGRPOTrainer(
+            model=self.model,
+            reward_funcs=reward_funcs,
             args=training_args,
             train_dataset=self.train_dataset,
         )

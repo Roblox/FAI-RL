@@ -120,10 +120,12 @@ class TrainingConfig:
     max_steps: int = -1
     warmup_steps: int = 50
     
+    # GRPO/GSPO specific parameters (optional for other algorithms)
+    num_generations: int = 8                    # Number of generations for GRPO/GSPO
+    
     # GSPO specific parameters (optional for other algorithms)
     # Reference: https://swift.readthedocs.io/en/v3.7/Instruction/GRPO/AdvancedResearch/GSPO.html
-    beta: float = 0.0                           # zero kl regularization
-    group_size: int = 4                         # Group size for sequence grouping  
+    beta: float = 0.0                           # zero kl regularization  
     epsilon: float = 3e-4                       # from paper section 5.1
     epsilon_high: float = 4e-4                  # from paper section 5.1
     steps_per_generation: int = 4               # each batch of rollout data is partitioned into four minibatches for gradient updates
@@ -160,6 +162,19 @@ class TrainingConfig:
     
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+
+
+@dataclass
+class RewardAPIConfig:
+    """Configuration for Reward API"""
+    endpoint: Optional[str] = None
+    key: Optional[str] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "endpoint": self.endpoint,
+            "key": self.key,
+        }
 
 
 @dataclass
@@ -259,6 +274,7 @@ class ExperimentConfig:
     data: DataConfig
     training: TrainingConfig
     wandb: WandbConfig
+    reward_api: Optional[RewardAPIConfig] = None
     
     @classmethod
     def from_yaml(cls, config_path: str) -> 'ExperimentConfig':
@@ -273,11 +289,17 @@ class ExperimentConfig:
                 DatasetInfo(**ds) for ds in data_config['datasets']
             ]
         
+        # Handle Reward API configuration
+        reward_api_config = None
+        if 'reward_api' in config_dict:
+            reward_api_config = RewardAPIConfig(**config_dict['reward_api'])
+        
         return cls(
             model=ModelConfig(**config_dict['model']),
             data=DataConfig(**data_config),
             training=TrainingConfig(**config_dict['training']),
             wandb=WandbConfig(**config_dict.get('wandb', {})),
+            reward_api=reward_api_config,
         )
     
     @classmethod
@@ -314,6 +336,9 @@ class ExperimentConfig:
             'training': self.training.to_dict(),
             'wandb': self.wandb.to_dict(),
         }
+        
+        if self.reward_api is not None:
+            config_dict['reward_api'] = self.reward_api.to_dict()
         
         with open(output_path, 'w') as f:
             yaml.dump(config_dict, f, default_flow_style=False)

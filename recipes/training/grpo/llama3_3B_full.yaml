@@ -63,11 +63,14 @@ training:
   save_only_model: true                                 # Save only model weights (not optimizer states) to reduce disk usage
   prediction_loss_only: true                            # Only compute prediction loss during evaluation
 
+  # GRPO-specific parameters
+  num_generations: 8                                    # Group size for sequence grouping
+
 # Weights & Biases Integration
 # Optional experiment tracking and monitoring
 wandb:
   enabled: false                                        # Enable W&B logging
   project: "rl"                                         # W&B project name
   entity: "fai-llmaas"                                  # W&B username or team name
-  name: "Llama-3.1-3B-Inst-Full-GRPO-FAIRL"             # Experiment name in W&B
+  name: "Llama-3.1-3B-Inst-Full-GRPO"                   # Experiment name in W&B
   tags: ["GRPO", "llama3", "3B-Inst", "GSM8K", "OpenMathInstruct-2"]  # Tags for organizing experiments

@@ -17,6 +17,7 @@ import datetime
 from typing import Dict, Any, Union
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
+from utils.api_utils import generate_response_by_api
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
@@ -283,110 +284,6 @@ def generate_response(model, tokenizer, prompt: str, config):
     response_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
     
     return response_text
-
-def _get_api_endpoint(model: str, api_endpoint: str = None) -> str:
-    """Determine the appropriate API endpoint based on model type and name.
-    
-    Args:
-        model: The model identifier
-        api_endpoint: Optional custom API endpoint override
-        
-    Returns:
-        The API endpoint URL to use
-    """
-    # If custom endpoint is provided and not empty, use it
-    if api_endpoint:
-        return "https://apis.sitetest3.simulpong.com/ml-gateway-service/v1/chat/completions"
-    
-
-def _build_google_request_data(prompt: str, config) -> dict:
-    """Build request data for Google/Gemini models."""
-    return {
-        "contents": {
-            "role": "user",
-            "parts": [{"text": prompt}]
-        },
-        "generationConfig": {
-            "maxOutputTokens": config.max_new_tokens
-        }
-    }
-
-
-def _build_openai_request_data(prompt: str, config) -> dict:
-    """Build request data for OpenAI models."""
-    return {
-        "model": config.model,
-        "messages": [{"content": prompt, "role": "user"}]
-    }
-
-
-def _build_default_request_data(prompt: str, config) -> dict:
-    """Build request data for other models (Anthropic, etc.)."""
-    return {
-        "model": config.model,
-        "max_tokens": config.max_new_tokens,
-        "temperature": config.temperature,
-        "messages": [{"content": prompt, "role": "user"}]
-    }
-
-
-def _make_api_request(url: str, headers: dict, data: dict, model: str) -> requests.Response:
-    """Make the HTTP request to the API endpoint."""
-    if model.startswith("google/"):
-        # Google API requires data to be JSON string in body
-        return requests.post(url, headers=headers, data=json.dumps(data))
-    else:
-        # Other APIs can use json parameter
-        return requests.post(url, headers=headers, json=data)
-
-
-def _parse_api_response(response_json: dict, model: str) -> str:
-    """Extract the response text from the API response JSON."""
-    try:
-        if model.startswith("google/"):
-            return response_json['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return response_json['choices'][0]['message']['content']
-    except (KeyError, IndexError, TypeError):
-        return ""
-
-
-def generate_response_by_api(
-    prompt: str,
-    config
-) -> Union[Dict[str, Any], str]:
-    """Generate response using API-based inference."""
-    validate_api_config(config)
-
-    try:
-        # Get the appropriate API endpoint
-        api_endpoint = getattr(config, 'api_endpoint', None)
-        url = _get_api_endpoint(config.model, api_endpoint)
-        
-        # Set up headers
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": config.api_key
-        }
-        
-        # Build request data based on model type
-        if config.model.startswith("google/"):
-            data = _build_google_request_data(prompt, config)
-        elif config.model.startswith("openai/"):
-            data = _build_openai_request_data(prompt, config)
-        else:
-            data = _build_default_request_data(prompt, config)
-        
-        # Make the API request
-        response = _make_api_request(url, headers, data, config.model)
-        response.raise_for_status()
-        
-        # Parse and return the response
-        response_json = response.json()
-        return _parse_api_response(response_json, config.model)
-        
-    except requests.exceptions.RequestException as e:
-        return ""
 
 
 def run_inference(config, debug=False):

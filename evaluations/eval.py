@@ -27,7 +27,8 @@ if project_root not in sys.path:
 
 # Import existing modules
 from core.config import ExperimentConfig
-from inference.inference import run_inference, load_model_and_tokenizer, generate_response, generate_response_by_api
+from inference.inference import run_inference, load_model_and_tokenizer, generate_response
+from utils.api_utils import generate_response_by_api
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 
 

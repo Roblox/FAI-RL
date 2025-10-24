@@ -38,7 +38,7 @@ For development installation:
 ```bash
 git clone https://github.com/Roblox/FAI-RL.git
 cd FAI-RL
-pip install -e .
+pip install --extra-index-url https://download.pytorch.org/whl/cu118 -e .
 ```
 
 **PyPI Package**: [https://pypi.org/project/FAI-RL/](https://pypi.org/project/FAI-RL/)

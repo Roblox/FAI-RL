@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "FAI-RL"
-version = "0.1.6"
+version = "0.1.7"
 description = "Foundation of AI - Reinforcement learning Library"
 readme = "README.md"
 requires-python = ">=3.8"

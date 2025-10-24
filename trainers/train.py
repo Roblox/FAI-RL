@@ -136,18 +136,17 @@ def launch_distributed_training(args):
         
         # Prepare nohup command: nohup <command> > log_file 2>&1 &
         # We'll use shell=True to handle the redirection and background execution
-        cmd_str = " ".join(cmd) + f" > {log_file} 2>&1 &"
-        full_cmd = f"nohup {cmd_str}"
+        cmd_str = " ".join(cmd) + f" > {log_file} 2>&1"
+        full_cmd = f"nohup {cmd_str} &"
         
         print(f"Executing: {full_cmd}")
         
-        # Execute with shell to handle redirection and background
-        result = subprocess.call(full_cmd, shell=True)
+        # Execute with Popen to start in background without waiting
+        subprocess.Popen(full_cmd, shell=True)
         
-        if result == 0:
-            print(f"Training started in background. Monitor progress with: tail -f {log_file}")
+        print(f"Training started in background. Monitor progress with: tail -f {log_file}")
         
-        return result
+        return 0
     else:
         # Execute the command normally (foreground)
         return subprocess.call(cmd)

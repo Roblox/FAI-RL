@@ -36,8 +36,8 @@ pip install --extra-index-url https://download.pytorch.org/whl/cu118 FAI-RL
 For development installation:
 
 ```bash
-git clone https://github.com/your-org/FAI-RL-OSS.git
-cd FAI-RL-OSS
+git clone https://github.com/Roblox/FAI-RL.git
+cd FAI-RL
 pip install -e .
 ```
 

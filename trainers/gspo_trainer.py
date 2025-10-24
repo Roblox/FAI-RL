@@ -153,12 +153,25 @@ class GSPOTrainer(BaseTrainer):
         """Initialize the GSPO trainer."""
         training_args = self.setup_training_args()
 
+        # Create wrapper functions that inject the logger into reward functions
+        def exact_match_with_logger(completions, answer, **kwargs):
+            kwargs['logger'] = self.logger
+            return exact_match_reward_func(completions, answer, **kwargs)
+        
+        def structured_xml_with_logger(completions, **kwargs):
+            kwargs['logger'] = self.logger
+            return structured_xml_reward_func(completions, **kwargs)
+        
+        def digit_with_logger(completions, **kwargs):
+            kwargs['logger'] = self.logger
+            return digit_reward_func(completions, **kwargs)
+
         self.trainer = TRLGSPOTrainer(
             model=self.model,
             reward_funcs=[
-                exact_match_reward_func,
-                structured_xml_reward_func,
-                digit_reward_func,
+                exact_match_with_logger,
+                structured_xml_with_logger,
+                digit_with_logger,
             ],
             args=training_args,
             train_dataset=self.train_dataset,

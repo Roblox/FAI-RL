@@ -54,22 +54,6 @@ def subjective_api_reward_func(
     """
     logger = kwargs.get('logger', None)
     
-    # Validate required parameters
-    if api_endpoint is None:
-        if logger:
-            logger.error("api_endpoint is required but not provided")
-        return [neutral_reward] * len(completions)
-    
-    if api_key is None:
-        if logger:
-            logger.error("api_key is required but not provided")
-        return [neutral_reward] * len(completions)
-    
-    if num_generations is None:
-        if logger:
-            logger.error("num_generations is required but not provided")
-        return [neutral_reward] * len(completions)
-    
     # Extract completion text from message format
     completion_texts = []
     for completion in completions:
@@ -157,24 +141,12 @@ def subjective_api_reward_func_simple(
     Returns:
         List[float]: Reward values for each completion
     """
-    # Extract API parameters from kwargs
-    api_endpoint = kwargs.get('api_endpoint')
-    api_key = kwargs.get('api_key')
-    api_model = kwargs.get('api_model')
-    num_generations = kwargs.get('num_generations')
-    logger = kwargs.get('logger')
-    prompt = kwargs.get('prompt')
 
     return subjective_api_reward_func(
         completions=completions,
-        api_endpoint=api_endpoint,
-        api_key=api_key,
-        api_model=api_model,
         best_reward=2.0,
         worst_penalty=-2.0,
         neutral_reward=0.0,
-        num_generations=num_generations,
-        logger=logger,
-        prompt=prompt
+        **kwargs
     )
 

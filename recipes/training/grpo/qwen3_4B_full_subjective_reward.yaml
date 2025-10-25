@@ -74,4 +74,4 @@ wandb:
   project: "rl"                                         # W&B project name
   entity: "fai-llmaas"                                  # W&B username or team name
   name: "Qwen3-4B-Inst-Full-GRPO"                       # Experiment name in W&B
-  tags: ["GRPO", "llama3", "3B-Inst", "FAI-RL-dataset"]  # Tags for organizing experiments
+  tags: ["GRPO", "qwen3", "4B-Inst", "FAI-RL-dataset"]  # Tags for organizing experiments

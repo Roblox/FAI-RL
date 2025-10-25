@@ -201,10 +201,7 @@ class GRPOTrainer(BaseTrainer):
                 self.logger.info(f"Using Reward API model from config: {api_model}")
             
             # Create wrapper function for subjective rewards
-            def subjective_with_logger(completions, **kwargs):
-                # Extract prompt from kwargs (TRL passes it from the dataset batch)
-                prompt = kwargs.get('prompt', None)
-                
+            def subjective_with_logger(prompts, completions, **kwargs):
                 kwargs['logger'] = self.logger
                 # Pass API configuration if available
                 if api_endpoint:
@@ -215,8 +212,8 @@ class GRPOTrainer(BaseTrainer):
                     kwargs['api_model'] = api_model
                 # Pass num_generations from training config
                 kwargs['num_generations'] = self.config.training.num_generations
-                # Ensure prompt is in kwargs for the reward function
-                kwargs['prompt'] = prompt
+                # Pass prompts to the reward function
+                kwargs['prompt'] = prompts
                 return subjective_api_reward_func_simple(completions, **kwargs)
             
             reward_funcs = [subjective_with_logger]
@@ -224,15 +221,15 @@ class GRPOTrainer(BaseTrainer):
             self.logger.info("Using math-specific reward functions")
             
             # Create wrapper functions that inject the logger into reward functions
-            def exact_match_with_logger(completions, answer, **kwargs):
+            def exact_match_with_logger(prompts, completions, answer, **kwargs):
                 kwargs['logger'] = self.logger
                 return exact_match_reward_func(completions, answer, **kwargs)
             
-            def structured_xml_with_logger(completions, **kwargs):
+            def structured_xml_with_logger(prompts, completions, **kwargs):
                 kwargs['logger'] = self.logger
                 return structured_xml_reward_func(completions, **kwargs)
             
-            def digit_with_logger(completions, **kwargs):
+            def digit_with_logger(prompts, completions, **kwargs):
                 kwargs['logger'] = self.logger
                 return digit_reward_func(completions, **kwargs)
             

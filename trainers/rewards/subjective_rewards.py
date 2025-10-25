@@ -71,11 +71,14 @@ def subjective_api_reward_func(
     if logger:
         if prompt is not None:
             if isinstance(prompt, list):
-                logger.debug(f"Received prompt as list with {len(prompt)} items")
+                logger.info(f"Received prompts as list with {len(prompt)} items")
+                if len(prompt) > 0:
+                    logger.debug(f"First prompt preview: {str(prompt[0])[:100]}...")
             else:
-                logger.debug(f"Received prompt as {type(prompt).__name__}, value: {str(prompt)[:100]}...")
+                logger.info(f"Received prompt as {type(prompt).__name__}")
+                logger.debug(f"Prompt preview: {str(prompt)[:100]}...")
         else:
-            logger.warning("Prompt is None - this may cause issues with subjective evaluation")
+            logger.warning("⚠️  Prompt is None - subjective evaluation may not work correctly!")
     
     # Initialize all rewards with neutral value
     # Only best and worst responses will receive non-neutral rewards
@@ -107,11 +110,11 @@ def subjective_api_reward_func(
                 group_prompt = prompt if prompt is not None else ""
             
             if logger:
-                logger.info(f"Calling subjective API evaluator for group {group_idx + 1}/{num_groups} (completions {start_idx}-{end_idx-1})")
+                logger.info(f"📊 Evaluating group {group_idx + 1}/{num_groups} (completions {start_idx}-{end_idx-1})")
                 if group_prompt:
-                    logger.debug(f"Group prompt (first 100 chars): {str(group_prompt)[:100]}...")
+                    logger.debug(f"Group prompt preview: {str(group_prompt)[:150]}...")
                 else:
-                    logger.warning(f"Group prompt is empty for group {group_idx + 1}! Prompt type: {type(prompt)}, Prompt value: {prompt}")
+                    logger.error(f"❌ Group prompt is empty for group {group_idx + 1}! Original prompt type: {type(prompt)}, value: {prompt}")
             
             result = generate_response_by_api_for_reward_function(
                 prompt=group_prompt,

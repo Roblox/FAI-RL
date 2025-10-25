@@ -207,9 +207,10 @@ def generate_response_by_api_for_reward_function(
     # Create SYSTEM_PROMPT that includes all responses for evaluation
     SYSTEM_PROMPT = """You are an expert evaluator. Given a prompt and multiple responses, identify the best and worst responses.
 
-Original Prompt:
+Prompt:
 {prompt}
 
+---
 Responses to Evaluate:
 {responses}
 
@@ -223,7 +224,7 @@ Example output format:
 {{"best_idx": 2, "worst_idx": 0}}"""
 
     # Format responses for inclusion in the prompt
-    formatted_responses = "\n\n".join([
+    formatted_responses = "\n\n---\n\n".join([
         f"Response {i}:\n{completion}"
         for i, completion in enumerate(completions)
     ])

@@ -1,5 +1,6 @@
 """API utility functions for making HTTP requests."""
 import json
+import re
 import requests
 from typing import Dict, Any, List, Union
 
@@ -7,6 +8,58 @@ from typing import Dict, Any, List, Union
 # ============================================================================
 # Helper Functions for API Calls
 # ============================================================================
+
+def _extract_json_from_text(text: str) -> Dict[str, Any]:
+    """
+    Extract JSON from text that may contain markdown formatting or other content.
+    
+    This function handles cases where the LLM returns formatted text with JSON embedded,
+    such as in markdown code blocks or at the end of explanatory text.
+    
+    Args:
+        text: The response text that contains JSON
+        
+    Returns:
+        Parsed JSON as a dictionary
+        
+    Raises:
+        json.JSONDecodeError: If no valid JSON can be extracted
+    """
+    # First, try to parse the entire text as JSON (backwards compatibility)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    
+    # Try to extract JSON from markdown code blocks (```json ... ``` or ``` ... ```)
+    # Look for content within triple backticks
+    code_block_patterns = [
+        r'```json\s*\n(.*?)\n```',  # ```json ... ```
+        r'```\s*\n(.*?)\n```',       # ``` ... ```
+    ]
+    
+    for pattern in code_block_patterns:
+        matches = re.findall(pattern, text, re.DOTALL)
+        for match in matches:
+            try:
+                return json.loads(match.strip())
+            except json.JSONDecodeError:
+                continue
+    
+    # Try to find JSON-like patterns (objects starting with { and ending with })
+    json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+    matches = re.findall(json_pattern, text)
+    
+    # Try matches from last to first (JSON is often at the end)
+    for match in reversed(matches):
+        try:
+            return json.loads(match.strip())
+        except json.JSONDecodeError:
+            continue
+    
+    # If nothing worked, raise an error with the original text
+    raise json.JSONDecodeError(f"Could not extract valid JSON from text: {text[:200]}...", text, 0)
+
 
 def _build_google_request_data(prompt: str, config) -> dict:
     """Build request data for Google/Gemini models."""
@@ -203,10 +256,10 @@ Example output format:
         response_json = response.json()
         response_text = _parse_api_response(response_json, model)
         
-        # Parse the JSON response text for evaluation results
+        # Extract JSON from the response text (handles markdown formatting)
         try:
-            return json.loads(response_text)
-        except json.JSONDecodeError:
+            return _extract_json_from_text(response_text)
+        except json.JSONDecodeError as e:
             raise RuntimeError(f"Failed to parse evaluation response as JSON: {response_text}")
             
     except requests.exceptions.RequestException as e:

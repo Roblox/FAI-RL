@@ -201,7 +201,10 @@ class GRPOTrainer(BaseTrainer):
                 self.logger.info(f"Using Reward API model from config: {api_model}")
             
             # Create wrapper function for subjective rewards
-            def subjective_with_logger(completions, prompt=None, **kwargs):
+            def subjective_with_logger(completions, **kwargs):
+                # Extract prompt from kwargs (TRL passes it from the dataset batch)
+                prompt = kwargs.get('prompt', None)
+                
                 kwargs['logger'] = self.logger
                 # Pass API configuration if available
                 if api_endpoint:
@@ -212,9 +215,8 @@ class GRPOTrainer(BaseTrainer):
                     kwargs['api_model'] = api_model
                 # Pass num_generations from training config
                 kwargs['num_generations'] = self.config.training.num_generations
-                # Pass prompt if available (TRL passes it from the dataset batch)
-                if prompt is not None:
-                    kwargs['prompt'] = prompt
+                # Ensure prompt is in kwargs for the reward function
+                kwargs['prompt'] = prompt
                 return subjective_api_reward_func_simple(completions, **kwargs)
             
             reward_funcs = [subjective_with_logger]

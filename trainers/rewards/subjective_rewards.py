@@ -68,12 +68,29 @@ def subjective_api_reward_func(
     # Extract prompt text for API call from kwargs
     prompt = kwargs.get('prompt', None)
     
+    if logger:
+        if prompt is not None:
+            if isinstance(prompt, list):
+                logger.debug(f"Received prompt as list with {len(prompt)} items")
+            else:
+                logger.debug(f"Received prompt as {type(prompt).__name__}, value: {str(prompt)[:100]}...")
+        else:
+            logger.warning("Prompt is None - this may cause issues with subjective evaluation")
+    
     # Initialize all rewards with neutral value
     # Only best and worst responses will receive non-neutral rewards
     rewards = [neutral_reward] * len(completion_texts)
     
     try:
         num_groups = len(completion_texts) // num_generations
+        
+        # Handle prompt structure based on number of groups
+        # In GRPO, prompts might be a single string (for 1 group) or a list (for multiple groups)
+        if not isinstance(prompt, list) and prompt is not None:
+            # If we have a single prompt string, wrap it in a list
+            # This ensures consistent handling in the loop below
+            prompt = [prompt]
+        
         if logger:
             logger.info(f"Processing {len(completion_texts)} completions in {num_groups} groups of size {num_generations}")
         
@@ -91,6 +108,10 @@ def subjective_api_reward_func(
             
             if logger:
                 logger.info(f"Calling subjective API evaluator for group {group_idx + 1}/{num_groups} (completions {start_idx}-{end_idx-1})")
+                if group_prompt:
+                    logger.debug(f"Group prompt (first 100 chars): {str(group_prompt)[:100]}...")
+                else:
+                    logger.warning(f"Group prompt is empty for group {group_idx + 1}! Prompt type: {type(prompt)}, Prompt value: {prompt}")
             
             result = generate_response_by_api_for_reward_function(
                 prompt=group_prompt,

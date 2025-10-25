@@ -27,8 +27,8 @@ data:
       prompt_column: "prompt"  # Column name containing the prompts
   
   # Text processing settings
-  max_length: 8096                                      # Maximum sequence length for model input
-  max_prompt_length: 4096                               # Maximum length for prompts (rest reserved for responses)
+  max_length: 32384                                      # Maximum sequence length for model input
+  max_prompt_length: 16192                               # Maximum length for prompts (rest reserved for responses)
   remove_unused_columns: false                          # Keep all dataset columns (set true to save memory)
 
 # Training Configuration

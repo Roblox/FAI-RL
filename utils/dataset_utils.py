@@ -33,9 +33,6 @@ def is_unverifiable_domain_dataset(dataset_name: str) -> bool:
     Returns:
         True if dataset is unverifiable/subjective, False if it's a verifiable domain
     """
-    # FAI-RL datasets are explicitly unverifiable/subjective
-    if "FAI-RL" in dataset_name:
-        return True
     
     # Any dataset not recognized as math/verifiable is treated as unverifiable
     return not is_math_dataset(dataset_name)

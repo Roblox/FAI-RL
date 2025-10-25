@@ -181,7 +181,8 @@ def generate_response_by_api_for_reward_function(
     model: str,
     max_new_tokens: int = 8192,
     temperature: float = 0.2,
-    timeout: int = 30
+    timeout: int = 30,
+    logger_instance = None
 ) -> Dict[str, Any]:
     """
     Call external API to evaluate multiple completions and identify best/worst.
@@ -198,7 +199,11 @@ def generate_response_by_api_for_reward_function(
         max_new_tokens: Maximum number of tokens to generate
         temperature: Sampling temperature
         timeout: Request timeout in seconds
+        logger_instance: Optional logger instance to use for logging
     """
+    # Use passed logger if available, otherwise fall back to module logger
+    _logger = logger_instance if logger_instance else logger
+    
     # Create SYSTEM_PROMPT that includes all responses for evaluation
     SYSTEM_PROMPT = """You are an expert evaluator. Given a prompt and multiple responses, identify the best and worst responses.
 
@@ -251,15 +256,15 @@ Example output format:
             'temperature': temperature
         })())
     
-    logger.info(f"API Request Data: {data}")
+    _logger.info(f"API Request Data: {data}")
     
     try:
         # Make the API request (same pattern as generate_response_by_api)
         response = _make_api_request(api_endpoint, headers, data, model)
         response.raise_for_status()
         
-        logger.info(f"API Response Status: {response.status_code}")
-        logger.info(f"API Response Content: {response.text}")
+        _logger.info(f"API Response Status: {response.status_code}")
+        _logger.info(f"API Response Content: {response.text}")
         
         # Parse and return the response (same pattern as generate_response_by_api)
         response_json = response.json()

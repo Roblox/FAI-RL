@@ -97,7 +97,8 @@ def subjective_api_reward_func(
                 completions=group_completions,
                 api_endpoint=api_endpoint,
                 api_key=api_key,
-                model=api_model
+                model=api_model,
+                logger_instance=logger
             )
             
             best_idx = result.get('best_idx')

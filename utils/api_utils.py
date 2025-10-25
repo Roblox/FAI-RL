@@ -1,8 +1,12 @@
 """API utility functions for making HTTP requests."""
 import json
+import logging
 import re
 import requests
 from typing import Dict, Any, List, Union
+
+# Set up logger for API utilities
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -247,10 +251,15 @@ Example output format:
             'temperature': temperature
         })())
     
+    logger.info(f"API Request Data: {data}")
+    
     try:
         # Make the API request (same pattern as generate_response_by_api)
         response = _make_api_request(api_endpoint, headers, data, model)
         response.raise_for_status()
+        
+        logger.info(f"API Response Status: {response.status_code}")
+        logger.info(f"API Response Content: {response.text}")
         
         # Parse and return the response (same pattern as generate_response_by_api)
         response_json = response.json()

@@ -12,7 +12,7 @@ import pandas as pd
 import warnings
 import subprocess
 import datetime
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any, Optional, Union
 try:
     # Prefer the HuggingFace 'datasets' library. If a conflicting local module existed
     # (e.g., a folder named 'datasets'), it could shadow the external package. That
@@ -35,13 +35,13 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import existing modules
-from core.config import ExperimentConfig
+from core.config import ExperimentConfig, EvaluationConfig
 from inference.inference import run_inference, load_model_and_tokenizer, generate_response
 from utils.api_utils import generate_response_by_api
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 
 # Import dataset-specific evaluation utilities
-from evaluations.eval_datasets import mmlu
+from evaluations.eval_datasets import mmlu, gsm8k
 
 
 def extract_predicted_answer(text, dataset_name, choice_labels=None):
@@ -58,23 +58,11 @@ def extract_predicted_answer(text, dataset_name, choice_labels=None):
     """
     if dataset_name == "cais/mmlu":
         return mmlu.extract_predicted_answer(text, choice_labels)
-    else:
-        # Original numerical extraction logic
-        regex_pattern = "(-?[$0-9.,]{2,})|(-?[0-9]+)"
-        regexes_to_ignore = [",", "\\$", "(?s).*#### ", "\\.$"]
-        
-        match = re.findall(regex_pattern, text)
-        if match:
-            match = match[-1]
-            if isinstance(match, tuple):
-                match = [m for m in match if m][0]
-            text = match.strip()
-
-            for regex in regexes_to_ignore:
-                text = re.sub(regex, "", text)
-            return text
-        else:
-            return None
+    if dataset_name == "openai/gsm8k":
+        return gsm8k.extract_predicted_answer(text)
+    
+    print(f"{dataset_name} does not support.")
+    return None
 
 
 def extract_ground_truth(text, dataset_name, choice_labels=None):
@@ -90,14 +78,14 @@ def extract_ground_truth(text, dataset_name, choice_labels=None):
         Processed ground truth answer
     """
     if dataset_name == "cais/mmlu":
-        # For MMLU, ground truth is typically a numerical index
+        # For MMLU, ground truth is a numerical index
         return mmlu.extract_ground_truth(text, choice_labels)
-    else:
-        # Original logic for numerical answers
-        return text.split('####')[-1].strip()
+    if dataset_name == "openai/gsm8k":
+        return gsm8k.extract_ground_truth(text)
+    return text
 
 
-def load_evaluation_dataset(dataset_name: str, split: str = "test", subset: str = None) -> pd.DataFrame:
+def load_evaluation_dataset(dataset_name: str, split: str = "test", subset: Optional[str] = None) -> pd.DataFrame:
     """
     Load evaluation dataset and return as DataFrame.
     
@@ -130,7 +118,7 @@ def load_evaluation_dataset(dataset_name: str, split: str = "test", subset: str 
     return df
 
 
-def run_inference_for_evaluation(config: ExperimentConfig, debug: bool = False) -> pd.DataFrame:
+def run_inference_for_evaluation(config: Union[ExperimentConfig, EvaluationConfig], debug: bool = False) -> pd.DataFrame:
     """
     Run inference using the existing inference system and return results.
     
@@ -146,14 +134,15 @@ def run_inference_for_evaluation(config: ExperimentConfig, debug: bool = False) 
     run_inference(config, debug)
     
     # Load the inference results
-    results_df = pd.read_csv(config.output_file)
-    print(f"Loaded {len(results_df)} inference results from {config.output_file}")
+    # Both InferenceConfig and EvaluationConfig define output_file attribute.
+    results_df = pd.read_csv(config.output_file)  # type: ignore[attr-defined]
+    print(f"Loaded {len(results_df)} inference results from {config.output_file}")  # type: ignore[attr-defined]
     
     return results_df
 
 
 def calculate_accuracy_metrics(predictions: List[Optional[str]], 
-                             ground_truths: List[str]) -> Dict[str, float]:
+                             ground_truths: List[str]) -> Tuple[Dict[str, float], List[Dict[str, Any]]]:
     """
     Calculate accuracy metrics by comparing predictions with ground truths.
     
@@ -212,7 +201,7 @@ def calculate_accuracy_metrics(predictions: List[Optional[str]],
     return metrics, detailed_results
 
 
-def load_eval_recipe_with_overrides(recipe_path: str, overrides: list):
+def load_eval_recipe_with_overrides(recipe_path: str, overrides: List[str]):
     """Load evaluation recipe from file and/or command-line arguments.
     
     Priority (highest to lowest):
@@ -248,7 +237,7 @@ def load_eval_recipe_with_overrides(recipe_path: str, overrides: list):
 
 def run_comprehensive_evaluation(recipe_path: str, 
                                 debug: bool = False,
-                                overrides: list = None) -> Dict[str, Any]:
+                                overrides: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Run comprehensive evaluation by:
     1. Loading evaluation dataset
@@ -384,7 +373,7 @@ def run_comprehensive_evaluation(recipe_path: str,
 def calculate_accuracy_metrics_with_dataset_columns(predictions: List[Optional[str]], 
                                                    ground_truths: List[str],
                                                    eval_dataset: pd.DataFrame,
-                                                   dataset_columns: List[str]) -> Dict[str, float]:
+                                                   dataset_columns: List[str]) -> Tuple[Dict[str, float], List[Dict[str, Any]]]:
     """
     Calculate accuracy metrics by comparing predictions with ground truths,
     and include dataset columns in the detailed results.

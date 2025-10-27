@@ -201,8 +201,8 @@ def load_model_and_tokenizer(config):
         
         print(f"Base model: {base_model_name}")
         
-        # Load tokenizer from checkpoint
-        tokenizer = AutoTokenizer.from_pretrained(model_identifier)
+        # Load tokenizer from checkpoint (use slow tokenizer to avoid tiktoken conversion issues)
+        tokenizer = AutoTokenizer.from_pretrained(model_identifier, use_fast=False)
         
         # Set the pad token if it's not already set
         if tokenizer.pad_token is None:
@@ -238,8 +238,8 @@ def load_model_and_tokenizer(config):
         # Regular model loading (non-PEFT) - can be local or from HuggingFace hub
         print(f"Loading regular model from {'local path' if is_local else 'HuggingFace hub'}...")
         
-        # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(model_identifier)
+        # Load tokenizer (use slow tokenizer to avoid tiktoken conversion issues)
+        tokenizer = AutoTokenizer.from_pretrained(model_identifier, use_fast=False)
         
         # Set the pad token if it's not already set
         if tokenizer.pad_token is None:

@@ -13,7 +13,16 @@ import warnings
 import subprocess
 import datetime
 from typing import Dict, List, Tuple, Any, Optional
-from datasets import load_dataset
+try:
+    # Prefer the HuggingFace 'datasets' library. If a conflicting local module existed
+    # (e.g., a folder named 'datasets'), it could shadow the external package. That
+    # folder has been renamed to 'eval_datasets' to avoid ImportError.
+    from datasets import load_dataset  # type: ignore
+except Exception as _import_err:  # pragma: no cover
+    raise ImportError(
+        f"Failed to import 'load_dataset' from HuggingFace datasets library: {_import_err}. "
+        "Ensure 'datasets' is installed (pip install datasets) and no local 'datasets' package shadows it."
+    )
 import numpy as np
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
@@ -32,7 +41,7 @@ from utils.api_utils import generate_response_by_api
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 
 # Import dataset-specific evaluation utilities
-from evaluations.datasets import mmlu
+from evaluations.eval_datasets import mmlu
 
 
 def extract_predicted_answer(text, dataset_name, choice_labels=None):

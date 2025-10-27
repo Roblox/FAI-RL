@@ -9,7 +9,7 @@ evaluation:
   model: "meta-llama/Llama-3.2-3B-Instruct"
   
   # Where to save evaluation results (CSV format with all dataset columns + accuracy)
-  output_file: "outputs/llama3_3B_Inst_vanilla_mmlu_evaluation.csv"
+  output_file: "outputs/qwen3-4B-inst-vanilla-v1-eval-mmlu.csv"
 
   # Dataset Configuration
   # Specifies which dataset and subset to evaluate on

@@ -12,7 +12,8 @@ evaluation:
   model: "meta-llama/Llama-3.2-3B-Instruct"    # API model identifier (format depends on API provider)
   
   # Where to save evaluation results (CSV format with all dataset columns + accuracy)
-  output_file: "outputs/Llama-3.2-3B-Inst-FAI-RL-mmlu-output-api-cot.csv"
+  output_file: "outputs/qwen3-4B-inst-dpo-full-v1-eval-mmlu-ckpt100-api.csv"
+  
 
   # Dataset Configuration
   # Specifies which dataset and subset to evaluate on

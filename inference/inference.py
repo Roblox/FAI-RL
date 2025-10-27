@@ -92,8 +92,8 @@ def format_template_prompt(template, example, config):
     # Create a copy of the example for formatting
     format_dict = example.copy()
     
-    # Handle multiple choice formatting if needed
-    if hasattr(config, 'output_type') and config.output_type == "multiple_choice":
+    # Handle multiple choice formatting if needed (for MMLU dataset)
+    if hasattr(config, 'dataset_name') and config.dataset_name == "cais/mmlu":
         if 'choices' in format_dict:
             choice_labels = getattr(config, 'choice_labels', None)
             formatted_choices = format_multiple_choice_for_inference(

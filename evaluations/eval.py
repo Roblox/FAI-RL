@@ -124,19 +124,19 @@ def convert_answer_index_to_letter(answer_index, choice_labels=None):
     return None
 
 
-def extract_predicted_answer(text, output_type="numerical", choice_labels=None):
+def extract_predicted_answer(text, dataset_name, choice_labels=None):
     """
-    Extract predicted answer from model response based on output type.
+    Extract predicted answer from model response based on dataset.
     
     Args:
         text: Model response text
-        output_type: Type of answer format ("numerical", "multiple_choice")
+        dataset_name: Name of the dataset being evaluated
         choice_labels: List of choice labels for multiple choice
     
     Returns:
         Extracted answer or None if not found
     """
-    if output_type == "multiple_choice":
+    if dataset_name == "cais/mmlu":
         return extract_multiple_choice_answer(text, choice_labels)
     else:
         # Original numerical extraction logic
@@ -157,19 +157,19 @@ def extract_predicted_answer(text, output_type="numerical", choice_labels=None):
             return None
 
 
-def extract_ground_truth(text, output_type="numerical", choice_labels=None):
+def extract_ground_truth(text, dataset_name, choice_labels=None):
     """
-    Extract ground truth answer based on output type.
+    Extract ground truth answer based on dataset.
     
     Args:
         text: Ground truth text or index
-        output_type: Type of answer format
+        dataset_name: Name of the dataset being evaluated
         choice_labels: List of choice labels for multiple choice
     
     Returns:
         Processed ground truth answer
     """
-    if output_type == "multiple_choice":
+    if dataset_name == "cais/mmlu":
         # For MMLU, ground truth is typically a numerical index
         return convert_answer_index_to_letter(text, choice_labels)
     else:
@@ -350,7 +350,6 @@ def run_comprehensive_evaluation(recipe_path: str,
     try:
         # Load recipe to get dataset name and other settings with overrides
         config = load_eval_recipe_with_overrides(recipe_path, overrides or [])
-        output_type = getattr(config, 'output_type', 'numerical')
         choice_labels = getattr(config, 'choice_labels', None)
         dataset_subset = getattr(config, 'dataset_subset', None)
         evaluation_split = getattr(config, 'dataset_split', 'test')
@@ -376,7 +375,7 @@ def run_comprehensive_evaluation(recipe_path: str,
         for response in inference_results[response_col]:
             pred_answer = extract_predicted_answer(
                 response, 
-                output_type=output_type,
+                dataset_name=evaluation_dataset_name,
                 choice_labels=choice_labels
             )
             predicted_answers.append(pred_answer)
@@ -387,7 +386,7 @@ def run_comprehensive_evaluation(recipe_path: str,
         for truth_text in eval_dataset[ground_truth_column]:
             gt_answer = extract_ground_truth(
                 str(truth_text), 
-                output_type=output_type,
+                dataset_name=evaluation_dataset_name,
                 choice_labels=choice_labels
             )
             ground_truth_answers.append(gt_answer)

@@ -256,7 +256,6 @@ class EvaluationConfig:
     prompt_template: Optional[str] = None
     
     # Multiple choice configuration
-    output_type: str = "numerical"  # "numerical" or "multiple_choice"
     choice_labels: List[str] = field(default_factory=lambda: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
     
     # Generation parameters

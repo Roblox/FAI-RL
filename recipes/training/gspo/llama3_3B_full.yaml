@@ -44,14 +44,6 @@ training:
   max_steps: -1                                         # Maximum number of training steps (-1 = train for num_train_epochs)
   warmup_steps: 50                                      # Linear warmup steps for learning rate scheduler
   
-  # GSPO-specific parameters (only used when algorithm: "gspo")
-  # Reference: https://swift.readthedocs.io/en/v3.7/Instruction/GRPO/AdvancedResearch/GSPO.html
-  beta: 0                                               # KL regularization strength (0 = no KL penalty)
-  group_size: 4                                         # Group size for sequence grouping
-  epsilon: 3e-4                                         # Policy exploration parameter (lower bound)
-  epsilon_high: 4e-4                                    # Policy exploration parameter (upper bound)
-  steps_per_generation: 4                               # Minibatch partitioning for rollout data
-  
   # Logging and checkpointing
   logging_steps: 5                                      # Log training metrics every N steps
   save_steps: 100                                       # Save model checkpoint every N steps
@@ -71,11 +63,22 @@ training:
   save_only_model: true                                 # Save only model weights (not optimizer states) to reduce disk usage
   prediction_loss_only: true                            # Only compute prediction loss during evaluation
 
+  # GRPO-specific parameters
+  num_generations: 8                                    # Number of generations for GRPO (default: 8)
+                                    
+  # GSPO-specific parameters (only used when algorithm: "gspo")
+  # Reference: https://swift.readthedocs.io/en/v3.7/Instruction/GRPO/AdvancedResearch/GSPO.html
+  beta: 0                                               # KL regularization strength (0 = no KL penalty)
+  epsilon: 3e-4                                         # Policy exploration parameter (lower bound)
+  epsilon_high: 4e-4                                    # Policy exploration parameter (upper bound)
+  steps_per_generation: 4                               # Minibatch partitioning for rollout data
+
+
 # Weights & Biases Integration
 # Optional experiment tracking and monitoring
 wandb:
   enabled: false                                        # Enable W&B logging
   project: "rl"                                         # W&B project name
   entity: "fai-llmaas"                                  # W&B username or team name
-  name: "Llama-3.1-3B-Inst-Full-GSPO-FAIRL"             # Experiment name in W&B
+  name: "Llama-3.1-3B-Inst-Full-GSPO"                   # Experiment name in W&B
   tags: ["GSPO", "llama3", "3B-Inst", "GSM8K", "OpenMathInstruct-2"]  # Tags for organizing experiments

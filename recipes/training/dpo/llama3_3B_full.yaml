@@ -70,5 +70,5 @@ wandb:
   enabled: false                                        # Enable W&B logging
   project: "rl"                                         # W&B project name
   entity: "fai-llmaas"                                  # W&B username or team name
-  name: "Llama-3.1-3B-Inst-Full-DPO-FAIRL"              # Experiment name in W&B
+  name: "Llama-3.1-3B-Inst-Full-DPO"                    # Experiment name in W&B
   tags: ["DPO", "llama3", "3B-Inst", "hh-rlhf", "coconot"]  # Tags for organizing experiments

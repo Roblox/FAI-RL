@@ -1,27 +1,20 @@
 # Model Configuration
+
+# Reward API Configuration for Dynamic Evaluation (Optional)
+reward_api:
+  endpoint: "https://<YOUR_API_ENDPOINT>"  # Custom API endpoint URL for hosted model
+  key: "<YOUR_API_KEY>"                    # API authentication key (e.g., OpenAI API key)
+  model: "<YOUR_MODEL_IDENTIFIER>"         # API model identifier (format depends on API provider)
+
+# Model Configuration
 # Defines the base model and its loading parameters
 model:
-  base_model_name: "meta-llama/Llama-3.2-3B-Instruct"   # HuggingFace model name or local path
+  base_model_name: "Qwen/Qwen3-4B-Instruct-2507"        # HuggingFace model name
   torch_dtype: "bfloat16"                               # Data type for model weights (bfloat16/float16/float32)
   low_cpu_mem_usage: true                               # Reduce CPU memory usage during model loading
   load_in_8bit: false                                   # Enable 8-bit quantization
   load_in_4bit: false                                   # Enable 4-bit quantization (for QLoRA)
   use_flash_attention: false                            # Use Flash Attention for faster training (if supported)
-  
-  # LoRA configuration (for parameter-efficient fine-tuning)
-  use_lora: true                                        # Enable LoRA
-  lora_r: 8                                             # LoRA rank (8 for LoRA, 16 for QLoRA)
-  lora_alpha: 16                                        # LoRA alpha scaling factor (typically 2x rank)
-  lora_dropout: 0.05                                    # LoRA dropout rate
-  lora_target_modules:                                  # Target modules for LoRA
-    - q_proj
-    - v_proj
-    - k_proj
-    - o_proj
-    - gate_proj
-    - up_proj
-    - down_proj
-  lora_bias: "none"                                     # Bias handling: "none", "all", or "lora_only"
 
 # Data Configuration
 # Specifies datasets and preprocessing settings
@@ -29,33 +22,26 @@ data:
   datasets: # YOUR TRAINING DATASET
     # Supports multiple datasets.
     # Add additional entries here for combined training across datasets.
-    # For GRPO (math/reasoning tasks):
-    - name: "openai/gsm8k"                              # HuggingFace dataset name/path (required)
-      subset: "main"                                    # Dataset subset/config name (optional)
-      split: "train"                                    # Dataset split to use (default: "train")
-      prompt_column: "question"                         # Name of question/prompt column
-      answer_column: "answer"                           # Name of answer column
-    - name: "nvidia/OpenMathInstruct-2"                 # Optional: add multiple datasets for combined training
-      split: "train_1M"
-      prompt_column: "problem"
-      answer_column: "expected_answer"
+    - name: "Roblox/FAI-RL-5K-training-sample"
+      split: "train"
+      prompt_column: "prompt"  # Column name containing the prompts
   
   # Text processing settings
-  max_length: 2048                                      # Maximum sequence length for model input
-  max_prompt_length: 1024                               # Maximum length for prompts (rest reserved for responses)
+  max_length: 32384                                      # Maximum sequence length for model input
+  max_prompt_length: 16192                               # Maximum length for prompts (rest reserved for responses)
   remove_unused_columns: false                          # Keep all dataset columns (set true to save memory)
 
 # Training Configuration
 # Controls the training process and optimization settings
 training:
   algorithm: "grpo"                                     # Training algorithm: sft, dpo, ppo, grpo, gspo
-  output_dir: "models/llama3_3B_Inst_GRPO_lora_v1"      # Directory to save trained model and checkpoints
+  output_dir: "models/qwen3_4B_Inst_GRPO_full_v1"       # Directory to save trained model and checkpoints
   
   # Core training hyperparameters
   per_device_train_batch_size: 1                        # Batch size per GPU (adjust based on GPU memory)
   gradient_accumulation_steps: 16                       # Steps to accumulate gradients (effective batch = batch_size × accum_steps × num_gpus)
-  learning_rate: 1.0e-4                                 # Learning rate (1e-5 for full/LoRA, 1e-4 to 2e-4 for QLoRA)
-  num_train_epochs: 1                                   # Number of complete passes through the dataset
+  learning_rate: 1.0e-5                                 # Learning rate (1e-5 for full fine-tuning)
+  num_train_epochs: 3                                   # Number of complete passes through the dataset
   max_steps: -1                                         # Maximum number of training steps (-1 = train for num_train_epochs)
   warmup_steps: 50                                      # Linear warmup steps for learning rate scheduler
   
@@ -81,13 +67,11 @@ training:
   # GRPO-specific parameters
   num_generations: 8                                    # Group size for sequence grouping
 
-
 # Weights & Biases Integration
 # Optional experiment tracking and monitoring
 wandb:
   enabled: false                                        # Enable W&B logging
   project: "rl"                                         # W&B project name
   entity: "fai-llmaas"                                  # W&B username or team name
-  name: "Llama-3.2-3B-Inst-LoRA-GRPO"                   # Experiment name in W&B
-  tags: ["GRPO", "llama3", "3B-Inst", "LoRA", "GSM8K", "OpenMathInstruct-2"]  # Tags for organizing experiments
-
+  name: "Qwen3-4B-Inst-Full-GRPO"                       # Experiment name in W&B
+  tags: ["GRPO", "qwen3", "4B-Inst", "FAI-RL-5K-dataset"]  # Tags for organizing experiments

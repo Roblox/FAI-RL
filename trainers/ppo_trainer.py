@@ -17,10 +17,6 @@ if project_root not in sys.path:
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
-from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
-from .rewards.format_rewards import structured_xml_reward_func
-from .templates.gsm8k_template import GSM8KTemplate
-from .templates.openmathinstruct_template import OpenMathInstructTemplate
 
 
 # Monkey-patch DistributedDataParallel to expose the underlying model's config and policy

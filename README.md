@@ -107,7 +107,7 @@ Each method supports:
 
 ### 🔧 **Modular Architecture**
 - Extensible trainer base classes
-- Custom reward functions
+- Custom reward functions (including API-based dynamic rewards)
 - Pluggable dataset templates
 - Easy integration with HuggingFace ecosystem
 

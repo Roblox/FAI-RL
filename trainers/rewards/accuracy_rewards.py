@@ -43,6 +43,5 @@ def exact_match_reward_func(completions: List[str], answer, **kwargs) -> List[fl
 def digit_reward_func(completions: List[str], **kwargs) -> List[float]:
     """Calculates reward if the extracted response is a digit."""
     logger = kwargs.get('logger', None)
-    responses = [completion[0]['content'] for completion in completions]
-    extracted_responses = [extract_answer(r, logger) for r in responses]
+    extracted_responses = [extract_answer(r, logger) for r in completions]
     return [0.5 if r.isdigit() else 0.0 for r in extracted_responses]

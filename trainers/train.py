@@ -16,7 +16,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from core.config import ExperimentConfig, ModelConfig, DataConfig, TrainingConfig, WandbConfig, DatasetInfo
+from core.config import ExperimentConfig, ModelConfig, DataConfig, TrainingConfig, WandbConfig, DatasetInfo, RewardAPIConfig
 from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
 from trainers.gspo_trainer import GSPOTrainer
@@ -211,12 +211,18 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
         # Default to empty list if no datasets specified
         data_config['datasets'] = []
     
+    # Handle Reward API configuration
+    reward_api_config = None
+    if 'reward_api' in recipe_dict and recipe_dict['reward_api']:
+        reward_api_config = RewardAPIConfig(**recipe_dict['reward_api'])
+    
     # Create config objects with defaults
     return ExperimentConfig(
         model=ModelConfig(**recipe_dict.get('model', {})),
         data=DataConfig(**data_config),
         training=TrainingConfig(**recipe_dict.get('training', {})),
         wandb=WandbConfig(**recipe_dict.get('wandb', {})),
+        reward_api=reward_api_config,
     )
 
 
@@ -254,13 +260,19 @@ def main():
     log_system_info()
     
     # Log experiment configuration
-    training_logger.log_experiment_start({
+    log_dict = {
         "algorithm": {"name": algorithm},
         "model": config.model.to_dict(),
         "data": config.data.to_dict(),
         "training": config.training.to_dict(),
         "wandb": config.wandb.to_dict(),
-    })
+    }
+    
+    # Include reward_api if configured
+    if config.reward_api is not None:
+        log_dict["reward_api"] = config.reward_api.to_dict()
+    
+    training_logger.log_experiment_start(log_dict)
 
     start_time = time.time()
 

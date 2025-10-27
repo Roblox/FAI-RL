@@ -5,8 +5,7 @@ from . import reward_function
 @reward_function
 def structured_xml_reward_func(completions: List[str], **kwargs) -> List[float]:
     """Calculates reward based on XML tag counts."""
-    contents = [completion[0]["content"] for completion in completions]
-    return [count_xml(c) for c in contents]
+    return [count_xml(c) for c in completions]
 
 
 def count_xml(text) -> float:

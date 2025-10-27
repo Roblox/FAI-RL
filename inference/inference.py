@@ -7,6 +7,12 @@ import torch
 import os
 import json, csv
 import sys
+
+# Add project root to path BEFORE importing local modules
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import yaml
 import pandas as pd
 import requests
@@ -24,10 +30,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._intern
 warnings.filterwarnings("ignore", message=".*'repr' attribute.*has no effect.*")
 from pathlib import Path
 from peft import PeftModel, PeftConfig
-
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
 
 from core.config import ExperimentConfig
 from utils.config_validation import validate_api_config

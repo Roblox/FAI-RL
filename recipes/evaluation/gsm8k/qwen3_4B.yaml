@@ -1,0 +1,41 @@
+# MMLU Evaluation Configuration for Local Fine-tuned Model
+# This config evaluates a local fine-tuned model on the MMLU benchmark
+# using automatic JSON answer extraction and accuracy calculation.
+
+evaluation:
+  # Model Configuration
+  # Path to the trained model to evaluate (local checkpoint)
+  model_path: "models/qwen3-4B-inst-dpo-full-100k-v1/checkpoint-100"
+  
+  # Where to save evaluation results (CSV format with all dataset columns + accuracy)
+  output_file: "outputs/qwen3-4B-inst-dpo-full-100k-v1-eval-gsm8k-ckpt100.csv"
+
+  # Dataset Configuration
+  # Specifies which dataset and subset to evaluate on
+  dataset_name: "openai/gsm8k"                  # HuggingFace dataset identifier
+  dataset_subset: "main"                      # Specific subset of the dataset (optional). Available: 57 subjects (e.g., "abstract_algebra", "college_biology", "high_school_physics"), or "all" for all subjects
+  dataset_split: "test"                      # Which split to evaluate on: test, validation, or dev
+  dataset_columns: ["question", "answer"]  # List of dataset columns to include in evaluation
+  ground_truth_column: "answer"              # Column containing the correct answers for accuracy calculation
+  response_column: "response"                # Name of column to store/read model responses (default: "response")
+  
+  # System Prompt Template
+  # Template for evaluation prompts (supports variable substitution with {variable})
+  # The model will be prompted with this template for each evaluation sample
+  system_prompt: |
+    Question: {question}
+    
+    Instructions:
+    - You may show your step-by-step reasoning.
+    - At the end, **output only valid JSON** in this format:
+    {{
+      "answer": "your answer"
+    }}
+  
+  # Generation Parameters
+  # Controls how the model generates responses during evaluation
+  temperature: 1.0                           # Sampling temperature for response generation (0.0 = deterministic, 2.0 = very random)
+  top_p: 0.9                                 # Nucleus sampling parameter - probability threshold for token selection (0.0-1.0, lower = more focused)
+  max_new_tokens: 2000                       # Maximum tokens to generate per response
+  do_sample: true                            # Whether to use sampling for generation (false = greedy decoding, true = stochastic sampling)
+

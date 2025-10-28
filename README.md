@@ -159,7 +159,6 @@ The `utils/hosted_llm_config.py` file provides working OpenAI-compatible default
 
 Each function includes detailed examples and comments. Simply uncomment and modify the examples to match your API format.
 
-📖 **See [`utils/HOSTED_LLM_EXAMPLE.md`](utils/HOSTED_LLM_EXAMPLE.md) for detailed examples and customization patterns.**
 
 ## 📁 Project Structure
 

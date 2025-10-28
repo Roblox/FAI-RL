@@ -148,9 +148,18 @@ inference:
   model: "your-model-name"
 ```
 
-**Note for Hosted LLM:**
-- By default, hosted LLMs use the same request format as OpenAI
-- To customize the request format for your hosted model, modify the `_build_default_request_data()` method in `utils/api_utils.py`
+**Customizing for Hosted LLM:**
+
+The `utils/hosted_llm_config.py` file provides working OpenAI-compatible defaults. If your hosted LLM uses a different format, simply edit this file and modify the functions you need:
+
+1. **`build_hosted_llm_request()`** - Customize the request payload structure
+2. **`parse_hosted_llm_response()`** - Customize how to parse the response JSON
+3. **`build_hosted_llm_headers()`** - Customize authentication headers
+4. **`prepare_hosted_llm_url()`** - Customize URL query parameters (if needed)
+
+Each function includes detailed examples and comments. Simply uncomment and modify the examples to match your API format.
+
+📖 **See [`utils/HOSTED_LLM_EXAMPLE.md`](utils/HOSTED_LLM_EXAMPLE.md) for detailed examples and customization patterns.**
 
 ## 📁 Project Structure
 

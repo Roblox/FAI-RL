@@ -8,6 +8,13 @@ from typing import Dict, Any, List, Union
 # Set up logger for API utilities
 logger = logging.getLogger(__name__)
 
+# Import hosted LLM custom configurations
+try:
+    from utils import hosted_llm_config
+except ImportError:
+    hosted_llm_config = None
+    logger.warning("Could not import hosted_llm_config module")
+
 
 # ============================================================================
 # Helper Functions for API Calls
@@ -122,7 +129,20 @@ def _build_anthropic_request_data(prompt: str, config) -> dict:
 
 
 def _build_default_request_data(prompt: str, config) -> dict:
-    """Build request data for other models (generic format)."""
+    """
+    Build request data for other models (generic format).
+    
+    Default format is OpenAI-compatible.
+    Customize in utils/hosted_llm_config.py for your hosted LLM.
+    """
+    # Check if custom hosted LLM configuration exists
+    if hosted_llm_config:
+        custom_data = hosted_llm_config.build_hosted_llm_request(prompt, config)
+        if custom_data is not None:
+            logger.debug("Using custom hosted LLM request format")
+            return custom_data
+    
+    # Default: OpenAI-compatible format
     return {
         "model": config.model,
         "max_tokens": getattr(config, 'max_new_tokens', 1000),
@@ -183,11 +203,22 @@ def _parse_api_response(response_json: dict, api_endpoint: str) -> str:
         elif provider == "anthropic":
             # Anthropic/Claude response format
             return response_json['content'][0]['text']
+        elif provider == "openai":
+            # Openai/ChatGPT response format
+            return response_json['content'][0]['text']
         else:
-            # OpenAI and default format
+            # Check if custom hosted LLM configuration exists
+            if hosted_llm_config:
+                custom_response = hosted_llm_config.parse_hosted_llm_response(response_json)
+                if custom_response is not None:
+                    logger.debug("Using custom hosted LLM response parsing")
+                    return custom_response
+            
+            # Default: OpenAI-compatible format (choices[0].message.content)
             return response_json['choices'][0]['message']['content']
     except (KeyError, IndexError, TypeError) as e:
         logger.warning(f"Failed to parse API response: {e}")
+        logger.warning(f"Response JSON structure: {response_json}")
         return ""
 
 
@@ -219,7 +250,14 @@ def _build_headers(api_endpoint: str, api_key: str) -> dict:
             "anthropic-version": "2023-06-01"
         }
     else:
-        # Default format (generic)
+        # Check if custom hosted LLM configuration exists
+        if hosted_llm_config:
+            custom_headers = hosted_llm_config.build_hosted_llm_headers(api_key)
+            if custom_headers is not None:
+                logger.debug("Using custom hosted LLM headers")
+                return custom_headers
+        
+        # Default: Generic authorization header
         return {
             "Content-Type": "application/json",
             "Authorization": api_key
@@ -235,7 +273,14 @@ def _prepare_api_url(api_endpoint: str, api_key: str) -> str:
         separator = "&" if "?" in api_endpoint else "?"
         return f"{api_endpoint}{separator}key={api_key}"
     else:
-        # Other providers use headers for authentication
+        # Check if custom hosted LLM configuration exists
+        if hosted_llm_config:
+            custom_url = hosted_llm_config.prepare_hosted_llm_url(api_endpoint, api_key)
+            if custom_url is not None:
+                logger.debug("Using custom hosted LLM URL")
+                return custom_url
+        
+        # Default: Use endpoint as-is (auth in headers)
         return api_endpoint
 
 

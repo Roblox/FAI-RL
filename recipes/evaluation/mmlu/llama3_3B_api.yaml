@@ -1,8 +1,6 @@
 # MMLU Evaluation Configuration for API-based Inference
-# This config evaluates a model via API (e.g., OpenAI, hosted LLM) on the MMLU benchmark
+# This config evaluates a model via API (e.g., OpenAI, Google, Anthropic, hosted LLM) on the MMLU benchmark
 # using automatic JSON answer extraction and accuracy calculation.
-# 
-# Usage: Replace <YOUR_API_ENDPOINT> and <YOUR_API_KEY> with your actual API credentials
 
 evaluation:
   # API Configuration

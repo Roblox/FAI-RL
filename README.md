@@ -111,6 +111,35 @@ Each method supports:
 - Pluggable dataset templates
 - Easy integration with HuggingFace ecosystem
 
+### 🌐 **API Provider Support**
+
+Native support for commercial LLM APIs with automatic provider detection for baseline inference and evaluation:
+
+**Supported Providers:**
+- 🤖 **OpenAI ChatGPT**
+- 🧠 **Google Gemini**
+- 💬 **Anthropic Claude**
+
+**Example Configuration:**
+```yaml
+# OpenAI ChatGPT - provider detected from endpoint URL
+inference:
+  api_endpoint: "https://api.openai.com/v1/chat/completions"
+  api_key: "sk-..."
+  model: "gpt-4.1"  # Just the model name, no prefix needed!
+
+# Google Gemini - provider detected from endpoint URL
+inference:
+  api_endpoint: "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent"
+  api_key: "AIza..."
+  model: "gemini-2.5-pro"
+
+# Anthropic Claude - provider detected from endpoint URL
+inference:
+  api_endpoint: "https://api.anthropic.com/v1/messages"
+  api_key: "sk-ant-..."
+  model: "claude-sonnet-4-5-20250929"
+```
 
 ## 📁 Project Structure
 

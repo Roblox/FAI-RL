@@ -119,6 +119,7 @@ Native support for commercial LLM APIs with automatic provider detection for bas
 - 🤖 **OpenAI ChatGPT**
 - 🧠 **Google Gemini**
 - 💬 **Anthropic Claude**
+- 🏠 **Hosted LLM** (custom/self-hosted models with generic API format)
 
 **Example Configuration:**
 ```yaml
@@ -139,7 +140,17 @@ inference:
   api_endpoint: "https://api.anthropic.com/v1/messages"
   api_key: "sk-ant-..."
   model: "claude-sonnet-4-5-20250929"
+
+# Hosted LLM - any custom or self-hosted model endpoint
+inference:
+  api_endpoint: "https://your-hosted-endpoint.com/v1/chat"
+  api_key: "your-api-key"
+  model: "your-model-name"
 ```
+
+**Note for Hosted LLM:**
+- By default, hosted LLMs use the same request format as OpenAI
+- To customize the request format for your hosted model, modify the `_build_default_request_data()` method in `utils/api_utils.py`
 
 ## 📁 Project Structure
 

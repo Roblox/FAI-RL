@@ -50,7 +50,13 @@ outputs/
 ### MMLU (Massive Multitask Language Understanding)
 - **Dataset**: `cais/mmlu`
 - **Task Type**: Multiple choice questions across 57 academic subjects
-- **Splits**: `test`, `validation`, `dev`
 - **Subsets**: 57 subjects (e.g., `abstract_algebra`, `college_biology`, `high_school_physics`)
 - **Evaluation**: Automatic JSON answer extraction and accuracy calculation
 - **Example Config**: `recipes/evaluation/mmlu/llama3_3B.yaml`
+
+### GSM8K (Grade School Math 8K)
+- **Dataset**: `openai/gsm8k`
+- **Task Type**: Grade school math word problems requiring multi-step reasoning
+- **Subsets**: `main` (8.5K problems: 7,473 train, 1,319 test)
+- **Evaluation**: Automatic numeric answer extraction and accuracy calculation
+- **Example Config**: `recipes/evaluation/gsm8k/llama3_8B_vanilla.yaml`

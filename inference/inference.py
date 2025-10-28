@@ -7,6 +7,15 @@ import torch
 import os
 import json, csv
 import sys
+
+# Disable fast tokenizer conversion to avoid tiktoken issues
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Add project root to path BEFORE importing local modules
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import yaml
 import pandas as pd
 import requests
@@ -24,10 +33,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._intern
 warnings.filterwarnings("ignore", message=".*'repr' attribute.*has no effect.*")
 from pathlib import Path
 from peft import PeftModel, PeftConfig
-
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
 
 from core.config import ExperimentConfig
 from utils.config_validation import validate_api_config
@@ -92,8 +97,8 @@ def format_template_prompt(template, example, config):
     # Create a copy of the example for formatting
     format_dict = example.copy()
     
-    # Handle multiple choice formatting if needed
-    if hasattr(config, 'output_type') and config.output_type == "multiple_choice":
+    # Handle multiple choice formatting if needed (for MMLU dataset)
+    if hasattr(config, 'dataset_name') and config.dataset_name == "cais/mmlu":
         if 'choices' in format_dict:
             choice_labels = getattr(config, 'choice_labels', None)
             formatted_choices = format_multiple_choice_for_inference(
@@ -199,8 +204,22 @@ def load_model_and_tokenizer(config):
         
         print(f"Base model: {base_model_name}")
         
-        # Load tokenizer from checkpoint
-        tokenizer = AutoTokenizer.from_pretrained(model_identifier)
+        # Load tokenizer from base model instead of checkpoint to avoid conversion issues
+        print("Loading tokenizer from base model...")
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                base_model_name,
+                use_fast=False,
+                legacy=False
+            )
+        except Exception as e:
+            print(f"Warning: Failed to load tokenizer with use_fast=False, trying with trust_remote_code=True: {e}")
+            tokenizer = AutoTokenizer.from_pretrained(
+                base_model_name,
+                use_fast=False,
+                trust_remote_code=True,
+                legacy=False
+            )
         
         # Set the pad token if it's not already set
         if tokenizer.pad_token is None:
@@ -236,8 +255,21 @@ def load_model_and_tokenizer(config):
         # Regular model loading (non-PEFT) - can be local or from HuggingFace hub
         print(f"Loading regular model from {'local path' if is_local else 'HuggingFace hub'}...")
         
-        # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(model_identifier)
+        # Load tokenizer (use slow tokenizer to avoid tiktoken conversion issues)
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_identifier,
+                use_fast=False,
+                legacy=False
+            )
+        except Exception as e:
+            print(f"Warning: Failed to load tokenizer with use_fast=False, trying with trust_remote_code=True: {e}")
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_identifier,
+                use_fast=False,
+                trust_remote_code=True,
+                legacy=False
+            )
         
         # Set the pad token if it's not already set
         if tokenizer.pad_token is None:

@@ -49,7 +49,7 @@ data:
 # Controls the training process and optimization settings
 training:
   algorithm: "grpo"                                     # Training algorithm: sft, dpo, ppo, grpo, gspo
-  output_dir: "models/llama3_3B_Inst_GRPO_lora_v1"      # Directory to save trained model and checkpoints
+  output_dir: "models/llama3-3B-inst-grpo-lora-v1"      # Directory to save trained model and checkpoints
   
   # Core training hyperparameters
   per_device_train_batch_size: 1                        # Batch size per GPU (adjust based on GPU memory)

@@ -12,8 +12,17 @@ import pandas as pd
 import warnings
 import subprocess
 import datetime
-from typing import Dict, List, Tuple, Any, Optional
-from datasets import load_dataset
+from typing import Dict, List, Tuple, Any, Optional, Union
+try:
+    # Prefer the HuggingFace 'datasets' library. If a conflicting local module existed
+    # (e.g., a folder named 'datasets'), it could shadow the external package. That
+    # folder has been renamed to 'eval_datasets' to avoid ImportError.
+    from datasets import load_dataset  # type: ignore
+except Exception as _import_err:  # pragma: no cover
+    raise ImportError(
+        f"Failed to import 'load_dataset' from HuggingFace datasets library: {_import_err}. "
+        "Ensure 'datasets' is installed (pip install datasets) and no local 'datasets' package shadows it."
+    )
 import numpy as np
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
@@ -26,158 +35,57 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import existing modules
-from core.config import ExperimentConfig
+from core.config import ExperimentConfig, EvaluationConfig
 from inference.inference import run_inference, load_model_and_tokenizer, generate_response
 from utils.api_utils import generate_response_by_api
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 
+# Import dataset-specific evaluation utilities
+from evaluations.eval_datasets import mmlu, gsm8k
 
-def extract_multiple_choice_answer(text, choice_labels=None):
+
+def extract_predicted_answer(text, dataset_name, choice_labels=None):
     """
-    Extract the first character from text if it matches a choice label.
+    Extract predicted answer from model response based on dataset.
     
     Args:
         text: Model response text
-        choice_labels: List of valid choice labels
-    
-    Returns:
-        Extracted choice label or None if not found
-    """
-    if not text:
-        return None
-    
-    if choice_labels is None:
-        choice_labels = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
-
-    text_upper = text.upper()
-
-    # Pattern 0: JSON format, e.g., "answer": "B" or “answer”: “B”
-    pattern0 = r'[“"]ANSWER[”"]\s*:\s*[“"]([' + ''.join(choice_labels) + r'])[”"]'
-
-    match = re.search(pattern0, text_upper)
-    if match:
-        return match.group(1)
-    
-    # Pattern 1: "The best/final/correct answer/option/choice is A" or "The answer/option is A"
-    pattern1 = r'(?:THE\s+)?(?:BEST|FINAL|CORRECT)?\s*(?:ANSWER|OPTION|CHOICE)\s+IS\s+([' + ''.join(choice_labels) + r'])'
-    match = re.search(pattern1, text_upper)
-    if match:
-        return match.group(1)
-    
-    # Pattern 2: "Answer: A" (with optional additional text)
-    pattern2 = r'ANSWER:\s*([' + ''.join(choice_labels) + r'])'
-    match = re.search(pattern2, text_upper)
-    if match:
-        return match.group(1)
-
-    # Pattern 3 for "option/answer/choice C is the best/final answer/option/choice"
-    pattern3 = r'(?:OPTION|ANSWER|CHOICE)\s+([' + ''.join(choice_labels) + r'])\s+IS\s+(?:THE\s+)?(?:BEST|FINAL)?\s*(?:ANSWER|OPTION|CHOICE)'
-    match = re.search(pattern3, text_upper)
-    if match:
-        return match.group(1)
-
-    # Pattern 4: "the answer/option/choice is option/answer C" (e.g., "the answer is option C")
-    pattern4 = r'(?:THE\s+)?(?:ANSWER|OPTION|CHOICE)\s+IS\s+(?:OPTION|ANSWER|CHOICE)\s+([' + ''.join(choice_labels) + r'])'
-    match = re.search(pattern4, text_upper)
-    if match:
-        return match.group(1)
-
-    # Pattern 5: "the best/final/correct answer/option/choice should/would/must be C" (with optional adjectives like "correct")
-    pattern5 = r'(?:THE\s+)?(?:BEST|FINAL|CORRECT)?\s*(?:ANSWER|OPTION|CHOICE)\s+(?:SHOULD|WOULD|MUST|COULD)\s+BE\s+([' + ''.join(choice_labels) + r'])'
-    match = re.search(pattern5, text_upper)
-    if match:
-        return match.group(1)
-
-    # Pattern 6: "option/answer/choice D is correct" (e.g., "option D is correct")
-    pattern6 = r'(?:OPTION|ANSWER|CHOICE)\s+([' + ''.join(choice_labels) + r'])\s+IS\s+(?:THE\s+)?CORRECT'
-    match = re.search(pattern6, text_upper)
-    if match:
-        return match.group(1)
-
-    # Pattern 7: Fallback to first character
-    first_char = text.strip().upper()[0]
-    
-    return first_char if first_char in choice_labels else None
-
-
-def convert_answer_index_to_letter(answer_index, choice_labels=None):
-    """
-    Convert numerical answer index to choice letter.
-    
-    Args:
-        answer_index: Numerical index (0, 1, 2, 3...)
-        choice_labels: List of choice labels
-    
-    Returns:
-        Choice letter (A, B, C, D...)
-    """
-    if choice_labels is None:
-        choice_labels = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
-    
-    try:
-        index = int(answer_index)
-        if 0 <= index < len(choice_labels):
-            return choice_labels[index]
-    except (ValueError, TypeError):
-        pass
-    
-    return None
-
-
-def extract_predicted_answer(text, output_type="numerical", choice_labels=None):
-    """
-    Extract predicted answer from model response based on output type.
-    
-    Args:
-        text: Model response text
-        output_type: Type of answer format ("numerical", "multiple_choice")
+        dataset_name: Name of the dataset being evaluated
         choice_labels: List of choice labels for multiple choice
     
     Returns:
         Extracted answer or None if not found
     """
-    if output_type == "multiple_choice":
-        return extract_multiple_choice_answer(text, choice_labels)
-    else:
-        # Original numerical extraction logic
-        regex_pattern = "(-?[$0-9.,]{2,})|(-?[0-9]+)"
-        regexes_to_ignore = [",", "\\$", "(?s).*#### ", "\\.$"]
-        
-        match = re.findall(regex_pattern, text)
-        if match:
-            match = match[-1]
-            if isinstance(match, tuple):
-                match = [m for m in match if m][0]
-            text = match.strip()
-
-            for regex in regexes_to_ignore:
-                text = re.sub(regex, "", text)
-            return text
-        else:
-            return None
+    if dataset_name == "cais/mmlu":
+        return mmlu.extract_predicted_answer(text, choice_labels)
+    if dataset_name == "openai/gsm8k":
+        return gsm8k.extract_predicted_answer(text)
+    
+    print(f"{dataset_name} does not support.")
+    return None
 
 
-def extract_ground_truth(text, output_type="numerical", choice_labels=None):
+def extract_ground_truth(text, dataset_name, choice_labels=None):
     """
-    Extract ground truth answer based on output type.
+    Extract ground truth answer based on dataset.
     
     Args:
         text: Ground truth text or index
-        output_type: Type of answer format
+        dataset_name: Name of the dataset being evaluated
         choice_labels: List of choice labels for multiple choice
     
     Returns:
         Processed ground truth answer
     """
-    if output_type == "multiple_choice":
-        # For MMLU, ground truth is typically a numerical index
-        return convert_answer_index_to_letter(text, choice_labels)
-    else:
-        # Original logic for numerical answers
-        return text.split('####')[-1].strip()
+    if dataset_name == "cais/mmlu":
+        # For MMLU, ground truth is a numerical index
+        return mmlu.extract_ground_truth(text, choice_labels)
+    if dataset_name == "openai/gsm8k":
+        return gsm8k.extract_ground_truth(text)
+    return text
 
 
-def load_evaluation_dataset(dataset_name: str, split: str = "test", subset: str = None) -> pd.DataFrame:
+def load_evaluation_dataset(dataset_name: str, split: str = "test", subset: Optional[str] = None) -> pd.DataFrame:
     """
     Load evaluation dataset and return as DataFrame.
     
@@ -210,7 +118,7 @@ def load_evaluation_dataset(dataset_name: str, split: str = "test", subset: str 
     return df
 
 
-def run_inference_for_evaluation(config: ExperimentConfig, debug: bool = False) -> pd.DataFrame:
+def run_inference_for_evaluation(config: Union[ExperimentConfig, EvaluationConfig], debug: bool = False) -> pd.DataFrame:
     """
     Run inference using the existing inference system and return results.
     
@@ -226,14 +134,15 @@ def run_inference_for_evaluation(config: ExperimentConfig, debug: bool = False) 
     run_inference(config, debug)
     
     # Load the inference results
-    results_df = pd.read_csv(config.output_file)
-    print(f"Loaded {len(results_df)} inference results from {config.output_file}")
+    # Both InferenceConfig and EvaluationConfig define output_file attribute.
+    results_df = pd.read_csv(config.output_file)  # type: ignore[attr-defined]
+    print(f"Loaded {len(results_df)} inference results from {config.output_file}")  # type: ignore[attr-defined]
     
     return results_df
 
 
 def calculate_accuracy_metrics(predictions: List[Optional[str]], 
-                             ground_truths: List[str]) -> Dict[str, float]:
+                             ground_truths: List[str]) -> Tuple[Dict[str, float], List[Dict[str, Any]]]:
     """
     Calculate accuracy metrics by comparing predictions with ground truths.
     
@@ -292,7 +201,7 @@ def calculate_accuracy_metrics(predictions: List[Optional[str]],
     return metrics, detailed_results
 
 
-def load_eval_recipe_with_overrides(recipe_path: str, overrides: list):
+def load_eval_recipe_with_overrides(recipe_path: str, overrides: List[str]):
     """Load evaluation recipe from file and/or command-line arguments.
     
     Priority (highest to lowest):
@@ -328,7 +237,7 @@ def load_eval_recipe_with_overrides(recipe_path: str, overrides: list):
 
 def run_comprehensive_evaluation(recipe_path: str, 
                                 debug: bool = False,
-                                overrides: list = None) -> Dict[str, Any]:
+                                overrides: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Run comprehensive evaluation by:
     1. Loading evaluation dataset
@@ -350,7 +259,6 @@ def run_comprehensive_evaluation(recipe_path: str,
     try:
         # Load recipe to get dataset name and other settings with overrides
         config = load_eval_recipe_with_overrides(recipe_path, overrides or [])
-        output_type = getattr(config, 'output_type', 'numerical')
         choice_labels = getattr(config, 'choice_labels', None)
         dataset_subset = getattr(config, 'dataset_subset', None)
         evaluation_split = getattr(config, 'dataset_split', 'test')
@@ -376,7 +284,7 @@ def run_comprehensive_evaluation(recipe_path: str,
         for response in inference_results[response_col]:
             pred_answer = extract_predicted_answer(
                 response, 
-                output_type=output_type,
+                dataset_name=evaluation_dataset_name,
                 choice_labels=choice_labels
             )
             predicted_answers.append(pred_answer)
@@ -387,7 +295,7 @@ def run_comprehensive_evaluation(recipe_path: str,
         for truth_text in eval_dataset[ground_truth_column]:
             gt_answer = extract_ground_truth(
                 str(truth_text), 
-                output_type=output_type,
+                dataset_name=evaluation_dataset_name,
                 choice_labels=choice_labels
             )
             ground_truth_answers.append(gt_answer)
@@ -465,7 +373,7 @@ def run_comprehensive_evaluation(recipe_path: str,
 def calculate_accuracy_metrics_with_dataset_columns(predictions: List[Optional[str]], 
                                                    ground_truths: List[str],
                                                    eval_dataset: pd.DataFrame,
-                                                   dataset_columns: List[str]) -> Dict[str, float]:
+                                                   dataset_columns: List[str]) -> Tuple[Dict[str, float], List[Dict[str, Any]]]:
     """
     Calculate accuracy metrics by comparing predictions with ground truths,
     and include dataset columns in the detailed results.

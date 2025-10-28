@@ -5,10 +5,10 @@
 inference:
   # Model Configuration - Option A: Local Fine-tuned Model
   # Path to local fine-tuned model checkpoint (use this for models trained with this framework)
-  model_path: "models/llama3_3B_Inst_SFT_lora_v1/checkpoint-100"
+  model_path: "models/llama3-3B-inst-sft-full-v1"
   
   # Path to save inference results (CSV format with input columns + response column)
-  output_file: "outputs/llama3_3B_Inst_SFT_lora_v1_checkpoint100_inference.csv"
+  output_file: "outputs/llama3-3B-inst-sft-lora-v1-infer-ckpt100.csv"
   
   # Dataset Configuration
   # Specifies which dataset to run inference on

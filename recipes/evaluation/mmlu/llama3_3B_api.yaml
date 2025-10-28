@@ -1,8 +1,28 @@
 # MMLU Evaluation Configuration for API-based Inference
-# This config evaluates a model via API (e.g., OpenAI, hosted LLM) on the MMLU benchmark
+# This config evaluates a model via API (e.g., OpenAI, Google, Anthropic, hosted LLM) on the MMLU benchmark
 # using automatic JSON answer extraction and accuracy calculation.
 # 
-# Usage: Replace <YOUR_API_ENDPOINT> and <YOUR_API_KEY> with your actual API credentials
+# Supported Providers (automatically detected from api_endpoint URL):
+# - OpenAI/ChatGPT: Detects "api.openai.com" in endpoint
+# - Google/Gemini: Detects "generativelanguage.googleapis.com" in endpoint
+# - Anthropic/Claude: Detects "api.anthropic.com" in endpoint
+# - Custom/Other: Any other endpoint (uses generic API format)
+#
+# Examples:
+# 1. OpenAI ChatGPT:
+#    api_endpoint: "https://api.openai.com/v1/chat/completions"
+#    api_key: "sk-..."  # Your OpenAI API key
+#    model: "gpt-4"  # or "gpt-3.5-turbo", "gpt-4o", etc.
+#
+# 2. Google Gemini:
+#    api_endpoint: "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent"
+#    api_key: "AIza..."  # Your Google API key
+#    model: "gemini-pro"  # or "gemini-1.5-pro", etc.
+#
+# 3. Anthropic Claude:
+#    api_endpoint: "https://api.anthropic.com/v1/messages"
+#    api_key: "sk-ant-..."  # Your Anthropic API key
+#    model: "claude-3-5-sonnet-20241022"  # or "claude-3-opus-20240229", etc.
 
 evaluation:
   # API Configuration

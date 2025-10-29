@@ -1,16 +1,16 @@
 # FAI-RL: Foundation AI - Reinforcement Learning
 
-**FAI-RL** is a modular, production-ready library for training, inference, and evaluation of large language models using state-of-the-art reinforcement learning methods.
+A production-ready framework for training, evaluating, and deploying large language models using advanced reinforcement learning techniques. Built for researchers and practitioners who need a flexible, scalable solution for LLM fine-tuning.
 
 ## Overview
 
-FAI-RL provides a unified framework for fine-tuning language models with multiple RL algorithms, featuring:
+FAI-RL provides a unified, extensible framework for fine-tuning language models with state-of-the-art algorithms:
 
-- 🎯 **Multiple RL Algorithms**: SFT, DPO, PPO, GRPO, GSPO
-- 🚀 **Production Ready**: Battle-tested on large-scale deployments
-- 📦 **Easy to Use**: Simple YAML configuration and CLI interface
-- ⚡ **Memory Efficient**: LoRA, QLoRA, and DeepSpeed ZeRO-3 support
-- 🔧 **Modular Design**: Extensible architecture for custom implementations
+- 🎯 **Multiple RL Algorithms**: SFT, DPO, PPO, GRPO, and GSPO implementations
+- 🚀 **Production Ready**: Validated on AWS p4d instances with 8x A100 GPUs
+- 📦 **Simple Configuration**: YAML-based configs with CLI override support
+- ⚡ **Memory Efficient**: Full support for LoRA, QLoRA, and DeepSpeed ZeRO-3
+- 🔧 **Highly Extensible**: Custom reward functions, dataset templates, and API integrations
 
 ## Table of Contents
 
@@ -27,13 +27,13 @@ FAI-RL provides a unified framework for fine-tuning language models with multipl
 
 ## 📦 Installation
 
-Install FAI-RL from PyPI:
+### From PyPI (Recommended)
 
-```bash
+```bash 
 pip install --extra-index-url https://download.pytorch.org/whl/cu118 FAI-RL
 ```
 
-For development installation:
+### From Source (Development)
 
 ```bash
 git clone https://github.com/Roblox/FAI-RL.git
@@ -41,87 +41,120 @@ cd FAI-RL
 pip install --extra-index-url https://download.pytorch.org/whl/cu118 -e .
 ```
 
-**PyPI Package**: [https://pypi.org/project/FAI-RL/](https://pypi.org/project/FAI-RL/)
-
-For detailed installation instructions, see [INSTALL.md](INSTALL.md).
+> **Package**: [https://pypi.org/project/FAI-RL/](https://pypi.org/project/FAI-RL/)  
+> **Note**: The `--extra-index-url` flag ensures PyTorch is installed with CUDA 11.8 support.
 
 ## 🚀 Quick Start
 
 ### Training
 
-Train a model using SFT, DPO, PPO, GRPO, or GSPO:
+Train a model using any of the supported algorithms (SFT, DPO, PPO, GRPO, GSPO):
 
 ```bash
-# Single GPU training
+# Single GPU training with LoRA
 fai-rl-train --recipe recipes/training/sft/llama3_3B_lora.yaml --num-gpus 1
+
+# Multi-GPU training with DeepSpeed
+fai-rl-train --recipe recipes/training/dpo/llama3_3B_lora.yaml --num-gpus 8
+
+# Override parameters from CLI
+fai-rl-train --recipe recipes/training/sft/llama3_3B_lora.yaml --num-gpus 4 \
+  training.learning_rate=5e-5 \
+  training.num_train_epochs=3
 ```
 
-📖 **[See detailed Training Guide →](./trainers/README.md)**
+📖 **[Complete Training Guide →](./trainers/README.md)**
 
 ### Inference
 
-Generate responses from your trained models:
+Generate text completions from trained or base models:
 
 ```bash
-# Run inference with debug mode
+# Run inference on a trained model
+fai-rl-inference --recipe recipes/inference/llama3_3B.yaml
+
+# Use debug mode for detailed logging
 fai-rl-inference --recipe recipes/inference/llama3_3B.yaml --debug
 ```
 
-📖 **[See detailed Inference Guide →](./inference/README.md)**
+📖 **[Complete Inference Guide →](./inference/README.md)**
 
 ### Evaluation
 
-Evaluate model performance on benchmarks:
+Evaluate model performance on academic benchmarks (MMLU, GSM8K):
 
 ```bash
-# Evaluate with debug output
+# Evaluate on MMLU benchmark
 fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --debug
 ```
 
-📖 **[See detailed Evaluation Guide →](./evaluations/README.md)**
+📖 **[Complete Evaluation Guide →](./evaluations/README.md)**
 
-## Supported Methods
+## Supported Algorithms
 
-FAI-RL implements state-of-the-art reinforcement learning algorithms for language model fine-tuning:
+FAI-RL implements five state-of-the-art reinforcement learning algorithms for language model fine-tuning:
 
-| Method | Description | Use Case |
-|--------|-------------|----------|
-| **SFT** | Supervised Fine-Tuning | Initial instruction tuning on high-quality datasets |
-| **DPO** | Direct Preference Optimization | Align models with human preferences without reward models |
-| **PPO** | Proximal Policy Optimization | Classic RL approach with value functions and rewards |
-| **GRPO** | Group Relative Preference Optimization | Efficient preference learning with group-based sampling |
-| **GSPO** | Group Sequence Policy Optimization | Advanced sequence-level optimization |
+| Algorithm | Full Name | Description | Best For |
+|-----------|-----------|-------------|----------|
+| **SFT** | Supervised Fine-Tuning | Direct supervised learning from labeled examples | Initial instruction tuning and foundational training |
+| **DPO** | Direct Preference Optimization | Alignment via preference learning without explicit reward models | Human preference alignment, chat model training |
+| **PPO** | Proximal Policy Optimization | Policy gradient method with value function and reward model | Complex reward functions, multi-objective optimization |
+| **GRPO** | Group Relative Policy Optimization | Efficient preference learning with group-based comparison | Reasoning tasks, competitive response generation |
+| **GSPO** | Group Sequence Policy Optimization | Advanced sequence-level policy optimization | Complex multi-step reasoning, mathematical problem-solving |
 
-Each method supports:
-- ✅ Full fine-tuning
-- ✅ LoRA (Low-Rank Adaptation)
-- ✅ QLoRA (4-bit Quantized LoRA)
-- ✅ Multi-GPU training with DeepSpeed
+### Training Configurations
+
+All algorithms support three efficiency modes:
+
+| Mode | Memory Usage | Training Speed | Best For |
+|------|-------------|---------------|----------|
+| **Full Fine-tuning** | High (baseline) | Fastest | Small models (<3B params), maximum performance |
+| **LoRA** | Low (~10% of full) | Fast | Most use cases, balanced efficiency |
+| **QLoRA** | Very Low (~3-4GB for 7B model) | Moderate | Large models on consumer GPUs |
+
+Additional features supported across all algorithms:
+- ✅ Multi-GPU training with DeepSpeed ZeRO-3
+- ✅ Gradient checkpointing for memory efficiency
+- ✅ Custom reward functions and dataset templates
+- ✅ Weights & Biases integration for experiment tracking
 
 ## Key Features
 
-### 🎯 **Flexible Configuration System**
-- YAML-based configuration for all training parameters
-- Pre-configured recipes for popular models (Llama, Qwen, etc.)
-- Easy hyperparameter tuning and experimentation
+### 🎯 Flexible Configuration System
+- **YAML-based recipes** with comprehensive inline documentation for all parameters
+- **CLI overrides** for runtime parameter changes without editing files
+- **Pre-configured templates** for popular models (Llama 3, Qwen 3, etc.)
+- **Easy experimentation** with hyperparameter tuning
 
-### 🔧 **Modular Architecture**
-- Extensible trainer base classes
-- Custom reward functions (including API-based dynamic rewards)
-- Pluggable dataset templates
-- Easy integration with HuggingFace ecosystem
+### 🔧 Extensible Architecture
 
-### 🌐 **API Provider Support**
+**Custom Reward Functions:**
+- `exact_match_reward_func` - Accuracy-based rewards for verifiable tasks
+- `subjective_api_reward_func` - API-based evaluation for subjective quality
+- `structured_xml_reward_func` - Format-based rewards for structured outputs
+- Easy to add your own custom reward logic
 
-Native support for commercial LLM APIs with automatic provider detection for baseline inference and evaluation:
+**Dataset Templates:**
+- `GSM8KTemplate` - Math problem formatting with chain-of-thought
+- `OpenMathInstructTemplate` - Mathematical instruction formatting
+
+**Pluggable Components:**
+- Extensible trainer base classes for new algorithms
+- HuggingFace Transformers and TRL integration
+- Custom dataset processing pipelines
+
+### 🌐 Multi-Provider API Support
+
+Native support for commercial LLM APIs with automatic provider detection for inference and evaluation:
 
 **Supported Providers:**
-- 🤖 **OpenAI ChatGPT**
-- 🧠 **Google Gemini**
-- 💬 **Anthropic Claude**
-- 🏠 **Hosted LLM** (custom/self-hosted models with generic API format)
+- 🤖 **OpenAI** (GPT-5, GPT-4.5, GPT-4.1, etc.)
+- 🧠 **Google** (Gemini Pro, Gemini Flash)
+- 💬 **Anthropic** (Claude 4.5 Sonnet, Opus, etc.)
+- 🏠 **Hosted LLM** (self-hosted or custom endpoints)
 
-**Example Configuration:**
+**Configuration Example:**
+
 ```yaml
 # OpenAI ChatGPT - provider detected from endpoint URL
 inference:
@@ -148,16 +181,14 @@ inference:
   model: "your-model-name"
 ```
 
-**Customizing for Hosted LLM:**
+**Customization for Custom APIs:**
 
-The `utils/hosted_llm_config.py` file provides working OpenAI-compatible defaults. If your hosted LLM uses a different format, simply edit this file and modify the functions you need:
+If your hosted LLM uses a non-OpenAI format, customize `utils/hosted_llm_config.py`:
+- `build_hosted_llm_request()` - Modify request payload format
+- `parse_hosted_llm_response()` - Customize response parsing
+- `build_hosted_llm_headers()` - Adjust authentication headers
 
-1. **`build_hosted_llm_request()`** - Customize the request payload structure
-2. **`parse_hosted_llm_response()`** - Customize how to parse the response JSON
-3. **`build_hosted_llm_headers()`** - Customize authentication headers
-4. **`prepare_hosted_llm_url()`** - Customize URL query parameters (if needed)
-
-Each function includes detailed examples and comments. Simply uncomment and modify the examples to match your API format.
+Each function includes detailed examples and inline documentation.
 
 
 ## 📁 Project Structure
@@ -165,36 +196,56 @@ Each function includes detailed examples and comments. Simply uncomment and modi
 ```
 FAI-RL/
 ├── core/                      # Core framework components
-├── trainers/                  # Training method implementations
-├── inference/                 # Inference components
+├── trainers/                  # Algorithm implementations
+│   ├── rewards/               # Custom reward functions
+│   │   ├── accuracy_rewards.py
+│   │   ├── format_rewards.py
+│   │   └── subjective_rewards.py
+│   └── templates/             # Dataset formatting templates
+│       ├── gsm8k_template.py
+│       ├── openmathinstruct_template.py
+│       └── subjective_template.py
+├── inference/                 # Inference system
 ├── evaluations/               # Evaluation system
-├── recipes/                   # Recipe configuration files
-│   ├── training/              # Training recipes
+│   └── eval_datasets/         # Dataset-specific evaluation logic
+│       ├── mmlu.py
+│       └── gsm8k.py
+├── recipes/                   # YAML configuration files
+│   ├── training/              # Training recipes (sft/, dpo/, ppo/, grpo/, gspo/)
 │   ├── inference/             # Inference recipes
-│   └── evaluation/            # Evaluation recipes
-├── configs/                   # Core configuration files
-│   └── deepspeed/             # DeepSpeed ZeRO configurations
-├── utils/                     # Utility modules
-├── logs/                      # Training logs (auto-generated)
-└── outputs/                   # Inference output (auto-generated)
+│   └── evaluation/            # Evaluation recipes (mmlu/, gsm8k/)
+├── configs/                   # DeepSpeed configurations
+│   └── deepspeed/             # ZeRO-3 configs for 1/2/4/8 GPUs
+├── utils/                     # Shared utilities
+│   └── hosted_llm_config.py   # Custom API endpoint configuration
+└── [auto-generated]
+    ├── models/                # Trained model checkpoints
+    ├── outputs/               # Inference and evaluation results
+    └── logs/                  # Training logs
 ```
 
 ## Memory Optimization
 
-FAI-RL supports various techniques to train large models efficiently:
+FAI-RL provides multiple techniques for efficient training of large models on limited hardware:
 
-| Technique | Memory Usage | Speed | Best For |
-|-----------|-------------|-------|----------|
-| **Full Fine-tuning** | High (100%) | Fastest | Small models, ample GPU memory |
-| **LoRA** | Low (~10%) | Fast | Most use cases, balanced efficiency |
-| **QLoRA** | Very Low (~25% of LoRA) | Medium | Large models (7B+) on consumer GPUs |
-| **DeepSpeed ZeRO-3** | Distributed | Variable | Models exceeding single GPU capacity |
+### Optimization Techniques
 
-### Example Memory Requirements
+| Technique | Memory Savings | Speed Impact | Configuration |
+|-----------|---------------|--------------|---------------|
+| **LoRA** | ~90% reduction | Minimal | `use_lora: true` + LoRA params |
+| **QLoRA** | ~95% reduction | Moderate | `load_in_4bit: true` + LoRA params |
+| **8-bit Quantization** | ~50% reduction | Minimal | `load_in_8bit: true` |
+| **Gradient Checkpointing** | ~30-50% reduction | 20% slower | `gradient_checkpointing: true` |
+| **DeepSpeed ZeRO-3** | Distributed across GPUs | Varies | Auto-enabled for multi-GPU |
 
-- **Llama-3 8B Full**: ~32GB VRAM
-- **Llama-3 8B LoRA**: ~12GB VRAM
-- **Llama-3 8B QLoRA**: ~6GB VRAM
+
+### Optimization Strategy
+
+1. **Start with QLoRA** if GPU memory is limited (<16GB)
+2. **Use LoRA** for balanced efficiency on mid-range GPUs (16-40GB)
+3. **Full fine-tuning** only for small models or high-end GPUs (80GB+)
+4. **Enable gradient checkpointing** if still encountering OOM errors
+5. **Use DeepSpeed ZeRO-3** for multi-GPU setups to distribute memory load
 
 ## 🧪 System Requirements
 
@@ -209,20 +260,19 @@ This framework has been validated on:
 * **Storage:** 8TB NVMe SSD
 * **Network:** 400 Gbps
 
-## ⭐ For Maintainers
+## For Maintainers
 
 <details>
+<summary>Publishing a New Release</summary>
 
-### Publishing a New Release
-
-1. Update version in `pyproject.toml`:
+1. **Update version** in `pyproject.toml`:
 ```toml
 [project]
 name = "FAI-RL"
-version = "X.Y.Z"  # Update version here
+version = "X.Y.Z"  # Increment version
 ```
 
-2. Build and publish:
+2. **Build and publish**:
 ```bash
 # Install build tools
 pip install --upgrade pip build twine

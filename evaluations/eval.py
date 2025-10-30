@@ -40,9 +40,15 @@ from core.config import ExperimentConfig, EvaluationConfig
 from inference.inference import run_inference, load_model_and_tokenizer, generate_response
 from utils.api_utils import generate_response_by_api
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
+from utils.logging_utils import setup_logging, SafeLogger
 
 # Import dataset-specific evaluation utilities
 from evaluations.eval_datasets import mmlu, gsm8k
+
+# Setup module-level logger with SafeLogger for robustness
+# This prevents logging errors from crashing long-running evaluation jobs
+_base_logger = setup_logging("Evaluation")
+logger = SafeLogger(_base_logger)
 
 
 def extract_predicted_answer(text, dataset_name, choice_labels=None):

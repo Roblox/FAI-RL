@@ -13,7 +13,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
     
-from utils.logging_utils import setup_logging
+from utils.logging_utils import setup_logging, SafeLogger
 
 
 class BaseTrainer(ABC):
@@ -21,7 +21,10 @@ class BaseTrainer(ABC):
 
     def __init__(self, config: ExperimentConfig):
         self.config = config
-        self.logger = setup_logging(self.__class__.__name__)
+        # Wrap logger with SafeLogger to prevent logging errors from crashing training
+        # Uses RobustFileHandler internally for handling stale file handles
+        base_logger = setup_logging(self.__class__.__name__)
+        self.logger = SafeLogger(base_logger)
         self.local_rank = int(os.environ.get("LOCAL_RANK", -1))
         self.is_main_process = self.local_rank == -1 or self.local_rank == 0
 

@@ -1,6 +1,6 @@
 # FAI-RL: Foundation AI - Reinforcement Learning Library
 
-A production-ready framework for training, evaluating, and deploying large language models using advanced reinforcement learning techniques. Built for researchers and practitioners who need a flexible, scalable solution for LLM fine-tuning.
+A production-ready framework for training, inference, evaluating using advanced reinforcement learning techniques. Built for researchers and practitioners who need a flexible, scalable solution for LLM fine-tuning.
 
 ## Overview
 

@@ -31,12 +31,19 @@ from utils.api_utils import generate_response_by_api
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
 warnings.filterwarnings("ignore", message=".*'repr' attribute.*has no effect.*")
+warnings.filterwarnings("ignore", message=".*'frozen' attribute.*has no effect.*")
 from pathlib import Path
 from peft import PeftModel, PeftConfig
 
 from core.config import ExperimentConfig
 from utils.config_validation import validate_api_config
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
+from utils.logging_utils import setup_logging, SafeLogger
+
+# Setup module-level logger with SafeLogger for robustness
+# This prevents logging errors from crashing long-running inference jobs
+_base_logger = setup_logging("Inference")
+logger = SafeLogger(_base_logger)
 
 
 def format_multiple_choice_for_inference(choices, choice_labels=None):

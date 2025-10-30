@@ -1,6 +1,13 @@
 """Utility modules."""
 
-from .logging_utils import setup_logging, TrainingLogger, log_system_info, log_gpu_memory
+from .logging_utils import (
+    setup_logging,
+    TrainingLogger,
+    log_system_info,
+    log_gpu_memory,
+    SafeLogger,
+    RobustFileHandler,
+)
 from .config_validation import validate_api_endpoint, validate_api_key, validate_api_config
 from .api_utils import generate_response_by_api, generate_response_by_api_for_reward_function
 from .dataset_utils import (
@@ -14,6 +21,8 @@ __all__ = [
     "TrainingLogger",
     "log_system_info",
     "log_gpu_memory",
+    "SafeLogger",
+    "RobustFileHandler",
     "validate_api_endpoint",
     "validate_api_key",
     "validate_api_config",

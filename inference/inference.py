@@ -31,6 +31,7 @@ from utils.api_utils import generate_response_by_api
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
 warnings.filterwarnings("ignore", message=".*'repr' attribute.*has no effect.*")
+warnings.filterwarnings("ignore", message=".*'frozen' attribute.*has no effect.*")
 from pathlib import Path
 from peft import PeftModel, PeftConfig
 

@@ -14,7 +14,7 @@ if project_root not in sys.path:
 
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
-from utils.logging_utils import setup_logging
+from utils.logging_utils import setup_logging, SafeLogger
 from utils.dataset_utils import is_math_dataset, is_unverifiable_domain_dataset, get_template_for_dataset
 from utils.config_validation import validate_api_endpoint, validate_api_key
 from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
@@ -155,6 +155,10 @@ class GRPOTrainer(BaseTrainer):
         """Initialize the GRPO trainer."""
         training_args = self.setup_training_args()
 
+        # Wrap logger with SafeLogger to prevent logging errors from crashing training
+        # This is especially important for long-running jobs on networked file systems
+        safe_logger = SafeLogger(self.logger) if not isinstance(self.logger, SafeLogger) else self.logger
+
         # Determine which reward functions to use based on dataset
         use_subjective_rewards = any(
             is_unverifiable_domain_dataset(dataset_info.name)
@@ -202,7 +206,7 @@ class GRPOTrainer(BaseTrainer):
             
             # Create wrapper function for subjective rewards
             def subjective_with_logger(prompts, completions, **kwargs):
-                kwargs['logger'] = self.logger
+                kwargs['logger'] = safe_logger
                 # Pass API configuration if available
                 if api_endpoint:
                     kwargs['api_endpoint'] = api_endpoint
@@ -222,15 +226,15 @@ class GRPOTrainer(BaseTrainer):
             
             # Create wrapper functions that inject the logger into reward functions
             def exact_match_with_logger(prompts, completions, answer, **kwargs):
-                kwargs['logger'] = self.logger
+                kwargs['logger'] = safe_logger
                 return exact_match_reward_func(completions, answer, **kwargs)
             
             def structured_xml_with_logger(prompts, completions, **kwargs):
-                kwargs['logger'] = self.logger
+                kwargs['logger'] = safe_logger
                 return structured_xml_reward_func(completions, **kwargs)
             
             def digit_with_logger(prompts, completions, **kwargs):
-                kwargs['logger'] = self.logger
+                kwargs['logger'] = safe_logger
                 return digit_reward_func(completions, **kwargs)
             
             reward_funcs = [

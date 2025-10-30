@@ -5,6 +5,55 @@ from datetime import datetime
 from pathlib import Path
 
 
+class RobustFileHandler(logging.FileHandler):
+    """
+    A file handler that gracefully handles stale file handle errors.
+    
+    This is particularly useful in distributed/networked file systems (NFS)
+    where file handles can become stale during long-running training jobs.
+    """
+    
+    def emit(self, record):
+        """
+        Emit a record, handling stale file handle errors gracefully.
+        
+        If a stale file handle error occurs (OSError errno 116), we:
+        1. Try to reopen the file
+        2. If that fails, suppress the error to prevent training crashes
+        """
+        try:
+            super().emit(record)
+        except OSError as e:
+            # Errno 116 is "Stale file handle"
+            # Errno 5 is "Input/output error" (also common with NFS)
+            if e.errno in (5, 116):
+                try:
+                    # Try to reopen the file
+                    self.close()
+                    self.stream = self._open()
+                    super().emit(record)
+                except Exception:
+                    # If reopening fails, silently continue to prevent training crash
+                    # The log message is lost, but training continues
+                    pass
+            else:
+                # Re-raise other OSErrors
+                raise
+    
+    def flush(self):
+        """
+        Flush the stream, handling stale file handle errors gracefully.
+        """
+        try:
+            super().flush()
+        except OSError as e:
+            # Suppress stale file handle errors during flush
+            if e.errno in (5, 116):
+                pass
+            else:
+                raise
+
+
 def setup_logging(
     name: str = "FAI-RL",
     level: int = logging.INFO,
@@ -46,7 +95,7 @@ def setup_logging(
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 
-    # File handler
+    # File handler with robust error handling
     if file_output:
         # Create log directory if it doesn't exist
         log_path = Path(log_dir)
@@ -56,7 +105,8 @@ def setup_logging(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_filename = log_path / f"{name}_{timestamp}.log"
 
-        file_handler = logging.FileHandler(log_filename)
+        # Use RobustFileHandler instead of regular FileHandler
+        file_handler = RobustFileHandler(log_filename)
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
@@ -100,11 +150,51 @@ def log_system_info():
         logger.info("CUDA not available")
 
 
+class SafeLogger:
+    """
+    A wrapper around logging.Logger that catches and handles logging exceptions.
+    
+    This prevents logging errors from crashing the training process.
+    """
+    
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+    
+    def _safe_log(self, level, msg, *args, **kwargs):
+        """Safely log a message, catching any exceptions."""
+        try:
+            getattr(self.logger, level)(msg, *args, **kwargs)
+        except Exception:
+            # Silently continue if logging fails
+            # This prevents training from crashing due to logging issues
+            pass
+    
+    def info(self, msg, *args, **kwargs):
+        self._safe_log('info', msg, *args, **kwargs)
+    
+    def debug(self, msg, *args, **kwargs):
+        self._safe_log('debug', msg, *args, **kwargs)
+    
+    def warning(self, msg, *args, **kwargs):
+        self._safe_log('warning', msg, *args, **kwargs)
+    
+    def error(self, msg, *args, **kwargs):
+        self._safe_log('error', msg, *args, **kwargs)
+    
+    def critical(self, msg, *args, **kwargs):
+        self._safe_log('critical', msg, *args, **kwargs)
+    
+    def __getattr__(self, name):
+        """Forward any other attributes to the underlying logger."""
+        return getattr(self.logger, name)
+
+
 class TrainingLogger:
     """Enhanced logger for training metrics and progress."""
 
     def __init__(self, name: str = "training", log_dir: str = "logs"):
-        self.logger = setup_logging(name, log_dir=log_dir)
+        base_logger = setup_logging(name, log_dir=log_dir)
+        self.logger = SafeLogger(base_logger)
         self.step = 0
 
     def log_step(self, metrics: dict):

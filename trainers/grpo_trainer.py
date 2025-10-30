@@ -155,9 +155,6 @@ class GRPOTrainer(BaseTrainer):
         """Initialize the GRPO trainer."""
         training_args = self.setup_training_args()
 
-        # Note: self.logger is already a SafeLogger from BaseTrainer
-        # This prevents logging errors from crashing training on networked file systems
-
         # Determine which reward functions to use based on dataset
         use_subjective_rewards = any(
             is_unverifiable_domain_dataset(dataset_info.name)

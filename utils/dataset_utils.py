@@ -41,9 +41,8 @@ def get_template_for_dataset(dataset_name: str, logger=None):
     elif dataset_name == "nvidia/OpenMathInstruct-2":
         return OpenMathInstructTemplate
     else:
-        if logger:
-            logger.warning(f"Dataset '{dataset_name}' is not a recognized math dataset. "
-                         f"Defaulting to OpenMathInstructTemplate.")
-        # Default to OpenMathInstructTemplate for unknown datasets
-        return OpenMathInstructTemplate
+        raise ValueError(
+            f"Dataset '{dataset_name}' is not supported. "
+            f"Supported datasets: 'openai/gsm8k', 'nvidia/OpenMathInstruct-2'"
+        )
 

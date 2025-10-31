@@ -1,6 +1,6 @@
 # FAI-RL Evaluation
 
-Comprehensive model evaluation system for assessing language model performance on academic benchmarks and custom datasets. Supports automatic answer extraction, accuracy calculation, and detailed result analysis.
+Comprehensive model evaluation system that leverages the inference pipeline to assess language model performance on academic benchmarks. Supports automatic answer extraction using sophisticated regex patterns, accuracy calculation with detailed metrics, and per-example correctness analysis. Works with local fine-tuned models, vanilla HuggingFace models, and API-based inference.
 
 ## 🚀 Quick Start
 
@@ -9,6 +9,9 @@ Comprehensive model evaluation system for assessing language model performance o
 ```bash
 # Evaluate on MMLU benchmark
 fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml
+
+# Evaluate on GSM8K benchmark (math word problems)
+fai-rl-eval --recipe recipes/evaluation/gsm8k/qwen3_4B.yaml
 
 # Evaluate with debug mode for detailed logging
 fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --debug

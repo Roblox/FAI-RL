@@ -1,17 +1,20 @@
 # FAI-RL Inference
 
-High-performance inference system for generating text completions from trained language models. Supports batch processing, custom prompts, and flexible configuration.
+High-performance inference system for generating text completions from language models. Supports three inference modes: local fine-tuned models, vanilla HuggingFace models, and API-based inference. Features include automatic PEFT/LoRA checkpoint handling, template-based prompts with variable substitution, and flexible configuration.
 
 ## 🚀 Quick Start
 
 ### Basic Inference
 
 ```bash
-# Run inference on a local fine-tuned model
+# Run inference on a local fine-tuned model (including PEFT/LoRA checkpoints)
 fai-rl-inference --recipe recipes/inference/llama3_3B.yaml
 
 # Run inference on a vanilla HuggingFace model
 fai-rl-inference --recipe recipes/inference/llama3_vanilla_3B.yaml
+
+# Run inference using an API endpoint (OpenAI, hosted LLM, etc.)
+fai-rl-inference --recipe recipes/inference/llama3_3B_api.yaml
 
 # Run inference with debug mode for detailed logging
 fai-rl-inference --recipe recipes/inference/llama3_3B.yaml --debug

@@ -18,6 +18,7 @@ from utils.logging_utils import setup_logging
 from utils.dataset_utils import is_math_dataset, get_template_for_dataset
 from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
 from .rewards.format_rewards import structured_xml_reward_func
+from .rewards.custom_rewards import custom_reward_func
 
 class GRPOTrainer(BaseTrainer):
     """GRPO (Group Relative Policy Optimization) trainer implementation."""
@@ -169,10 +170,18 @@ class GRPOTrainer(BaseTrainer):
             kwargs['logger'] = self.logger
             return digit_reward_func(completions, **kwargs)
         
+        # ========== CUSTOM REWARD FUNCTION ==========
+        # Add your custom reward logic here
+        def custom_with_logger(prompts, completions, **kwargs):
+            kwargs['logger'] = self.logger
+            return custom_reward_func(completions, **kwargs)
+        # ============================================
+        
         reward_funcs = [
             exact_match_with_logger,
             structured_xml_with_logger,
             digit_with_logger,
+            custom_with_logger,  # Add your custom reward function here
         ]
 
         self.trainer = TRLGRPOTrainer(

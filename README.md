@@ -15,6 +15,7 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
 ## Table of Contents
 
 - [Installation](#-installation)
+- [Authentication & Setup](#-authentication--setup)
 - [Quick Start](#-quick-start)
   - [Training](#training)
   - [Inference](#inference)
@@ -43,6 +44,37 @@ pip install --extra-index-url https://download.pytorch.org/whl/cu118 -e .
 
 > **Package**: [https://pypi.org/project/FAI-RL/](https://pypi.org/project/FAI-RL/)  
 > **Note**: The `--extra-index-url` flag ensures PyTorch is installed with CUDA 11.8 support.
+
+## 🔑 Authentication & Setup
+
+Before training or using models, you'll need to authenticate with HuggingFace and optionally set up experiment tracking with Weights & Biases.
+
+### HuggingFace Authentication
+
+Login to HuggingFace to access models and datasets:
+
+```bash
+huggingface-cli login
+```
+
+You'll be prompted to enter your HuggingFace access token. You can create a token at [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+
+**What this enables:**
+- Access gated models (if you have permission)
+
+
+### Weights & Biases (Optional)
+
+Login to Weights & Biases for experiment tracking and visualization:
+
+```bash
+wandb login
+```
+
+You'll be prompted to enter your W&B API key. Get your API key at [https://wandb.ai/authorize](https://wandb.ai/authorize).
+
+
+> **Note**: W&B integration is optional. If not logged in, training will proceed without experiment tracking.
 
 ## 🚀 Quick Start
 

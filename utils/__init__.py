@@ -9,10 +9,9 @@ from .logging_utils import (
     RobustFileHandler,
 )
 from .config_validation import validate_api_endpoint, validate_api_key, validate_api_config
-from .api_utils import generate_response_by_api, generate_response_by_api_for_reward_function
+from .api_utils import generate_response_by_api
 from .dataset_utils import (
     is_math_dataset,
-    is_unverifiable_domain_dataset,
     get_template_for_dataset,
 )
 
@@ -27,9 +26,7 @@ __all__ = [
     "validate_api_key",
     "validate_api_config",
     "generate_response_by_api",
-    "generate_response_by_api_for_reward_function",
     "is_math_dataset",
-    "is_unverifiable_domain_dataset",
     "get_template_for_dataset",
 ]
 

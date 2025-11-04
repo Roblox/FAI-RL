@@ -4,13 +4,13 @@
   <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-green" alt="License"></a>
 </div>
 
-A production-ready framework for training, inference, evaluating using advanced reinforcement learning techniques. Built for researchers and practitioners who need a flexible, scalable solution for LLM fine-tuning.
+A production-ready framework for training, inference, evaluation using advanced reinforcement learning techniques. Built for researchers and practitioners who need a flexible, scalable solution for LLM fine-tuning.
 
 ## Overview
 
-FAI-RL provides a unified, extensible framework for fine-tuning language models with state-of-the-art algorithms:
+FAI-RL provides a unified, extensible framework for fine-tuning language models with the state-of-the-art algorithms:
 
-- 🎯 **Multiple RL Algorithms**: SFT, DPO, PPO, GRPO, and GSPO implementations
+- 🎯 **Supports Multiple RL Algorithms**: DPO, PPO, GRPO, GSPO implementations as well as support for Supervised Fine-Tuning.
 - 🚀 **Production Ready**: Validated on AWS p4d instances with 8x A100 GPUs
 - 📦 **Simple Configuration**: YAML-based configs with CLI override support
 - ⚡ **Memory Efficient**: Full support for LoRA, QLoRA, and DeepSpeed ZeRO-3
@@ -85,7 +85,7 @@ You'll be prompted to enter your W&B API key. Get your API key at [https://wandb
 
 ### Training
 
-Train a model using any of the supported algorithms (SFT, DPO, PPO, GRPO, GSPO):
+Train a model using any of the supported algorithms (DPO, PPO, GRPO, GSPO, SFT):
 
 ```bash
 # Single GPU training with LoRA
@@ -133,7 +133,7 @@ FAI-RL implements five state-of-the-art reinforcement learning algorithms for la
 
 | Algorithm | Full Name | Description | Best For |
 |-----------|-----------|-------------|----------|
-| **SFT** | Supervised Fine-Tuning | Direct supervised learning from labeled examples | Initial instruction tuning and foundational training |
+| **SFT** | Supervised Fine-Tuning | Direct supervised learning from labeled examples | Instruction fine-tuning and foundational model fine-tuning |
 | **DPO** | Direct Preference Optimization | Alignment via preference learning without explicit reward models | Human preference alignment, chat model training |
 | **PPO** | Proximal Policy Optimization | Policy gradient method with value function and reward model | Complex reward functions, multi-objective optimization |
 | **GRPO** | Group Relative Policy Optimization | Efficient preference learning with group-based comparison | Reasoning tasks, competitive response generation |
@@ -168,7 +168,7 @@ Additional features supported across all algorithms:
 **Custom Reward Functions:**
 - `exact_match_reward_func` - Accuracy-based rewards for verifiable tasks
 - `structured_xml_reward_func` - Format-based rewards for structured outputs
-- Easy to add your own custom reward logic
+- Easy to add your custom reward function
 
 **Dataset Templates:**
 - `GSM8KTemplate` - Math problem formatting with chain-of-thought

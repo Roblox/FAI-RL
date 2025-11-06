@@ -33,18 +33,17 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
 
 ## 📦 Installation
 
-### From PyPI (Recommended)
+### Install the Package
 
 ```bash 
 pip install --extra-index-url https://download.pytorch.org/whl/cu118 FAI-RL
 ```
 
-### From Source (Development)
+### Clone the Repository for Configuration Recipes
 
 ```bash
 git clone https://github.com/Roblox/FAI-RL.git
 cd FAI-RL
-pip install --extra-index-url https://download.pytorch.org/whl/cu118 -e .
 ```
 
 > **Package**: [https://pypi.org/project/FAI-RL/](https://pypi.org/project/FAI-RL/)  

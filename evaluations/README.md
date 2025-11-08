@@ -20,6 +20,11 @@ fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --debug
 fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --nohup
 ```
 
+> **Running with Local Code**: If running directly from the repository, use `python evaluations/eval.py` instead of `fai-rl-eval`:
+> ```bash
+> python evaluations/eval.py --recipe recipes/evaluation/mmlu/llama3_3B.yaml
+> ```
+
 ### Runtime Parameter Overrides
 
 Override configuration parameters directly from command line:

@@ -23,6 +23,11 @@ fai-rl-inference --recipe recipes/inference/llama3_3B.yaml --debug
 fai-rl-inference --recipe recipes/inference/llama3_3B.yaml --nohup
 ```
 
+> **Running with Local Code**: If running directly from the repository, use `python inference/inference.py` instead of `fai-rl-inference`:
+> ```bash
+> python inference/inference.py --recipe recipes/inference/llama3_3B.yaml
+> ```
+
 ### Runtime Parameter Overrides
 
 Override configuration parameters directly from command line:

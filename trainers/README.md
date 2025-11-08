@@ -17,6 +17,11 @@ fai-rl-train --recipe recipes/training/dpo/llama3_3B_lora.yaml --num-gpus 8
 fai-rl-train --recipe recipes/training/sft/llama3_3B_lora.yaml --num-gpus 8 --nohup
 ```
 
+> **Running with Local Code**: If running directly from the repository, use `python trainers/train.py` instead of `fai-rl-train`:
+> ```bash
+> python trainers/train.py --recipe recipes/training/sft/llama3_3B_lora.yaml --num-gpus 1
+> ```
+
 ### Runtime Parameter Overrides
 
 Override configuration parameters directly from command line:

@@ -106,26 +106,30 @@ def launch_distributed_training(args):
     if args.overrides:
         cmd_args.extend(args.overrides)
     
-    # Check if using quantization (only if recipe file is provided)
-    uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
-    
-    if uses_quantization:
-        # QLoRA is incompatible with DeepSpeed, use torchrun
-        print(f"Detected quantization (QLoRA) - using torchrun for {args.num_gpus} GPU(s)")
-        cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
+    # For single GPU with nohup, just use python directly (no launcher needed)
+    if args.num_gpus == 1:
+        cmd = [sys.executable, script_path] + cmd_args
     else:
-        # Auto-select deepspeed config
-        deepspeed_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{args.num_gpus}.json")
-        if os.path.exists(deepspeed_config):
-            print(f"Auto-selected deepspeed config: {deepspeed_config}")
-            # Set environment variable for deepspeed config
-            os.environ['DEEPSPEED_CONFIG'] = deepspeed_config
-            # Use deepspeed launcher
-            print(f"Using deepspeed for {args.num_gpus} GPU(s)")
-            cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path] + cmd_args
-        else:
-            print(f"Warning: DeepSpeed config for {args.num_gpus} GPU(s) not found, using torchrun")
+        # Check if using quantization (only if recipe file is provided)
+        uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
+        
+        if uses_quantization:
+            # QLoRA is incompatible with DeepSpeed, use torchrun
+            print(f"Detected quantization (QLoRA) - using torchrun for {args.num_gpus} GPU(s)")
             cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
+        else:
+            # Auto-select deepspeed config
+            deepspeed_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{args.num_gpus}.json")
+            if os.path.exists(deepspeed_config):
+                print(f"Auto-selected deepspeed config: {deepspeed_config}")
+                # Set environment variable for deepspeed config
+                os.environ['DEEPSPEED_CONFIG'] = deepspeed_config
+                # Use deepspeed launcher
+                print(f"Using deepspeed for {args.num_gpus} GPU(s)")
+                cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path] + cmd_args
+            else:
+                print(f"Warning: DeepSpeed config for {args.num_gpus} GPU(s) not found, using torchrun")
+                cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
     
     # Handle nohup mode
     if args.nohup:
@@ -225,10 +229,15 @@ def main():
     """Main training function."""
     args = parse_args()
 
-    # If num_gpus > 1 and not already in distributed mode, launch distributed training
-    if args.num_gpus > 1 and not is_distributed_launch():
-        print(f"Launching distributed training with {args.num_gpus} GPUs...")
-        return launch_distributed_training(args)
+    # Handle nohup or multi-GPU launch (if not already in distributed mode)
+    if not is_distributed_launch():
+        # If nohup is requested OR multi-GPU training, use launcher
+        if args.nohup or args.num_gpus > 1:
+            if args.num_gpus > 1:
+                print(f"Launching distributed training with {args.num_gpus} GPUs...")
+            else:
+                print("Launching single-GPU training with nohup...")
+            return launch_distributed_training(args)
     
     # For single GPU or already in distributed mode, proceed with normal training
     if args.num_gpus == 1:

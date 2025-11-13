@@ -223,6 +223,7 @@ class PPOTrainer(BaseTrainer):
         """Load and prepare training datasets."""
         datasets = []
         total_examples = 0
+        total_skipped = 0
 
         for dataset_info in self.config.data.datasets:
             subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
@@ -234,9 +235,31 @@ class PPOTrainer(BaseTrainer):
             else:
                 dataset = load_dataset(dataset_info.name, split=dataset_info.split)
 
+            original_size = len(dataset)
+            
+            # Get dataset text field (default to "prompt" if not specified)
+            dataset_text_field = getattr(self.config.data, 'prompt_column', 'prompt')
+            
+            # Filter out invalid rows where the text field is None or empty
+            def is_valid_example(example):
+                """Check if example has valid text field."""
+                text = example.get(dataset_text_field)
+                return text is not None and isinstance(text, str) and text.strip() != ""
+            
+            dataset = dataset.filter(is_valid_example)
+            
+            skipped = original_size - len(dataset)
+            total_skipped += skipped
+            
+            if skipped > 0:
+                self.logger.warning(
+                    f"Skipped {skipped} invalid examples from {dataset_info.name} "
+                    f"(missing or empty '{dataset_text_field}' field)"
+                )
+            
             datasets.append(dataset)
             total_examples += len(dataset)
-            self.logger.info(f"Loaded {len(dataset)} examples from {dataset_info.name}")
+            self.logger.info(f"Loaded {len(dataset)} valid examples from {dataset_info.name}")
 
         # Combine all datasets
         if len(datasets) == 1:
@@ -249,7 +272,10 @@ class PPOTrainer(BaseTrainer):
         train_dataset = combined_dataset.select(range(len(combined_dataset) - eval_samples))
         eval_dataset = combined_dataset.select(range(len(combined_dataset) - eval_samples, len(combined_dataset)))
 
-        self.logger.info(f"Total dataset: {total_examples} examples from {len(datasets)} datasets")
+        if total_skipped > 0:
+            self.logger.warning(f"Total examples skipped across all datasets: {total_skipped}")
+        
+        self.logger.info(f"Total dataset: {total_examples} valid examples from {len(datasets)} datasets")
         self.logger.info(f"Train: {len(train_dataset)}, Eval: {len(eval_dataset)}")
         
         # Get dataset text field (default to "prompt" if not specified)

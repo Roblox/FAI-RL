@@ -69,6 +69,7 @@ class DPOTrainer(BaseTrainer):
         """Load and prepare training datasets."""
         datasets = []
         total_examples = 0
+        total_skipped = 0
 
         for dataset_info in self.config.data.datasets:
             subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
@@ -79,6 +80,8 @@ class DPOTrainer(BaseTrainer):
                 dataset = load_dataset(dataset_info.name, dataset_info.subset, split=dataset_info.split)
             else:
                 dataset = load_dataset(dataset_info.name, split=dataset_info.split)
+
+            original_size = len(dataset)
 
             # Get column names from config
             prompt_col = getattr(dataset_info, "prompt_column", "prompt")
@@ -104,9 +107,33 @@ class DPOTrainer(BaseTrainer):
             # Apply the standardization
             dataset = dataset.map(standardize_example, remove_columns=dataset.column_names)
             
+            # Filter out invalid rows where chosen or rejected are None or empty
+            def is_valid_example(example):
+                """Check if example has valid chosen and rejected fields."""
+                chosen = example.get("chosen")
+                rejected = example.get("rejected")
+                
+                # Check if fields exist and are non-empty strings
+                chosen_valid = chosen is not None and isinstance(chosen, str) and chosen.strip() != ""
+                rejected_valid = rejected is not None and isinstance(rejected, str) and rejected.strip() != ""
+                
+                return chosen_valid and rejected_valid
+            
+            # Apply the filter
+            dataset = dataset.filter(is_valid_example)
+            
+            skipped = original_size - len(dataset)
+            total_skipped += skipped
+            
+            if skipped > 0:
+                self.logger.warning(
+                    f"Skipped {skipped} invalid examples from {dataset_info.name} "
+                    f"(missing or empty 'chosen'/'rejected' fields)"
+                )
+            
             datasets.append(dataset)
             total_examples += len(dataset)
-            self.logger.info(f"Loaded {len(dataset)} examples from {dataset_info.name}")
+            self.logger.info(f"Loaded {len(dataset)} valid examples from {dataset_info.name}")
 
         # Combine all datasets
         if len(datasets) == 1:
@@ -114,7 +141,10 @@ class DPOTrainer(BaseTrainer):
         else:
             self.train_dataset = concatenate_datasets(datasets)
 
-        self.logger.info(f"Total dataset loaded with {total_examples} examples from {len(datasets)} datasets")
+        if total_skipped > 0:
+            self.logger.warning(f"Total examples skipped across all datasets: {total_skipped}")
+        
+        self.logger.info(f"Total dataset loaded with {total_examples} valid examples from {len(datasets)} datasets")
 
     def setup_training_args(self) -> DPOConfig:
         """Create DPO training configuration."""

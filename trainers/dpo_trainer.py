@@ -193,7 +193,7 @@ class DPOTrainer(BaseTrainer):
             model=self.model,
             ref_model=self.ref_model,
             args=training_args,
-            tokenizer=self.tokenizer,
+            processing_class=self.tokenizer,
             train_dataset=self.train_dataset,
         )
 

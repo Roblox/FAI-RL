@@ -357,7 +357,7 @@ class PPOTrainer(BaseTrainer):
 
         self.trainer = TRLPPOTrainer(
             args=training_args,
-            tokenizer=self.tokenizer,
+            processing_class=self.tokenizer,
             model=self.model,
             ref_model=self.ref_policy,
             reward_model=self.reward_model,

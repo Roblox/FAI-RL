@@ -56,6 +56,7 @@ class SFTTrainer(BaseTrainer):
         """Load and prepare training datasets."""
         datasets = []
         total_examples = 0
+        total_skipped = 0
 
         for dataset_info in self.config.data.datasets:
             subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
@@ -66,6 +67,8 @@ class SFTTrainer(BaseTrainer):
                 dataset = load_dataset(dataset_info.name, dataset_info.subset, split=dataset_info.split)
             else:
                 dataset = load_dataset(dataset_info.name, split=dataset_info.split)
+
+            original_size = len(dataset)
 
             # Get system prompt from config
             system_prompt = self.config.data.system_prompt
@@ -94,9 +97,26 @@ class SFTTrainer(BaseTrainer):
                 
                 dataset = dataset.map(format_with_system_prompt, remove_columns=dataset.column_names)
             
+            # Filter out invalid rows where text is None or empty
+            def is_valid_example(example):
+                """Check if example has valid text field."""
+                text = example.get("text")
+                return text is not None and isinstance(text, str) and text.strip() != ""
+            
+            dataset = dataset.filter(is_valid_example)
+            
+            skipped = original_size - len(dataset)
+            total_skipped += skipped
+            
+            if skipped > 0:
+                self.logger.warning(
+                    f"Skipped {skipped} invalid examples from {dataset_info.name} "
+                    f"(missing or empty 'text' field)"
+                )
+            
             datasets.append(dataset)
             total_examples += len(dataset)
-            self.logger.info(f"Loaded {len(dataset)} examples from {dataset_info.name}")
+            self.logger.info(f"Loaded {len(dataset)} valid examples from {dataset_info.name}")
 
         # Combine all datasets
         if len(datasets) == 1:
@@ -104,7 +124,10 @@ class SFTTrainer(BaseTrainer):
         else:
             self.train_dataset = concatenate_datasets(datasets)
 
-        self.logger.info(f"Total dataset loaded with {total_examples} examples from {len(datasets)} datasets")
+        if total_skipped > 0:
+            self.logger.warning(f"Total examples skipped across all datasets: {total_skipped}")
+        
+        self.logger.info(f"Total dataset loaded with {total_examples} valid examples from {len(datasets)} datasets")
 
     def setup_training_args(self) -> SFTConfig:
         """Create SFT training configuration."""
@@ -148,7 +171,7 @@ class SFTTrainer(BaseTrainer):
         self.trainer = TRLSFTTrainer(
             model=self.model,
             args=training_args,
-            processing_class=self.tokenizer,
+            tokenizer=self.tokenizer,
             train_dataset=self.train_dataset,
         )
 

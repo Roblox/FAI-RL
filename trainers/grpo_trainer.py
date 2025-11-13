@@ -61,6 +61,7 @@ class GRPOTrainer(BaseTrainer):
         """Load and prepare training datasets."""
         datasets = []
         total_examples = 0
+        total_skipped = 0
 
         for dataset_info in self.config.data.datasets:
             subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
@@ -72,6 +73,8 @@ class GRPOTrainer(BaseTrainer):
             else:
                 dataset = load_dataset(dataset_info.name, split=dataset_info.split)
 
+            original_size = len(dataset)
+
             # Get column names from config with defaults for math datasets
             prompt_col = getattr(dataset_info, "prompt_column", "question")
             answer_col = getattr(dataset_info, "answer_column", "answer")
@@ -82,9 +85,38 @@ class GRPOTrainer(BaseTrainer):
                 lambda example: template_class.format_for_training(example, prompt_col, answer_col)
             )
 
+            # Filter out invalid rows where prompt or answer are None or empty
+            def is_valid_example(example):
+                """Check if example has valid prompt and answer fields."""
+                prompt = example.get("prompt")
+                answer = example.get("answer")
+                
+                # Check prompt validity - can be string or list of dicts
+                prompt_valid = False
+                if isinstance(prompt, str):
+                    prompt_valid = prompt.strip() != ""
+                elif isinstance(prompt, list) and len(prompt) > 0:
+                    prompt_valid = True
+                
+                # Check answer validity
+                answer_valid = answer is not None and isinstance(answer, str) and answer.strip() != ""
+                
+                return prompt_valid and answer_valid
+            
+            processed_dataset = processed_dataset.filter(is_valid_example)
+            
+            skipped = original_size - len(processed_dataset)
+            total_skipped += skipped
+            
+            if skipped > 0:
+                self.logger.warning(
+                    f"Skipped {skipped} invalid examples from {dataset_info.name} "
+                    f"(missing or empty 'prompt'/'answer' fields)"
+                )
+
             datasets.append(processed_dataset)
             total_examples += len(processed_dataset)
-            self.logger.info(f"Loaded {len(processed_dataset)} examples from {dataset_info.name}")
+            self.logger.info(f"Loaded {len(processed_dataset)} valid examples from {dataset_info.name}")
 
         # Combine all datasets
         if len(datasets) == 1:
@@ -107,7 +139,10 @@ class GRPOTrainer(BaseTrainer):
         
         self.train_dataset = self.train_dataset.map(apply_chat_template)
 
-        self.logger.info(f"Total dataset loaded with {total_examples} examples from {len(datasets)} datasets")
+        if total_skipped > 0:
+            self.logger.warning(f"Total examples skipped across all datasets: {total_skipped}")
+
+        self.logger.info(f"Total dataset loaded with {total_examples} valid examples from {len(datasets)} datasets")
 
     def setup_training_args(self) -> GRPOConfig:
         """Create GRPO training configuration."""

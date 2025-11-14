@@ -156,7 +156,7 @@ Examples:
     parser.add_argument(
         "--nohup",
         action="store_true",
-        help="Run inference in background with nohup (output redirected to inference_<timestamp>.log)"
+        help="Run inference in background with nohup (output redirected to logs/Inference_<timestamp>.log)"
     )
     parser.add_argument(
         "overrides",
@@ -555,9 +555,12 @@ def main():
     
     # Handle nohup mode
     if args.nohup:
+        # Create logs directory if it doesn't exist
+        os.makedirs("logs", exist_ok=True)
+        
         # Generate log filename with timestamp
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = f"inference_{timestamp}.log"
+        log_file = f"logs/Inference_{timestamp}.log"
         
         print(f"Running inference in background with nohup. Output will be saved to: {log_file}")
         

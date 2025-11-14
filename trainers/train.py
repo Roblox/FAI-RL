@@ -291,7 +291,8 @@ def main():
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
             
-        with trainer_class(config) as trainer:
+        # Pass the training_logger to the trainer to consolidate logging
+        with trainer_class(config, logger=training_logger.logger.logger) as trainer:
             trainer.train()
 
         training_logger.logger.info(f"{algorithm.upper()} training completed successfully!")

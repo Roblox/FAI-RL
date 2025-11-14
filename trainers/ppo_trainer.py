@@ -91,8 +91,8 @@ if not hasattr(torch.nn.Module, "gradient_checkpointing_enable"):
 class PPOTrainer(BaseTrainer):
     """PPO (Proximal Policy Optimization) trainer implementation."""
 
-    def __init__(self, config: ExperimentConfig):
-        super().__init__(config)
+    def __init__(self, config: ExperimentConfig, logger: Optional[object] = None):
+        super().__init__(config, logger=logger)
         self.trainer = None
         self.model = None
         self.ref_policy = None

@@ -284,43 +284,113 @@ def run_comprehensive_evaluation(recipe_path: str,
         # Run inference
         inference_results = run_inference_for_evaluation(config, debug)
         
-        # Extract predicted answers
-        print("Extracting predicted answers...")
-        response_col = getattr(config, 'response_column', 'response')
-        predicted_answers = []
-        for response in inference_results[response_col]:
-            pred_answer = extract_predicted_answer(
-                response, 
-                dataset_name=evaluation_dataset_name,
-                choice_labels=choice_labels
+        # Check if we have multiple checkpoints
+        checkpoint_col = getattr(config, 'checkpoint_column', 'checkpoint')
+        has_checkpoints = checkpoint_col in inference_results.columns
+        
+        if has_checkpoints:
+            # Multi-checkpoint evaluation: Calculate metrics per checkpoint
+            print("Multi-checkpoint evaluation detected...")
+            unique_checkpoints = inference_results[checkpoint_col].unique()
+            print(f"Found {len(unique_checkpoints)} checkpoint(s)")
+            
+            all_metrics = {}
+            all_detailed_results = {}
+            
+            for checkpoint in unique_checkpoints:
+                print(f"\nProcessing checkpoint: {checkpoint}")
+                checkpoint_results = inference_results[inference_results[checkpoint_col] == checkpoint]
+                
+                # Extract predicted answers for this checkpoint
+                response_col = getattr(config, 'response_column', 'response')
+                predicted_answers = []
+                for response in checkpoint_results[response_col]:
+                    pred_answer = extract_predicted_answer(
+                        response, 
+                        dataset_name=evaluation_dataset_name,
+                        choice_labels=choice_labels
+                    )
+                    predicted_answers.append(pred_answer)
+                
+                # Extract ground truth answers
+                ground_truth_answers = []
+                for truth_text in eval_dataset[ground_truth_column]:
+                    gt_answer = extract_ground_truth(
+                        str(truth_text), 
+                        dataset_name=evaluation_dataset_name,
+                        choice_labels=choice_labels
+                    )
+                    ground_truth_answers.append(gt_answer)
+                
+                # Calculate accuracy metrics for this checkpoint
+                checkpoint_metrics, checkpoint_detailed = calculate_accuracy_metrics_with_dataset_columns(
+                    predicted_answers, 
+                    ground_truth_answers,
+                    eval_dataset,
+                    dataset_columns
+                )
+                
+                all_metrics[checkpoint] = checkpoint_metrics
+                all_detailed_results[checkpoint] = checkpoint_detailed
+                
+                # Print summary for this checkpoint
+                print(f"Results for {checkpoint}:")
+                print(f"  Overall Accuracy: {checkpoint_metrics['overall_accuracy']:.4f} ({checkpoint_metrics['correct_predictions']}/{checkpoint_metrics['total_examples']})")
+                print(f"  Valid Accuracy: {checkpoint_metrics['valid_accuracy']:.4f} ({checkpoint_metrics['correct_predictions']}/{checkpoint_metrics['valid_predictions']})")
+                print(f"  Extraction Success Rate: {checkpoint_metrics['extraction_success_rate']:.4f} ({checkpoint_metrics['valid_predictions']}/{checkpoint_metrics['total_examples']})")
+            
+            # Set metrics and detailed_results for overall summary
+            metrics = all_metrics
+            detailed_results = all_detailed_results
+            
+            # Print overall summary
+            print("\n" + "="*60)
+            print("EVALUATION SUMMARY (All Checkpoints):")
+            print("="*60)
+            for checkpoint, ckpt_metrics in all_metrics.items():
+                print(f"{checkpoint}:")
+                print(f"  Accuracy: {ckpt_metrics['overall_accuracy']:.4f}")
+        else:
+            # Single checkpoint evaluation
+            print("Single checkpoint evaluation...")
+            
+            # Extract predicted answers
+            print("Extracting predicted answers...")
+            response_col = getattr(config, 'response_column', 'response')
+            predicted_answers = []
+            for response in inference_results[response_col]:
+                pred_answer = extract_predicted_answer(
+                    response, 
+                    dataset_name=evaluation_dataset_name,
+                    choice_labels=choice_labels
+                )
+                predicted_answers.append(pred_answer)
+            
+            # Extract ground truth answers
+            print("Extracting ground truth answers...")
+            ground_truth_answers = []
+            for truth_text in eval_dataset[ground_truth_column]:
+                gt_answer = extract_ground_truth(
+                    str(truth_text), 
+                    dataset_name=evaluation_dataset_name,
+                    choice_labels=choice_labels
+                )
+                ground_truth_answers.append(gt_answer)
+            
+            # Calculate accuracy metrics with dataset columns
+            print("Calculating accuracy metrics...")
+            metrics, detailed_results = calculate_accuracy_metrics_with_dataset_columns(
+                predicted_answers, 
+                ground_truth_answers,
+                eval_dataset,
+                dataset_columns
             )
-            predicted_answers.append(pred_answer)
-        
-        # Extract ground truth answers
-        print("Extracting ground truth answers...")
-        ground_truth_answers = []
-        for truth_text in eval_dataset[ground_truth_column]:
-            gt_answer = extract_ground_truth(
-                str(truth_text), 
-                dataset_name=evaluation_dataset_name,
-                choice_labels=choice_labels
-            )
-            ground_truth_answers.append(gt_answer)
-        
-        # Calculate accuracy metrics with dataset columns
-        print("Calculating accuracy metrics...")
-        metrics, detailed_results = calculate_accuracy_metrics_with_dataset_columns(
-            predicted_answers, 
-            ground_truth_answers,
-            eval_dataset,
-            dataset_columns
-        )
-        
-        # Print summary results
-        print("Evaluation Results Summary:")
-        print(f"Overall Accuracy: {metrics['overall_accuracy']:.4f} ({metrics['correct_predictions']}/{metrics['total_examples']})")
-        print(f"Valid Accuracy: {metrics['valid_accuracy']:.4f} ({metrics['correct_predictions']}/{metrics['valid_predictions']})")
-        print(f"Extraction Success Rate: {metrics['extraction_success_rate']:.4f} ({metrics['valid_predictions']}/{metrics['total_examples']})")
+            
+            # Print summary results
+            print("Evaluation Results Summary:")
+            print(f"Overall Accuracy: {metrics['overall_accuracy']:.4f} ({metrics['correct_predictions']}/{metrics['total_examples']})")
+            print(f"Valid Accuracy: {metrics['valid_accuracy']:.4f} ({metrics['correct_predictions']}/{metrics['valid_predictions']})")
+            print(f"Extraction Success Rate: {metrics['extraction_success_rate']:.4f} ({metrics['valid_predictions']}/{metrics['total_examples']})")
         
         # Save detailed results
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

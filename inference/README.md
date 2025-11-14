@@ -10,6 +10,9 @@ High-performance inference system for generating text completions from language 
 # Run inference on a local fine-tuned model (including PEFT/LoRA checkpoints)
 fai-rl-inference --recipe recipes/inference/llama3_3B.yaml
 
+# Run inference on multiple checkpoints (batch inference)
+fai-rl-inference --recipe recipes/inference/llama3_3B_multi_ckpt.yaml
+
 # Run inference on a vanilla HuggingFace model
 fai-rl-inference --recipe recipes/inference/llama3_vanilla_3B.yaml
 
@@ -33,9 +36,9 @@ fai-rl-inference --recipe recipes/inference/llama3_3B.yaml --nohup
 Override configuration parameters directly from command line:
 
 ```bash
-# Override model path and output file
+# Override model paths and output file
 fai-rl-inference --recipe recipes/inference/llama3_3B.yaml \
-  inference.model_path=models/my_custom_model/checkpoint-100 \
+  'inference.model_paths=["models/my_custom_model/checkpoint-100"]' \
   inference.output_file=outputs/your-output.csv
 
 # Override generation parameters
@@ -60,8 +63,20 @@ outputs/
 
 The CSV file contains the following columns:
 - **Input columns**: All columns specified in `dataset_columns` (e.g., `persona`, `prompt`)
+- **Checkpoint column** (multi-checkpoint only): Identifies which checkpoint generated each response (column name specified by `checkpoint_column`, default is `checkpoint`)
 - **Response column**: The model's generated response (column name specified by `response_column`, default is `response`)
 - **Metadata**: Generation parameters used (temperature, top_p, max_new_tokens)
+
+### Multi-Checkpoint Inference
+
+When running inference on multiple checkpoints, all results are combined into a single CSV file with an additional `checkpoint` column:
+
+```csv
+persona,prompt,checkpoint,response
+"helpful assistant","What is AI?","models/checkpoint-100","AI is artificial intelligence..."
+"helpful assistant","What is AI?","models/checkpoint-200","AI stands for artificial..."
+"helpful assistant","What is AI?","models/checkpoint-300","Artificial Intelligence is..."
+```
 
 ## 🐛 Troubleshooting
 

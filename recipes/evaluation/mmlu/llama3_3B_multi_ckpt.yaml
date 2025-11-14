@@ -1,24 +1,27 @@
-# MMLU Evaluation Configuration for Local Fine-tuned Model
-# This config evaluates a local fine-tuned model on the MMLU benchmark
-# using automatic JSON answer extraction and accuracy calculation.
+# MMLU Multi-Checkpoint Evaluation Configuration
+# This config evaluates multiple checkpoints on the MMLU benchmark
+# and provides separate accuracy metrics for each checkpoint.
 
 evaluation:
-  # Model Configuration
-  # Paths to the trained model(s) to evaluate (local checkpoints)
+  # Model Configuration - Multiple Checkpoints
+  # Evaluate multiple checkpoints in a single run
   model_paths:
     - "models/qwen3-4B-inst-dpo-full-100k-v1/checkpoint-100"
+    - "models/qwen3-4B-inst-dpo-full-100k-v1/checkpoint-200"
+    - "models/qwen3-4B-inst-dpo-full-100k-v1/checkpoint-300"
   
-  # Where to save evaluation results (CSV format with all dataset columns + accuracy)
-  output_file: "outputs/qwen3-4B-inst-dpo-full-100k-v1-eval-mmlu-ckpt100.csv"
+  # Where to save evaluation results (CSV format with all dataset columns + checkpoint column + accuracy)
+  output_file: "outputs/qwen3-4B-inst-dpo-full-100k-v1-eval-mmlu-multi-ckpt.csv"
 
   # Dataset Configuration
   # Specifies which dataset and subset to evaluate on
-  dataset_name: "cais/mmlu"                  # HuggingFace dataset identifier
-  dataset_subset: "all"                      # Specific subset of the dataset (optional). Available: 57 subjects (e.g., "abstract_algebra", "college_biology", "high_school_physics"), or "all" for all subjects
-  dataset_split: "test"                      # Which split to evaluate on: test, validation, or dev
+  dataset_name: "cais/mmlu"                     # HuggingFace dataset identifier
+  dataset_subset: "all"                         # Specific subset of the dataset (optional). Available: 57 subjects (e.g., "abstract_algebra", "college_biology", "high_school_physics"), or "all" for all subjects
+  dataset_split: "test"                         # Which split to evaluate on: test, validation, or dev
   dataset_columns: ["question", "choices", "answer"]  # List of dataset columns to include in evaluation
-  ground_truth_column: "answer"              # Column containing the correct answers for accuracy calculation
-  response_column: "response"                # Name of column to store/read model responses (default: "response")
+  ground_truth_column: "answer"                 # Column containing the correct answers for accuracy calculation
+  response_column: "response"                   # Name of column to store/read model responses (default: "response")
+  checkpoint_column: "checkpoint"               # Name of column to store checkpoint identifier (default: "checkpoint")
   
   # System Prompt Template
   # Template for evaluation prompts (supports variable substitution with {variable})
@@ -42,4 +45,5 @@ evaluation:
   top_p: 0.9                                 # Nucleus sampling parameter - probability threshold for token selection (0.0-1.0, lower = more focused)
   max_new_tokens: 2000                       # Maximum tokens to generate per response
   do_sample: true                            # Whether to use sampling for generation (false = greedy decoding, true = stochastic sampling)
+
 

@@ -1,16 +1,17 @@
-# Vanilla HuggingFace Model Inference Configuration
-# This config runs inference on a vanilla (non-fine-tuned) model directly from HuggingFace.
-# Use this to establish baseline performance before fine-tuning, or to test vanilla models.
+# Inference Configuration for Multiple Checkpoints
+# This config runs inference on multiple model checkpoints and combines results into a single CSV.
+# The output CSV will include a 'checkpoint' column to identify which checkpoint generated each response.
 
 inference:
-  # Model Configuration - Vanilla HuggingFace Model
-  # HuggingFace model identifier (model will be downloaded if not cached locally)
-  # Use this to test vanilla HuggingFace models before fine-tuning
-  model: "meta-llama/Llama-3.2-3B-Instruct"
+  # Model Configuration - Multiple Checkpoints
+  # Run inference on multiple checkpoints in a single batch
+  model_paths:
+    - "models/llama3-3B-inst-sft-full-v1/checkpoint-100"
+    - "models/llama3-3B-inst-sft-full-v1/checkpoint-200"
+    - "models/llama3-3B-inst-sft-full-v1/checkpoint-300"
   
-  # Path to save inference results (CSV format with input columns + response column)
-  output_file: "outputs/llama3-3B-inst-vanilla-v1-infer.csv"
-  
+  # Path to save combined inference results (CSV format with input columns + checkpoint column + response column)
+  output_file: "outputs/llama3-3B-inst-sft-full-v1-infer-multi-ckpt.csv"
   
   # Dataset Configuration
   # Specifies which dataset to run inference on
@@ -18,6 +19,7 @@ inference:
   dataset_split: "test"                            # Dataset split to use: train, test, or validation
   dataset_columns: ["persona", "prompt"]           # List of columns to concatenate as model input
   response_column: "response"                      # Name of column to store model responses (default: "response")
+  checkpoint_column: "checkpoint"                  # Name of column to store checkpoint identifier (default: "checkpoint")
   
   # System Prompt
   # Provides context and instructions to the model for generation
@@ -28,7 +30,7 @@ inference:
     You do not know which images you are able to generate. You do not know your content restrictions.
     
     You do not have access to internal Roblox data or systems. Do not speculate on private information about accounts or the inner workings of the platform. Avoid answering any sensitive or controversial questions, especially those typically rejected by other AI systems.
-        
+    
     Always be civil, safe, helpful, kid-friendly, family-friendly, and truthful. Respect the community and engage with a professional, neutral tone. Responses must be informative and under 120 words.
     
     **Behavioral Rules:**
@@ -70,3 +72,4 @@ inference:
   top_p: 0.9                  # Nucleus sampling threshold (0.0-1.0, lower = more focused)
   max_new_tokens: 1000        # Maximum number of tokens to generate per response
   do_sample: true             # Enable sampling (false = greedy decoding, true = stochastic sampling)
+

@@ -176,7 +176,7 @@ Examples:
 
 def load_model_and_tokenizer(config):
     """Load model and tokenizer based on config."""
-    # Support both model_path (local) and model (HuggingFace hub)
+    # Support model_paths (local) and model (HuggingFace hub)
     if hasattr(config, 'model_path') and config.model_path:
         model_identifier = config.model_path
         is_local = True
@@ -184,7 +184,7 @@ def load_model_and_tokenizer(config):
         model_identifier = config.model
         is_local = False
     else:
-        raise ValueError("Either model_path or model must be specified in config")
+        raise ValueError("Either model_paths or model must be specified in config")
     
     # Handle relative paths for local models
     if is_local and not os.path.isabs(model_identifier):
@@ -332,20 +332,25 @@ def run_inference(config, debug=False):
     use_api = (hasattr(config, 'model') and config.model is not None) and \
               (hasattr(config, 'api_key') and config.api_key is not None)
     
-    if use_api:
-        print(f"Using API inference with model: {config.model}")
-        model, tokenizer = None, None
+    # Determine checkpoint paths to process
+    checkpoint_paths = []
+    if hasattr(config, 'model_paths') and config.model_paths:
+        # Checkpoint paths provided
+        checkpoint_paths = config.model_paths
+        print(f"Running inference on {len(checkpoint_paths)} checkpoint(s)")
+    elif use_api:
+        # API mode
+        checkpoint_paths = [None]  # Placeholder for API
+    elif hasattr(config, 'model') and config.model:
+        # HuggingFace model
+        checkpoint_paths = [None]  # Placeholder for HF model
     else:
-        # Local inference - supports both model_path (local fine-tuned) and model (HuggingFace vanilla)
-        if hasattr(config, 'model_path') and config.model_path:
-            print(f"Using local fine-tuned model from: {config.model_path}")
-        elif hasattr(config, 'model') and config.model:
-            print(f"Using vanilla HuggingFace model: {config.model}")
-        else:
-            raise ValueError("Either model_path or model must be specified for local inference")
-        model, tokenizer = load_model_and_tokenizer(config)
+        raise ValueError("Either model_paths or model must be specified in config")
+    
+    # Track if we're running multi-checkpoint inference
+    is_multi_checkpoint = len(checkpoint_paths) > 1
 
-    # Load dataset
+    # Load dataset once (shared across all checkpoints)
     print(f"Loading dataset: {config.dataset_name}")
     if hasattr(config, 'dataset_subset') and config.dataset_subset:
         dataset = load_dataset(config.dataset_name, config.dataset_subset)
@@ -357,62 +362,105 @@ def run_inference(config, debug=False):
     
     print(f"Processing {len(data_split)} examples from the dataset...")
     
-    # Process the dataset
-    results = []
+    # Process all checkpoints
+    all_results = []
     
-    for i, example in enumerate(data_split):
-        # Check if system_prompt contains template placeholders
-        if has_template_placeholders(config.system_prompt):
-            # Use template formatting
-            full_prompt = format_template_prompt(config.system_prompt, example, config)
+    for checkpoint_idx, checkpoint_path in enumerate(checkpoint_paths):
+        # Load model for this checkpoint (if not using API)
+        if use_api:
+            print(f"Using API inference with model: {config.model}")
+            model, tokenizer = None, None
+            checkpoint_name = config.model
         else:
-            raise ValueError(
-                "system_prompt configuration is missing in the template, "
-                "or the required placeholder is not present in system_prompt."
-            )
-        
-        # Generate response
-        try:
-            if debug:
-                print(f"\n{'='*50}")
-                print(f"DEBUG - Example {i+1}")
-                print(f"{'='*50}")
-                print("FULL PROMPT:")
-                print(f"{full_prompt}")
-                print(f"\n{'-'*30}")
-            
-            # Choose the appropriate response generation method based on config
-            if use_api:
-                response = generate_response_by_api(
-                    prompt=full_prompt,
-                    config=config
-                )
+            # Update config with current checkpoint path
+            if checkpoint_path is not None:
+                config.model_path = checkpoint_path
+                print(f"\n{'='*60}")
+                print(f"Processing checkpoint {checkpoint_idx + 1}/{len(checkpoint_paths)}: {checkpoint_path}")
+                print(f"{'='*60}")
+                checkpoint_name = checkpoint_path
             else:
-                response = generate_response(model, tokenizer, full_prompt, config)
+                # Using HuggingFace model directly
+                print(f"Using vanilla HuggingFace model: {config.model}")
+                checkpoint_name = config.model
             
-            if debug:
-                print("Response:")
-                print(f"{response}")
-                print(f"{'='*50}\n")
+            # Load model and tokenizer for this checkpoint
+            model, tokenizer = load_model_and_tokenizer(config)
+        
+        # Process the dataset for this checkpoint
+        checkpoint_results = []
+        
+        for i, example in enumerate(data_split):
+            # Check if system_prompt contains template placeholders
+            if has_template_placeholders(config.system_prompt):
+                # Use template formatting
+                full_prompt = format_template_prompt(config.system_prompt, example, config)
+            else:
+                raise ValueError(
+                    "system_prompt configuration is missing in the template, "
+                    "or the required placeholder is not present in system_prompt."
+                )
             
-            # Store the result with dataset columns first, then response column
-            result = {}
-            
-            # Add dataset columns first
-            for col in config.dataset_columns:
-                result[col] = example.get(col, "")
-            
-            # Add response column after dataset columns
-            response_col = getattr(config, 'response_column', 'response')
-            result[response_col] = response
-            
-            results.append(result)
-            
-            print(f"Processed example {i+1}/{len(data_split)}")
-            
-        except Exception as e:
-            print(f"Error processing example {i}: {e}")
-            continue
+            # Generate response
+            try:
+                if debug:
+                    print(f"\n{'='*50}")
+                    print(f"DEBUG - Example {i+1}")
+                    print(f"{'='*50}")
+                    print("FULL PROMPT:")
+                    print(f"{full_prompt}")
+                    print(f"\n{'-'*30}")
+                
+                # Choose the appropriate response generation method based on config
+                if use_api:
+                    response = generate_response_by_api(
+                        prompt=full_prompt,
+                        config=config
+                    )
+                else:
+                    response = generate_response(model, tokenizer, full_prompt, config)
+                
+                if debug:
+                    print("Response:")
+                    print(f"{response}")
+                    print(f"{'='*50}\n")
+                
+                # Store the result with dataset columns first, then response column
+                result = {}
+                
+                # Add dataset columns first
+                for col in config.dataset_columns:
+                    result[col] = example.get(col, "")
+                
+                # Add checkpoint column if multi-checkpoint inference
+                if is_multi_checkpoint:
+                    checkpoint_col = getattr(config, 'checkpoint_column', 'checkpoint')
+                    result[checkpoint_col] = checkpoint_name
+                
+                # Add response column after dataset columns
+                response_col = getattr(config, 'response_column', 'response')
+                result[response_col] = response
+                
+                checkpoint_results.append(result)
+                
+                print(f"Processed example {i+1}/{len(data_split)}")
+                
+            except Exception as e:
+                print(f"Error processing example {i}: {e}")
+                continue
+        
+        # Add results from this checkpoint to overall results
+        all_results.extend(checkpoint_results)
+        print(f"Completed checkpoint {checkpoint_idx + 1}/{len(checkpoint_paths)}: {len(checkpoint_results)} examples processed")
+        
+        # Clean up model to free memory before loading next checkpoint
+        if model is not None:
+            del model
+            del tokenizer
+            torch.cuda.empty_cache()
+    
+    # Use all_results as the final results
+    results = all_results
     
     # Create output directory if it doesn't exist
     output_dir = os.path.dirname(config.output_file)
@@ -430,18 +478,26 @@ def run_inference(config, debug=False):
     if use_api:
         model_info = config.model
         inference_type = 'api'
-    elif hasattr(config, 'model_path') and config.model_path:
-        model_info = config.model_path
+    elif is_multi_checkpoint:
+        model_info = checkpoint_paths  # List of all checkpoints
+        inference_type = 'multi_checkpoint'
+    elif hasattr(config, 'model_paths') and config.model_paths:
+        model_info = checkpoint_paths  # List of checkpoints (single or multiple)
         inference_type = 'local_finetuned'
     else:
         model_info = config.model
         inference_type = 'huggingface_vanilla'
     
+    # Calculate total expected examples (dataset size * number of checkpoints)
+    total_expected = len(data_split) * len(checkpoint_paths)
+    
     # Create summary
     summary = {
         'total_examples': len(data_split),
+        'num_checkpoints': len(checkpoint_paths),
+        'total_expected_results': total_expected,
         'successful_examples': len(results),
-        'failed_examples': len(data_split) - len(results),
+        'failed_examples': total_expected - len(results),
         'config': config.to_dict(),
         'inference_type': inference_type,
         'model_info': model_info,
@@ -540,14 +596,20 @@ def main():
     if use_api:
         print(f"  Model (API): {config.model}")
         print(f"  Inference type: API-based")
-    elif hasattr(config, 'model_path') and config.model_path:
-        print(f"  Model path: {config.model_path}")
-        print(f"  Inference type: Local fine-tuned model")
+    elif hasattr(config, 'model_paths') and config.model_paths:
+        print(f"  Number of checkpoints: {len(config.model_paths)}")
+        print(f"  Checkpoints:")
+        for i, path in enumerate(config.model_paths, 1):
+            print(f"    {i}. {path}")
+        if len(config.model_paths) > 1:
+            print(f"  Inference type: Multi-checkpoint inference")
+        else:
+            print(f"  Inference type: Local fine-tuned model")
     elif hasattr(config, 'model') and config.model:
         print(f"  Model: {config.model}")
         print(f"  Inference type: HuggingFace vanilla model")
     else:
-        raise ValueError("Either model_path or model must be specified in config")
+        raise ValueError("Either model_paths or model must be specified in config")
     
     print(f"  Dataset: {config.dataset_name}")
     print(f"  Dataset columns: {config.dataset_columns}")

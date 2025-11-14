@@ -39,7 +39,7 @@ evaluation:
   
   # Generation Parameters
   # Controls how the model generates responses during evaluation
-  temperature: 1.0                           # Sampling temperature for response generation (0.0 = deterministic, 2.0 = very random)
+  temperature: 0.0                           # Sampling temperature for response generation (0.0 = deterministic, 2.0 = very random)
   top_p: 0.9                                 # Nucleus sampling parameter - probability threshold for token selection (0.0-1.0, lower = more focused)
   max_new_tokens: 2000                       # Maximum tokens to generate per response
-  do_sample: true                            # Whether to use sampling for generation (false = greedy decoding, true = stochastic sampling)
+  do_sample: false                           # Whether to use sampling for generation (false = greedy decoding, true = stochastic sampling)

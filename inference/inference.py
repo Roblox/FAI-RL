@@ -395,13 +395,16 @@ def run_inference(config, debug=False):
                 print(f"{response}")
                 print(f"{'='*50}\n")
             
-            # Store the result with configurable response column name
-            response_col = getattr(config, 'response_column', 'response')
-            result = {response_col: response}
+            # Store the result with dataset columns first, then response column
+            result = {}
             
-            # Flatten used_columns into separate columns
+            # Add dataset columns first
             for col in config.dataset_columns:
                 result[col] = example.get(col, "")
+            
+            # Add response column after dataset columns
+            response_col = getattr(config, 'response_column', 'response')
+            result[response_col] = response
             
             results.append(result)
             

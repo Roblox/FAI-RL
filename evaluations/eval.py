@@ -408,18 +408,19 @@ def calculate_accuracy_metrics_with_dataset_columns(predictions: List[Optional[s
     detailed_results = []
     
     for i, (pred, truth) in enumerate(zip(predictions, ground_truths)):
-        result_row = {
-            'prediction': pred,
-            'ground_truth': truth
-        }
+        result_row = {}
         
-        # Add dataset columns to the result row
+        # Add dataset columns first
         for column in dataset_columns:
             if column in eval_dataset.columns:
                 result_row[column] = eval_dataset.iloc[i][column]
             else:
                 print(f"Warning: Column '{column}' not found in dataset")
                 result_row[column] = None
+        
+        # Then add prediction and ground truth
+        result_row['prediction'] = pred
+        result_row['ground_truth'] = truth
         
         if pred is not None:
             valid_predictions += 1

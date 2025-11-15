@@ -1,0 +1,66 @@
+# Inference Configuration for API-based Models
+# This config runs inference using an API endpoint (e.g., OpenAI, hosted LLM).
+# Use this for commercial models or hosted endpoints without local model files.
+# 
+# Usage: Replace <YOUR_API_ENDPOINT> and <YOUR_API_KEY> with your actual API credentials
+
+inference:
+  # Model Configuration - API-based Inference
+  # For API-based inference, provide model identifier, API key, and endpoint
+  api_endpoint: "https://<YOUR_API_ENDPOINT>"        # Custom API endpoint URL for hosted model
+  api_key: "<YOUR_API_KEY>"                          # API authentication key (e.g., OpenAI API key)
+  model: "gemini/gemini-2.5-pro"
+  
+  # Path to save inference results (CSV format with input columns + response column)
+  output_file: "outputs/rlaif-llm-judge-v1-infer.csv"
+  
+  # Dataset Configuration
+  # Specifies which dataset to run inference on
+  dataset_name: "Roblox/FAI-RL-rlaif-test-dataset"  # HuggingFace dataset identifier (e.g., "Anthropic/hh-rlhf")
+  dataset_split: "test"                            # Dataset split to use: train, test, or validation
+  dataset_columns: ["persona", "prompt"]           # List of columns to concatenate as model input
+  response_column: "response"                      # Name of column to store model responses (default: "response")
+  
+  # System Prompt
+  # Provides context and instructions to the model for generation
+  # Multi-line system message that defines the model's behavior and task
+  system_prompt: |
+    # AI Response Quality Evaluation
+
+    You are an expert AI response evaluator. Your task is to assess the **overall quality** of the AI response based on its helpfulness, accuracy, clarity, and relevance to the user's message.
+
+    ## General Quality Criteria
+    * **Helpfulness:** Does the response directly address the user's query and fulfill their core intent?
+    * **Accuracy:** Is the information provided correct, factual, and well-reasoned?
+    * **Clarity:** Is the response well-structured, easy to understand, and free of significant grammatical errors?
+    * **Relevance:** Does the response stay on topic and avoid providing irrelevant or unnecessary information?
+
+    ## Scoring Scale
+    * **5 (Excellent)**: The response is extremely helpful, accurate, clear, and perfectly relevant. It fully satisfies the user's needs.
+    * **4 (Good)**: The response is helpful and accurate, with only minor issues in clarity or relevance.
+    * **3 (Adequate)**: The response attempts to answer the prompt but may have noticeable inaccuracies, clarity problems, or be only partially relevant.
+    * **2 (Weak)**: The response is largely unhelpful, inaccurate, or irrelevant.
+    * **1 (Poor)**: The response completely fails to address the prompt, is factually incorrect, or is incomprehensible.
+
+    ---
+    **User Message**
+    {prompt}
+
+    **AI Response**
+    {response_text}
+    ---
+
+    ## Your Task
+    Evaluate the AI response above using the **general quality criteria**.
+
+    **Provide only your numerical score (1-5) with no explanation.**
+
+  
+  # Generation Parameters
+  # Controls the randomness and quality of generated text
+  # Tips: For consistent results, use temperature: 0.0 and do_sample: false
+  #       For creative generation, use temperature: 0.8-1.2 with top_p: 0.9
+  temperature: 1.0            # Sampling temperature (0.0 = deterministic, 2.0 = very random)
+  top_p: 0.9                  # Nucleus sampling threshold (0.0-1.0, lower = more focused)
+  max_new_tokens: 1000        # Maximum number of tokens to generate per response
+  do_sample: true             # Enable sampling (false = greedy decoding, true = stochastic sampling)

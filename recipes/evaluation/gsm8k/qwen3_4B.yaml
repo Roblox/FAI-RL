@@ -1,11 +1,12 @@
-# MMLU Evaluation Configuration for Local Fine-tuned Model
-# This config evaluates a local fine-tuned model on the MMLU benchmark
+# GSM8K Evaluation Configuration for Local Fine-tuned Model
+# This config evaluates a local fine-tuned model on the GSM8K benchmark
 # using automatic JSON answer extraction and accuracy calculation.
 
 evaluation:
   # Model Configuration
-  # Path to the trained model to evaluate (local checkpoint)
-  model_path: "models/qwen3-4B-inst-dpo-full-100k-v1/checkpoint-100"
+  # Paths to the trained model(s) to evaluate (local checkpoints)
+  model_paths:
+    - "models/qwen3-4B-inst-dpo-full-100k-v1/checkpoint-100"
   
   # Where to save evaluation results (CSV format with all dataset columns + accuracy)
   output_file: "outputs/qwen3-4B-inst-dpo-full-100k-v1-eval-gsm8k-ckpt100.csv"

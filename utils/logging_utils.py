@@ -60,6 +60,7 @@ def setup_logging(
     log_dir: str = "logs",
     console_output: bool = True,
     file_output: bool = True,
+    log_filename: str = None,
 ) -> logging.Logger:
     """
     Set up logging configuration for the training process.
@@ -70,6 +71,7 @@ def setup_logging(
         log_dir: Directory to save log files
         console_output: Whether to output to console
         file_output: Whether to output to file
+        log_filename: Optional specific log filename to use (overrides auto-generated name)
 
     Returns:
         Configured logger instance
@@ -97,21 +99,28 @@ def setup_logging(
 
     # File handler with robust error handling
     if file_output:
-        # Create log directory if it doesn't exist
-        log_path = Path(log_dir)
-        log_path.mkdir(exist_ok=True)
+        # Use provided log filename or create one with timestamp
+        if log_filename:
+            log_file_path = Path(log_filename)
+        else:
+            # Create log directory if it doesn't exist
+            log_path = Path(log_dir)
+            log_path.mkdir(exist_ok=True)
 
-        # Create log filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_filename = log_path / f"{name}_{timestamp}.log"
+            # Create log filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_file_path = log_path / f"{name}_{timestamp}.log"
+
+        # Create parent directory if needed
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Use RobustFileHandler instead of regular FileHandler
-        file_handler = RobustFileHandler(log_filename)
+        file_handler = RobustFileHandler(log_file_path)
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
-        logger.info(f"Logging to file: {log_filename}")
+        logger.info(f"Logging to file: {log_file_path}")
 
     return logger
 
@@ -192,8 +201,8 @@ class SafeLogger:
 class TrainingLogger:
     """Enhanced logger for training metrics and progress."""
 
-    def __init__(self, name: str = "training", log_dir: str = "logs"):
-        base_logger = setup_logging(name, log_dir=log_dir)
+    def __init__(self, name: str = "training", log_dir: str = "logs", log_filename: str = None, file_output: bool = True):
+        base_logger = setup_logging(name, log_dir=log_dir, log_filename=log_filename, file_output=file_output)
         self.logger = SafeLogger(base_logger)
         self.step = 0
 

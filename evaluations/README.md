@@ -13,6 +13,9 @@ fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml
 # Evaluate on GSM8K benchmark (math word problems)
 fai-rl-eval --recipe recipes/evaluation/gsm8k/qwen3_4B.yaml
 
+# Evaluate multiple checkpoints (batch evaluation)
+fai-rl-eval --recipe recipes/evaluation/gsm8k/qwen3_4B_multi_ckpt.yaml
+
 # Evaluate with debug mode for detailed logging
 fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --debug
 
@@ -30,9 +33,9 @@ fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --nohup
 Override configuration parameters directly from command line:
 
 ```bash
-# Override model path and output file
+# Override model paths and output file
 fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml \
-  evaluation.model_path=models/my_custom_model/checkpoint-100 \
+  'evaluation.model_paths=["models/my_custom_model/checkpoint-100"]' \
   evaluation.output_file=outputs/my_eval_results.csv
 
 # Override dataset subset and generation parameters
@@ -52,6 +55,27 @@ Evaluation generates a detailed CSV file at the specified `output_file` path:
 outputs/
 └── llama3_3B_Inst_SFT_lora_v1_checkpoint100_evaluation.csv
 ```
+
+### Multi-Checkpoint Evaluation
+
+When evaluating multiple checkpoints, the system:
+- Runs inference on all checkpoints sequentially
+- Generates a single CSV with a `checkpoint` column identifying the source checkpoint
+- Calculates separate accuracy metrics for each checkpoint
+- Prints a summary comparison of all checkpoints
+
+**Example Output:**
+```
+EVALUATION SUMMARY (All Checkpoints):
+============================================================
+models/checkpoint-100:
+  Accuracy: 0.7543
+models/checkpoint-200:
+  Accuracy: 0.7821
+models/checkpoint-300:
+  Accuracy: 0.7965
+```
+
 
 ## 🔬 Supported Benchmarks
 

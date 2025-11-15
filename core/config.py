@@ -186,8 +186,9 @@ class WandbConfig:
 @dataclass
 class InferenceConfig:
     """Configuration for inference settings."""
-    # Model configuration - either model_path (for local models) or model (for API models)
-    model_path: Optional[str] = None
+    # Model configuration - either model_paths (for local models) or model (for API models)
+    # model_paths: List of checkpoint paths for batch inference
+    model_paths: Optional[List[str]] = None
     model: Optional[str] = None
     
     # API configuration
@@ -203,6 +204,7 @@ class InferenceConfig:
     # Dataset column configuration
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     response_column: str = "response"
+    checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint inference
     
     # Generation parameters
     temperature: float = 1.0
@@ -217,8 +219,9 @@ class InferenceConfig:
 @dataclass
 class EvaluationConfig:
     """Configuration for evaluation settings."""
-    # Model configuration
-    model_path: Optional[str] = None
+    # Model configuration - either model_paths (for local models) or model (for API models)
+    # model_paths: List of checkpoint paths for batch evaluation
+    model_paths: Optional[List[str]] = None
     model: Optional[str] = None
     
     # API configuration
@@ -236,6 +239,7 @@ class EvaluationConfig:
     dataset_columns: List[str] = field(default_factory=lambda: ["question", "choices", "answer"])
     ground_truth_column: str = "answer"
     response_column: str = "response"
+    checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint evaluation
     
     # Prompt configuration
     prompt_template: Optional[str] = None

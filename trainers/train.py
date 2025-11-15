@@ -91,6 +91,23 @@ def is_distributed_launch():
     return 'RANK' in os.environ or 'LOCAL_RANK' in os.environ or 'WORLD_SIZE' in os.environ
 
 
+def get_algorithm_from_recipe(recipe_path, overrides):
+    """Get algorithm name from recipe file and overrides."""
+    try:
+        # Load recipe dict
+        recipe_dict = load_recipe_from_yaml(recipe_path) if recipe_path else {}
+        
+        # Apply overrides to get the final algorithm value
+        if overrides:
+            recipe_dict = apply_overrides_to_recipe(recipe_dict, overrides)
+        
+        # Get algorithm from training section
+        algorithm = recipe_dict.get('training', {}).get('algorithm', 'training')
+        return algorithm.lower()
+    except Exception:
+        return 'training'
+
+
 def launch_distributed_training(args):
     """Launch training with the appropriate distributed launcher."""
     script_path = os.path.abspath(__file__)
@@ -133,11 +150,21 @@ def launch_distributed_training(args):
     
     # Handle nohup mode
     if args.nohup:
-        # Generate log filename with timestamp
+        # Get algorithm name from recipe to create consistent log filename
+        algorithm = get_algorithm_from_recipe(args.recipe, args.overrides)
+        
+        # Generate log filename with timestamp (matching TrainingLogger format)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = f"training_{timestamp}.log"
+        log_file = f"logs/{algorithm}_training_{timestamp}.log"
+        
+        # Create logs directory if it doesn't exist
+        os.makedirs("logs", exist_ok=True)
         
         print(f"Running in background with nohup. Output will be saved to: {log_file}")
+        
+        # Prepare environment with log file path
+        env = os.environ.copy()
+        env['TRAINING_LOG_FILE'] = log_file
         
         # Prepare nohup command: nohup <command> > log_file 2>&1 &
         # We'll use shell=True to handle the redirection and background execution
@@ -147,7 +174,7 @@ def launch_distributed_training(args):
         print(f"Executing: {full_cmd}")
         
         # Execute with Popen to start in background without waiting
-        subprocess.Popen(full_cmd, shell=True)
+        subprocess.Popen(full_cmd, shell=True, env=env)
         
         print(f"Training started in background. Monitor progress with: tail -f {log_file}")
         
@@ -258,7 +285,16 @@ def main():
     algorithm = config.training.algorithm.lower()
 
     # Setup logging with algorithm-specific prefix
-    training_logger = TrainingLogger(f"{algorithm}_training")
+    # When running with nohup, stdout is already redirected to a file,
+    # so we don't need a separate file handler (it would cause duplicates)
+    log_filename = os.environ.get('TRAINING_LOG_FILE', None)
+    if log_filename:
+        # Running with nohup: use console output only (nohup handles file redirection)
+        training_logger = TrainingLogger(f"{algorithm}_training", file_output=False)
+        print(f"Nohup mode detected. Logging to: {log_filename}")
+    else:
+        # Running normally: use both console and file output
+        training_logger = TrainingLogger(f"{algorithm}_training")
 
     # Log system information
     log_system_info()
@@ -291,7 +327,8 @@ def main():
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
             
-        with trainer_class(config) as trainer:
+        # Pass the training_logger to the trainer to consolidate logging
+        with trainer_class(config, logger=training_logger.logger.logger) as trainer:
             trainer.train()
 
         training_logger.logger.info(f"{algorithm.upper()} training completed successfully!")

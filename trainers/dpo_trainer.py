@@ -19,8 +19,8 @@ from utils.logging_utils import setup_logging
 class DPOTrainer(BaseTrainer):
     """DPO (Direct Preference Optimization) trainer implementation."""
 
-    def __init__(self, config: ExperimentConfig):
-        super().__init__(config)
+    def __init__(self, config: ExperimentConfig, logger: Optional[object] = None):
+        super().__init__(config, logger=logger)
         self.trainer = None
         self.model = None
         self.ref_model = None

@@ -18,7 +18,7 @@ inference:
   # Specifies which dataset to run inference on
   dataset_name: "Roblox/FAI-RL-rlaif-test-dataset"  # HuggingFace dataset identifier (e.g., "Anthropic/hh-rlhf")
   dataset_split: "test"                            # Dataset split to use: train, test, or validation
-  dataset_columns: ["persona", "prompt"]           # List of columns to concatenate as model input
+  dataset_columns: ["prompt", "response"]          # List of columns to concatenate as model input
   response_column: "response"                      # Name of column to store model responses (default: "response")
   
   # System Prompt
@@ -47,7 +47,7 @@ inference:
     {prompt}
 
     **AI Response**
-    {response_text}
+    {response}
     ---
 
     ## Your Task

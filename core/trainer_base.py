@@ -19,12 +19,16 @@ from utils.logging_utils import setup_logging, SafeLogger
 class BaseTrainer(ABC):
     """Abstract base class for all trainers."""
 
-    def __init__(self, config: ExperimentConfig):
+    def __init__(self, config: ExperimentConfig, logger: Optional[logging.Logger] = None):
         self.config = config
+        # Use provided logger or create a new one
         # Wrap logger with SafeLogger to prevent logging errors from crashing training
         # Uses RobustFileHandler internally for handling stale file handles
-        base_logger = setup_logging(self.__class__.__name__)
-        self.logger = SafeLogger(base_logger)
+        if logger is not None:
+            self.logger = SafeLogger(logger)
+        else:
+            base_logger = setup_logging(self.__class__.__name__)
+            self.logger = SafeLogger(base_logger)
         self.local_rank = int(os.environ.get("LOCAL_RANK", -1))
         self.is_main_process = self.local_rank == -1 or self.local_rank == 0
 

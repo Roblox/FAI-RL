@@ -1,0 +1,45 @@
+# GSM8K Multi-Checkpoint Evaluation Configuration
+# This config evaluates multiple checkpoints on the GSM8K benchmark
+# and provides separate accuracy metrics for each checkpoint.
+
+evaluation:
+  # Model Configuration - Multiple Checkpoints
+  # Evaluate multiple checkpoints in a single run
+  model_paths:
+    - "models/qwen3-4B-inst-dpo-full-100k-v1/checkpoint-100"
+    - "models/qwen3-4B-inst-dpo-full-100k-v1/checkpoint-200"
+    - "models/qwen3-4B-inst-dpo-full-100k-v1/checkpoint-300"
+  
+  # Where to save evaluation results (CSV format with all dataset columns + checkpoint column + accuracy)
+  output_file: "outputs/qwen3-4B-inst-dpo-full-100k-v1-eval-gsm8k-multi-ckpt.csv"
+
+  # Dataset Configuration
+  # Specifies which dataset and subset to evaluate on
+  dataset_name: "openai/gsm8k"                  # HuggingFace dataset identifier
+  dataset_subset: "main"                        # Specific subset of the dataset (optional)
+  dataset_split: "test"                         # Which split to evaluate on: test, validation, or dev
+  dataset_columns: ["question", "answer"]       # List of dataset columns to include in evaluation
+  ground_truth_column: "answer"                 # Column containing the correct answers for accuracy calculation
+  response_column: "response"                   # Name of column to store/read model responses (default: "response")
+  checkpoint_column: "checkpoint"               # Name of column to store checkpoint identifier (default: "checkpoint")
+  
+  # System Prompt Template
+  # Template for evaluation prompts (supports variable substitution with {variable})
+  # The model will be prompted with this template for each evaluation sample
+  system_prompt: |
+    Question: {question}
+    
+    Reply only with valid JSON using this structure:
+    {{
+      "answer": "your answer"
+    }}
+    Let's think step by step.
+  
+  # Generation Parameters
+  # Controls how the model generates responses during evaluation
+  temperature: 0.0                           # Sampling temperature for response generation (0.0 = deterministic, 2.0 = very random)
+  top_p: 1.0                                 # Nucleus sampling parameter - probability threshold for token selection (0.0-1.0, lower = more focused)
+  max_new_tokens: 2000                       # Maximum tokens to generate per response
+  do_sample: false                           # Whether to use sampling for generation (false = greedy decoding, true = stochastic sampling)
+
+

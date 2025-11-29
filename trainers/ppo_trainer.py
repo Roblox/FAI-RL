@@ -1,4 +1,6 @@
 import os, sys
+from typing import Optional
+
 import torch
 from accelerate import PartialState
 from datasets import load_dataset, concatenate_datasets

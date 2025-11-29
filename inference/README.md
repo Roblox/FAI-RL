@@ -19,6 +19,9 @@ fai-rl-inference --recipe recipes/inference/llama3_vanilla_3B.yaml
 # Run inference using an API endpoint (OpenAI, hosted LLM, etc.)
 fai-rl-inference --recipe recipes/inference/llama3_3B_api.yaml
 
+# Run inference with a local CSV file as the dataset
+fai-rl-inference --recipe recipes/inference/llama3_3B_local_csv.yaml
+
 # Run inference with debug mode for detailed logging
 fai-rl-inference --recipe recipes/inference/llama3_3B.yaml --debug
 

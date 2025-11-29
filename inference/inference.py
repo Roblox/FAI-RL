@@ -352,13 +352,35 @@ def run_inference(config, debug=False):
 
     # Load dataset once (shared across all checkpoints)
     print(f"Loading dataset: {config.dataset_name}")
-    if hasattr(config, 'dataset_subset') and config.dataset_subset:
-        dataset = load_dataset(config.dataset_name, config.dataset_subset)
-    else:
-        dataset = load_dataset(config.dataset_name)
     
-    # Get the appropriate split
-    data_split = dataset[config.dataset_split] if config.dataset_split in dataset else dataset[list(dataset.keys())[0]]
+    # Check if dataset_name has CSV extension - if so, load from local file
+    if config.dataset_name.endswith('.csv'):
+        print(f"Detected CSV file, loading from local path: {config.dataset_name}")
+        
+        # Handle relative and absolute paths
+        dataset_path = config.dataset_name
+        if not os.path.isabs(dataset_path):
+            dataset_path = os.path.join(os.getcwd(), dataset_path)
+        
+        # Check if file exists
+        if not os.path.exists(dataset_path):
+            raise FileNotFoundError(f"CSV file not found: {dataset_path}")
+        
+        # Load CSV using pandas
+        df = pd.read_csv(dataset_path)
+        print(f"Loaded {len(df)} rows from CSV file")
+        
+        # Convert DataFrame to list of dicts (similar to HuggingFace dataset format)
+        data_split = df.to_dict('records')
+    else:
+        # Load from HuggingFace
+        if hasattr(config, 'dataset_subset') and config.dataset_subset:
+            dataset = load_dataset(config.dataset_name, config.dataset_subset)
+        else:
+            dataset = load_dataset(config.dataset_name)
+        
+        # Get the appropriate split
+        data_split = dataset[config.dataset_split] if config.dataset_split in dataset else dataset[list(dataset.keys())[0]]
     
     print(f"Processing {len(data_split)} examples from the dataset...")
     

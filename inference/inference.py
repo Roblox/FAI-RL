@@ -39,6 +39,7 @@ from core.config import ExperimentConfig
 from utils.config_validation import validate_api_config
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 from utils.logging_utils import setup_logging, SafeLogger
+from utils.device_utils import get_device_type, get_optimal_dtype
 
 # Setup module-level logger with SafeLogger for robustness
 # This prevents logging errors from crashing long-running inference jobs
@@ -190,6 +191,22 @@ def load_model_and_tokenizer(config):
     if is_local and not os.path.isabs(model_identifier):
         model_identifier = os.path.join(os.getcwd(), model_identifier)
     
+    # Get optimal dtype and device settings for current platform
+    device_type = get_device_type()
+    optimal_dtype = get_optimal_dtype()
+    
+    # Determine device_map based on platform
+    # MPS doesn't support device_map="auto" well, use explicit device placement
+    if device_type == "mps":
+        device_map = {"": "mps"}
+        print(f"Running on Apple Silicon (MPS) with dtype: {optimal_dtype}")
+    elif device_type == "cuda":
+        device_map = "auto"
+        print(f"Running on CUDA with dtype: {optimal_dtype}")
+    else:
+        device_map = {"": "cpu"}
+        print(f"Running on CPU with dtype: {optimal_dtype}")
+    
     print(f"Loading model from: {model_identifier}")
     
     # Check if path exists for local models
@@ -235,8 +252,8 @@ def load_model_and_tokenizer(config):
         print("Loading base model...")
         model = AutoModelForCausalLM.from_pretrained(
             base_model_name,
-            torch_dtype=torch.bfloat16,
-            device_map="auto"
+            torch_dtype=optimal_dtype,
+            device_map=device_map
         )
         
         # Resize embeddings to match tokenizer BEFORE loading adapter
@@ -273,8 +290,8 @@ def load_model_and_tokenizer(config):
         # Load the model
         model = AutoModelForCausalLM.from_pretrained(
             model_identifier,
-            torch_dtype=torch.bfloat16,
-            device_map="auto"
+            torch_dtype=optimal_dtype,
+            device_map=device_map
         )
     
     model.eval()  # Set the model to inference mode
@@ -467,7 +484,11 @@ def run_inference(config, debug=False):
         if model is not None:
             del model
             del tokenizer
-            torch.cuda.empty_cache()
+            # Clear GPU cache based on device type
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif hasattr(torch, 'mps') and hasattr(torch.mps, 'empty_cache'):
+                torch.mps.empty_cache()
     
     # Use all_results as the final results
     results = all_results

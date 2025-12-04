@@ -12,10 +12,23 @@ import logging
 import platform
 import sys
 from typing import Optional, Tuple, Dict, Any
+from packaging import version
 
 import torch
 
 logger = logging.getLogger(__name__)
+
+
+def supports_mps_mixed_precision() -> bool:
+    """
+    Check if the current PyTorch version supports mixed precision (GradScaler) on MPS.
+    
+    GradScaler with MPS requires PyTorch >= 2.8.0.
+    
+    Returns:
+        bool: True if MPS mixed precision is supported.
+    """
+    return version.parse(torch.__version__.split('+')[0]) >= version.parse("2.8.0")
 
 
 def get_device_type() -> str:
@@ -295,20 +308,27 @@ def validate_device_compatibility(config: Any) -> Tuple[bool, list]:
                         "Install with: pip install deepspeed"
                     )
     
-    # Check bf16 compatibility
+    # Check bf16/fp16 compatibility
     if hasattr(config, 'training'):
         training_config = config.training
-        if getattr(training_config, 'bf16', False):
+        if getattr(training_config, 'bf16', False) or getattr(training_config, 'fp16', False):
             if device_type == "mps":
-                warnings.append(
-                    "bfloat16 has limited support on Apple Silicon (MPS). "
-                    "Switching to float16 for better compatibility."
-                )
+                if not supports_mps_mixed_precision():
+                    warnings.append(
+                        f"Mixed precision training (fp16/bf16) on MPS requires PyTorch >= 2.8.0 "
+                        f"(current: {torch.__version__}). Switching to float32."
+                    )
+                elif getattr(training_config, 'bf16', False):
+                    warnings.append(
+                        "bfloat16 has limited support on Apple Silicon (MPS). "
+                        "Switching to float16 for better compatibility."
+                    )
             elif device_type == "cpu":
-                warnings.append(
-                    "bfloat16 training on CPU is slow. "
-                    "Consider using float32 for CPU training."
-                )
+                if getattr(training_config, 'bf16', False):
+                    warnings.append(
+                        "bfloat16 training on CPU is slow. "
+                        "Consider using float32 for CPU training."
+                    )
     
     is_valid = len(warnings) == 0
     return is_valid, warnings
@@ -345,17 +365,36 @@ def adapt_config_for_device(config: Any) -> Any:
                 config.training.deepspeed_config = None
                 logger.warning("Disabled DeepSpeed (not supported on MPS)")
             
-            # Switch bf16 to fp16 on MPS
-            if getattr(config.training, 'bf16', False):
-                config.training.bf16 = False
-                config.training.fp16 = True
-                logger.warning("Switched from bf16 to fp16 (better MPS compatibility)")
+            # Check if mixed precision is supported on MPS (requires PyTorch >= 2.8.0)
+            if supports_mps_mixed_precision():
+                # Switch bf16 to fp16 on MPS (fp16 is better supported)
+                if getattr(config.training, 'bf16', False):
+                    config.training.bf16 = False
+                    config.training.fp16 = True
+                    logger.warning("Switched from bf16 to fp16 (better MPS compatibility)")
+            else:
+                # PyTorch < 2.8.0: GradScaler not supported on MPS, use fp32
+                if getattr(config.training, 'bf16', False) or getattr(config.training, 'fp16', False):
+                    config.training.bf16 = False
+                    config.training.fp16 = False
+                    logger.warning(
+                        f"Disabled mixed precision training (GradScaler on MPS requires PyTorch >= 2.8.0, "
+                        f"current version: {torch.__version__}). Using fp32 instead."
+                    )
         
-        # Update model dtype
+        # Update model dtype based on mixed precision support
         if hasattr(config, 'model'):
-            if getattr(config.model, 'torch_dtype', None) == "bfloat16":
-                config.model.torch_dtype = "float16"
-                logger.warning("Switched model dtype from bfloat16 to float16")
+            if supports_mps_mixed_precision():
+                if getattr(config.model, 'torch_dtype', None) == "bfloat16":
+                    config.model.torch_dtype = "float16"
+                    logger.warning("Switched model dtype from bfloat16 to float16")
+            else:
+                # Use float32 for model loading when mixed precision not supported
+                if getattr(config.model, 'torch_dtype', None) in ("bfloat16", "float16"):
+                    config.model.torch_dtype = "float32"
+                    logger.warning(
+                        f"Switched model dtype to float32 (MPS mixed precision requires PyTorch >= 2.8.0)"
+                    )
     
     elif device_type == "cpu":
         # Disable quantization on CPU

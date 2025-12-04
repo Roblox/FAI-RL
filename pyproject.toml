@@ -49,7 +49,7 @@ dependencies = [
 # CUDA-specific dependencies for Linux/Windows with NVIDIA GPUs
 # These are not available on macOS and are optional
 cuda = [
-    "bitsandbytes==0.42.0",
+    "bitsandbytes==0.46.1",
     "deepspeed==0.17.4",
     "mpi4py==4.1.0",
 ]

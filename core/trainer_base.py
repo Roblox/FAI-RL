@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 import wandb
 import torch
-from transformers import AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 
 from .config import ExperimentConfig
@@ -14,6 +14,14 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
     
 from utils.logging_utils import setup_logging, SafeLogger
+from utils.device_utils import (
+    get_device_type,
+    is_cuda_available,
+    is_mps_available,
+    supports_quantization,
+    adapt_config_for_device,
+    log_device_info,
+)
 
 
 class BaseTrainer(ABC):
@@ -29,20 +37,37 @@ class BaseTrainer(ABC):
         else:
             base_logger = setup_logging(self.__class__.__name__)
             self.logger = SafeLogger(base_logger)
+        
+        # Detect device type and adapt configuration for platform compatibility
+        self.device_type = get_device_type()
+        self.logger.info(f"Detected device type: {self.device_type.upper()}")
+        
+        # Adapt config for the current device (handles MPS/CPU limitations)
+        self.config = adapt_config_for_device(self.config)
+        
         self.local_rank = int(os.environ.get("LOCAL_RANK", -1))
         self.is_main_process = self.local_rank == -1 or self.local_rank == 0
 
-        # Set CUDA device for distributed training to avoid NCCL warnings
-        if self.local_rank != -1 and torch.cuda.is_available():
-            torch.cuda.set_device(self.local_rank)
-            self.logger.info(f"Set CUDA device to GPU {self.local_rank} for this process")
+        # Set device for distributed training
+        if self.local_rank != -1:
+            if is_cuda_available():
+                torch.cuda.set_device(self.local_rank)
+                self.logger.info(f"Set CUDA device to GPU {self.local_rank} for this process")
+            elif is_mps_available():
+                # MPS doesn't support multi-device, but we handle it gracefully
+                self.logger.info("MPS detected - running in single-device mode")
+        
+        # Log device information on main process
+        if self.is_main_process:
+            log_device_info()
 
         # Initialize wandb if enabled and on main process
         if self.is_main_process and self.config.wandb.enabled:
             self.setup_wandb()
 
-        # Set memory optimization
-        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+        # Set memory optimization for CUDA
+        if is_cuda_available():
+            os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
     def setup_wandb(self):
         """Initialize Weights & Biases logging."""
@@ -65,13 +90,24 @@ class BaseTrainer(ABC):
             wandb.finish()
             self.logger.info("Wandb session finished")
 
-    def create_quantization_config(self) -> Optional[BitsAndBytesConfig]:
+    def create_quantization_config(self):
         """Create quantization configuration for 4-bit or 8-bit training.
         
         Returns:
-            BitsAndBytesConfig if quantization is enabled, None otherwise.
+            BitsAndBytesConfig if quantization is enabled and supported, None otherwise.
         """
         if not (self.config.model.load_in_4bit or self.config.model.load_in_8bit):
+            return None
+        
+        # Check if quantization is supported on this platform
+        if not supports_quantization():
+            self.logger.warning(
+                f"Quantization requested but not supported on {self.device_type.upper()}. "
+                "Quantization requires CUDA and bitsandbytes. Continuing without quantization."
+            )
+            # Disable quantization in config
+            self.config.model.load_in_4bit = False
+            self.config.model.load_in_8bit = False
             return None
             
         self.logger.info(f"Setting up {'4-bit' if self.config.model.load_in_4bit else '8-bit'} quantization...")
@@ -82,6 +118,9 @@ class BaseTrainer(ABC):
                 "Quantized training (4-bit/8-bit) requires LoRA adapters. "
                 "Set model.use_lora: true (QLoRA) or disable quantization."
             )
+        
+        # Import BitsAndBytesConfig only when needed (CUDA-only dependency)
+        from transformers import BitsAndBytesConfig
         
         if self.config.model.load_in_4bit:
             return BitsAndBytesConfig(
@@ -97,7 +136,7 @@ class BaseTrainer(ABC):
         
         return None
 
-    def prepare_model_kwargs(self, quantization_config: Optional[BitsAndBytesConfig] = None) -> Dict[str, Any]:
+    def prepare_model_kwargs(self, quantization_config=None) -> Dict[str, Any]:
         """Prepare model loading kwargs with proper device placement.
         
         Args:
@@ -119,7 +158,7 @@ class BaseTrainer(ABC):
             # When training with DeepSpeed, let DeepSpeed/Accelerate manage device placement
             if not using_deepspeed:
                 # For multi-GPU training with torchrun (no DeepSpeed)
-                if torch.cuda.is_available():
+                if is_cuda_available():
                     current_device = torch.cuda.current_device()
                     model_kwargs["device_map"] = {"": current_device}
                     self.logger.info(f"Using device_map={{'': {current_device}}} for quantized model (no DeepSpeed).")
@@ -128,6 +167,10 @@ class BaseTrainer(ABC):
                     self.logger.info("Using device_map=auto for quantized model (no DeepSpeed, no CUDA).")
             else:
                 self.logger.info("DeepSpeed detected; not setting device_map to let DeepSpeed place parameters.")
+        elif is_mps_available():
+            # For MPS, we need to explicitly set device_map for proper device placement
+            model_kwargs["device_map"] = "mps"
+            self.logger.info("Using device_map='mps' for Apple Silicon.")
         
         return model_kwargs
 

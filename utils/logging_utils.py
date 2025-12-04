@@ -126,7 +126,7 @@ def setup_logging(
 
 
 def log_gpu_memory():
-    """Log GPU memory usage if CUDA is available."""
+    """Log GPU/accelerator memory usage if available (CUDA, MPS, or CPU)."""
     import torch
 
     if torch.cuda.is_available():
@@ -134,8 +134,14 @@ def log_gpu_memory():
             memory_allocated = torch.cuda.memory_allocated(i) / 1024**3  # GB
             memory_reserved = torch.cuda.memory_reserved(i) / 1024**3   # GB
             logging.info(f"GPU {i} - Allocated: {memory_allocated:.2f} GB, Reserved: {memory_reserved:.2f} GB")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        try:
+            memory_allocated = torch.mps.current_allocated_memory() / 1024**3  # GB
+            logging.info(f"MPS - Allocated: {memory_allocated:.2f} GB")
+        except Exception:
+            logging.info("MPS available but memory info not accessible")
     else:
-        logging.info("CUDA not available")
+        logging.info("No GPU/accelerator available - running on CPU")
 
 
 def log_system_info():
@@ -155,8 +161,24 @@ def log_system_info():
         logger.info(f"GPU count: {torch.cuda.device_count()}")
         for i in range(torch.cuda.device_count()):
             logger.info(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        logger.info("MPS (Apple Silicon) available")
+        logger.info("Device: Apple Silicon GPU")
+        # Try to get chip name
+        if platform.machine() == "arm64":
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["sysctl", "-n", "machdep.cpu.brand_string"],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    logger.info(f"Chip: {result.stdout.strip()}")
+            except Exception:
+                pass
     else:
-        logger.info("CUDA not available")
+        logger.info("No GPU available - running on CPU")
 
 
 class SafeLogger:

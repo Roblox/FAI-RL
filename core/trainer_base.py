@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 import os, sys
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from transformers import BitsAndBytesConfig
 import wandb
 import torch
 from transformers import AutoTokenizer

@@ -214,18 +214,12 @@ def load_model_and_tokenizer(config):
         # Load tokenizer from base model instead of checkpoint to avoid conversion issues
         print("Loading tokenizer from base model...")
         try:
-            tokenizer = AutoTokenizer.from_pretrained(
-                base_model_name,
-                use_fast=False,
-                legacy=False
-            )
+            tokenizer = AutoTokenizer.from_pretrained(base_model_name)
         except Exception as e:
-            print(f"Warning: Failed to load tokenizer with use_fast=False, trying with trust_remote_code=True: {e}")
+            print(f"Warning: Failed to load tokenizer, trying with trust_remote_code=True: {e}")
             tokenizer = AutoTokenizer.from_pretrained(
                 base_model_name,
-                use_fast=False,
-                trust_remote_code=True,
-                legacy=False
+                trust_remote_code=True
             )
         
         # Set the pad token if it's not already set
@@ -262,20 +256,14 @@ def load_model_and_tokenizer(config):
         # Regular model loading (non-PEFT) - can be local or from HuggingFace hub
         print(f"Loading regular model from {'local path' if is_local else 'HuggingFace hub'}...")
         
-        # Load tokenizer (use slow tokenizer to avoid tiktoken conversion issues)
+        # Load tokenizer
         try:
-            tokenizer = AutoTokenizer.from_pretrained(
-                model_identifier,
-                use_fast=False,
-                legacy=False
-            )
+            tokenizer = AutoTokenizer.from_pretrained(model_identifier)
         except Exception as e:
-            print(f"Warning: Failed to load tokenizer with use_fast=False, trying with trust_remote_code=True: {e}")
+            print(f"Warning: Failed to load tokenizer, trying with trust_remote_code=True: {e}")
             tokenizer = AutoTokenizer.from_pretrained(
                 model_identifier,
-                use_fast=False,
-                trust_remote_code=True,
-                legacy=False
+                trust_remote_code=True
             )
         
         # Set the pad token if it's not already set

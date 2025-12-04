@@ -44,7 +44,7 @@ pip install FAI-RL[cuda] --extra-index-url https://download.pytorch.org/whl/cu11
 **For macOS (Apple Silicon or Intel):**
 
 ```bash
-pip install FAI-RL
+pip install FAI-RL==0.1.12
 ```
 
 ### Clone the Repository for Configuration Recipes

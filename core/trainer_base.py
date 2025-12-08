@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from transformers import BitsAndBytesConfig
 import wandb
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoConfig
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 
 from .config import ExperimentConfig
@@ -141,6 +141,52 @@ class BaseTrainer(ABC):
         
         return None
 
+    def load_model_config(self, model_name: Optional[str] = None):
+        """Load and configure the model's AutoConfig.
+        
+        This method handles models that are missing the model_type key in their config.json
+        by explicitly setting it based on the config.model.model_type field.
+        
+        Args:
+            model_name: Optional model name. Defaults to config.model.base_model_name.
+            
+        Returns:
+            AutoConfig object with model_type set if specified, None otherwise.
+        """
+        if model_name is None:
+            model_name = self.config.model.base_model_name
+        
+        model_type = getattr(self.config.model, 'model_type', None)
+        
+        if model_type is None:
+            return None
+        
+        self.logger.info(f"Loading model config with explicit model_type: {model_type}")
+        
+        try:
+            # Load the config from the model
+            config = AutoConfig.from_pretrained(
+                model_name,
+                trust_remote_code=True
+            )
+        except ValueError as e:
+            # If AutoConfig fails due to missing model_type, create config with explicit type
+            if "model_type" in str(e):
+                self.logger.info(f"Model config missing model_type, loading with explicit type: {model_type}")
+                config = AutoConfig.from_pretrained(
+                    model_name,
+                    model_type=model_type,
+                    trust_remote_code=True
+                )
+            else:
+                raise
+        
+        # Ensure model_type is set
+        if not hasattr(config, 'model_type') or config.model_type is None:
+            config.model_type = model_type
+        
+        return config
+
     def prepare_model_kwargs(self, quantization_config=None) -> Dict[str, Any]:
         """Prepare model loading kwargs with proper device placement.
         
@@ -157,6 +203,11 @@ class BaseTrainer(ABC):
             "torch_dtype": torch_dtype,
             "low_cpu_mem_usage": self.config.model.low_cpu_mem_usage,
         }
+        
+        # Load config with explicit model_type if specified
+        model_config = self.load_model_config()
+        if model_config is not None:
+            model_kwargs["config"] = model_config
         
         if quantization_config is not None:
             model_kwargs["quantization_config"] = quantization_config

@@ -23,6 +23,7 @@ class ModelConfig:
     load_in_4bit: bool = False
     use_flash_attention: bool = False
     value_model_name: Optional[str] = None  # For PPO: value and reward models
+    model_type: Optional[str] = None  # Explicit model architecture type (e.g., "qwen3", "llama") for models with missing config.json model_type
     
     # Quantization configuration for QLoRA
     bnb_4bit_compute_dtype: str = "bfloat16"
@@ -46,6 +47,7 @@ class ModelConfig:
             "load_in_4bit": self.load_in_4bit,
             "use_flash_attention": self.use_flash_attention,
             "value_model_name": self.value_model_name,
+            "model_type": self.model_type,
             "bnb_4bit_compute_dtype": self.bnb_4bit_compute_dtype,
             "bnb_4bit_quant_type": self.bnb_4bit_quant_type,
             "bnb_4bit_use_double_quant": self.bnb_4bit_use_double_quant,

@@ -25,6 +25,7 @@ from trainers.ppo_trainer import PPOTrainer
 from trainers.sft_trainer import SFTTrainer
 from utils.logging_utils import TrainingLogger, log_system_info
 from utils.recipe_overrides import apply_overrides_to_recipe, parse_value, set_nested_value, load_recipe_from_yaml
+from utils.device_utils import get_device_type, supports_deepspeed, is_mps_available
 
 
 def parse_args():
@@ -111,6 +112,7 @@ def get_algorithm_from_recipe(recipe_path, overrides):
 def launch_distributed_training(args):
     """Launch training with the appropriate distributed launcher."""
     script_path = os.path.abspath(__file__)
+    device_type = get_device_type()
     
     # Build base command arguments (don't pass --num-gpus and --nohup, launcher handles GPU allocation)
     cmd_args = []
@@ -123,29 +125,38 @@ def launch_distributed_training(args):
     if args.overrides:
         cmd_args.extend(args.overrides)
     
-    # For single GPU with nohup, just use python directly (no launcher needed)
+    # For single GPU/device with nohup, just use python directly (no launcher needed)
     if args.num_gpus == 1:
         cmd = [sys.executable, script_path] + cmd_args
     else:
-        # Check if using quantization (only if recipe file is provided)
-        uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
-        
-        if uses_quantization:
-            # QLoRA is incompatible with DeepSpeed, use torchrun
-            print(f"Detected quantization (QLoRA) - using torchrun for {args.num_gpus} GPU(s)")
-            cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
+        # Multi-GPU training - check platform support
+        if is_mps_available():
+            print("Warning: Multi-GPU training is not supported on Apple Silicon (MPS).")
+            print("Running single-device training instead.")
+            cmd = [sys.executable, script_path] + cmd_args
         else:
-            # Auto-select deepspeed config
-            deepspeed_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{args.num_gpus}.json")
-            if os.path.exists(deepspeed_config):
-                print(f"Auto-selected deepspeed config: {deepspeed_config}")
-                # Set environment variable for deepspeed config
-                os.environ['DEEPSPEED_CONFIG'] = deepspeed_config
-                # Use deepspeed launcher
-                print(f"Using deepspeed for {args.num_gpus} GPU(s)")
-                cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path] + cmd_args
+            # Check if using quantization (only if recipe file is provided)
+            uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
+            
+            if uses_quantization:
+                # QLoRA is incompatible with DeepSpeed, use torchrun
+                print(f"Detected quantization (QLoRA) - using torchrun for {args.num_gpus} GPU(s)")
+                cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
+            elif supports_deepspeed():
+                # Auto-select deepspeed config
+                deepspeed_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{args.num_gpus}.json")
+                if os.path.exists(deepspeed_config):
+                    print(f"Auto-selected deepspeed config: {deepspeed_config}")
+                    # Set environment variable for deepspeed config
+                    os.environ['DEEPSPEED_CONFIG'] = deepspeed_config
+                    # Use deepspeed launcher
+                    print(f"Using deepspeed for {args.num_gpus} GPU(s)")
+                    cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path] + cmd_args
+                else:
+                    print(f"Warning: DeepSpeed config for {args.num_gpus} GPU(s) not found, using torchrun")
+                    cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
             else:
-                print(f"Warning: DeepSpeed config for {args.num_gpus} GPU(s) not found, using torchrun")
+                print("DeepSpeed not available, using torchrun for multi-GPU training")
                 cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
     
     # Handle nohup mode

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "FAI-RL"
-version = "0.1.11"
+version = "0.1.13"
 description = "Foundation of AI - Reinforcement learning Library"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -28,6 +28,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
+# Core dependencies that work across all platforms (Mac, Linux, Windows)
 dependencies = [
     "torch==2.7.1",
     "torchvision==0.22.1",
@@ -36,18 +37,22 @@ dependencies = [
     "transformers==4.56.1",
     "trl==0.23.0",
     "wandb==0.21.0",
-    "bitsandbytes==0.46.1",
     "peft==0.17.0",
-    "deepspeed==0.17.4",
     "ipykernel==6.30.1",
     "ipywidgets==8.1.7",
     "fsspec==2025.3.0",
     "huggingface_hub==0.34.4",
-    "mpi4py==4.1.0",
-    "tiktoken==0.12.0",
+    "tiktoken==0.12.0"
 ]
 
 [project.optional-dependencies]
+# CUDA-specific dependencies for Linux/Windows with NVIDIA GPUs
+# These are not available on macOS and are optional
+cuda = [
+    "bitsandbytes==0.46.1",
+    "deepspeed==0.17.4",
+    "mpi4py==4.1.0",
+]
 dev = [
     "pytest>=7.0.0",
     "black>=22.0.0",

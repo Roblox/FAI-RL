@@ -14,6 +14,23 @@ from .dataset_utils import (
     is_math_dataset,
     get_template_for_dataset,
 )
+from .device_utils import (
+    get_device_type,
+    get_device,
+    is_cuda_available,
+    is_mps_available,
+    is_apple_silicon,
+    get_optimal_dtype,
+    get_optimal_dtype_str,
+    supports_quantization,
+    supports_deepspeed,
+    get_device_count,
+    get_device_name,
+    get_device_memory_info,
+    log_device_info,
+    validate_device_compatibility,
+    adapt_config_for_device,
+)
 
 __all__ = [
     "setup_logging",
@@ -28,5 +45,21 @@ __all__ = [
     "generate_response_by_api",
     "is_math_dataset",
     "get_template_for_dataset",
+    # Device utilities
+    "get_device_type",
+    "get_device",
+    "is_cuda_available",
+    "is_mps_available",
+    "is_apple_silicon",
+    "get_optimal_dtype",
+    "get_optimal_dtype_str",
+    "supports_quantization",
+    "supports_deepspeed",
+    "get_device_count",
+    "get_device_name",
+    "get_device_memory_info",
+    "log_device_info",
+    "validate_device_compatibility",
+    "adapt_config_for_device",
 ]
 

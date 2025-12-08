@@ -12,6 +12,7 @@ from .config_validation import validate_api_endpoint, validate_api_key, validate
 from .api_utils import generate_response_by_api
 from .dataset_utils import (
     is_math_dataset,
+    is_subjective_dataset,
     get_template_for_dataset,
 )
 from .device_utils import (
@@ -44,6 +45,7 @@ __all__ = [
     "validate_api_config",
     "generate_response_by_api",
     "is_math_dataset",
+    "is_subjective_dataset",
     "get_template_for_dataset",
     # Device utilities
     "get_device_type",

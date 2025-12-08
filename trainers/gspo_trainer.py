@@ -17,10 +17,11 @@ if project_root not in sys.path:
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
-from utils.dataset_utils import is_math_dataset, get_template_for_dataset
+from utils.dataset_utils import is_math_dataset, is_subjective_dataset, get_template_for_dataset
 from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
 from .rewards.format_rewards import structured_xml_reward_func
 from .rewards.custom_rewards import custom_reward_func
+from .rewards.subjective_rewards import subjective_api_reward_func_simple
 
 class GSPOTrainer(BaseTrainer):
     """GSPO (Group Sequence Policy Optimization) trainer implementation."""
@@ -197,35 +198,80 @@ class GSPOTrainer(BaseTrainer):
         """Initialize the GSPO trainer."""
         training_args = self.setup_training_args()
 
-        # Use math-specific reward functions
-        self.logger.info("Using math-specific reward functions")
+        # Check if any dataset uses subjective evaluation
+        use_subjective = any(
+            is_subjective_dataset(ds.name) for ds in self.config.data.datasets
+        )
         
-        # Create wrapper functions that inject the logger into reward functions
-        def exact_match_with_logger(prompts, completions, answer, **kwargs):
-            kwargs['logger'] = self.logger
-            return exact_match_reward_func(completions, answer, **kwargs)
+        # Also check if reward_api config is present (indicates subjective mode)
+        if hasattr(self.config, 'reward_api') and self.config.reward_api is not None:
+            use_subjective = True
         
-        def structured_xml_with_logger(prompts, completions, **kwargs):
-            kwargs['logger'] = self.logger
-            return structured_xml_reward_func(completions, **kwargs)
-        
-        def digit_with_logger(prompts, completions, **kwargs):
-            kwargs['logger'] = self.logger
-            return digit_reward_func(completions, **kwargs)
-        
-        # ========== CUSTOM REWARD FUNCTION ==========
-        # Add your custom reward logic here
-        def custom_with_logger(prompts, completions, **kwargs):
-            kwargs['logger'] = self.logger
-            return custom_reward_func(completions, **kwargs)
-        # ============================================
-        
-        reward_funcs = [
-            exact_match_with_logger,
-            structured_xml_with_logger,
-            digit_with_logger,
-            custom_with_logger,  # Add your custom reward function here
-        ]
+        if use_subjective:
+            self.logger.info("Using subjective reward functions (API-based evaluation)")
+            
+            # Get API configuration
+            api_endpoint = None
+            api_key = None
+            if hasattr(self.config, 'reward_api') and self.config.reward_api is not None:
+                api_endpoint = self.config.reward_api.endpoint
+                api_key = self.config.reward_api.key
+            
+            if not api_endpoint or not api_key:
+                raise ValueError(
+                    "Reward API configuration is required when using subjective rewards. "
+                    "Please set 'reward_api.endpoint' and 'reward_api.key' in your config file."
+                )
+            
+            # Log configuration source
+            self.logger.info(f"Using Reward API endpoint from config: {api_endpoint}")
+            self.logger.info("Using Reward API key from config")
+            
+            # Create wrapper function for subjective rewards
+            def subjective_with_logger(prompts, completions, **kwargs):
+                kwargs['logger'] = self.logger
+                # Pass API configuration if available
+                if api_endpoint:
+                    kwargs['api_endpoint'] = api_endpoint
+                if api_key:
+                    kwargs['api_key'] = api_key
+                # Pass num_generations from training config
+                kwargs['num_generations'] = self.config.training.num_generations
+                # Pass prompts to the reward function
+                kwargs['prompt'] = prompts
+                return subjective_api_reward_func_simple(completions, **kwargs)
+            
+            reward_funcs = [subjective_with_logger]
+        else:
+            # Use math-specific reward functions
+            self.logger.info("Using math-specific reward functions")
+            
+            # Create wrapper functions that inject the logger into reward functions
+            def exact_match_with_logger(prompts, completions, answer, **kwargs):
+                kwargs['logger'] = self.logger
+                return exact_match_reward_func(completions, answer, **kwargs)
+            
+            def structured_xml_with_logger(prompts, completions, **kwargs):
+                kwargs['logger'] = self.logger
+                return structured_xml_reward_func(completions, **kwargs)
+            
+            def digit_with_logger(prompts, completions, **kwargs):
+                kwargs['logger'] = self.logger
+                return digit_reward_func(completions, **kwargs)
+            
+            # ========== CUSTOM REWARD FUNCTION ==========
+            # Add your custom reward logic here
+            def custom_with_logger(prompts, completions, **kwargs):
+                kwargs['logger'] = self.logger
+                return custom_reward_func(completions, **kwargs)
+            # ============================================
+            
+            reward_funcs = [
+                exact_match_with_logger,
+                structured_xml_with_logger,
+                digit_with_logger,
+                custom_with_logger,  # Add your custom reward function here
+            ]
 
         self.trainer = TRLGSPOTrainer(
             model=self.model,

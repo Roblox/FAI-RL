@@ -165,6 +165,21 @@ class TrainingConfig:
 
 
 @dataclass
+class RewardAPIConfig:
+    """Configuration for Reward API"""
+    endpoint: Optional[str] = None
+    key: Optional[str] = None
+    model: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "endpoint": self.endpoint,
+            "key": self.key,
+            "model": self.model,
+        }
+
+
+@dataclass
 class WandbConfig:
     """Configuration for Weights & Biases logging."""
     enabled: bool = True
@@ -264,6 +279,7 @@ class ExperimentConfig:
     data: DataConfig
     training: TrainingConfig
     wandb: WandbConfig
+    reward_api: Optional[RewardAPIConfig] = None
     
     @classmethod
     def from_yaml(cls, config_path: str) -> 'ExperimentConfig':
@@ -278,11 +294,17 @@ class ExperimentConfig:
                 DatasetInfo(**ds) for ds in data_config['datasets']
             ]
         
+        # Handle reward_api configuration
+        reward_api = None
+        if 'reward_api' in config_dict:
+            reward_api = RewardAPIConfig(**config_dict['reward_api'])
+        
         return cls(
             model=ModelConfig(**config_dict['model']),
             data=DataConfig(**data_config),
             training=TrainingConfig(**config_dict['training']),
             wandb=WandbConfig(**config_dict.get('wandb', {})),
+            reward_api=reward_api,
         )
     
     @classmethod
@@ -319,6 +341,9 @@ class ExperimentConfig:
             'training': self.training.to_dict(),
             'wandb': self.wandb.to_dict(),
         }
+        
+        if self.reward_api is not None:
+            config_dict['reward_api'] = self.reward_api.to_dict()
         
         with open(output_path, 'w') as f:
             yaml.dump(config_dict, f, default_flow_style=False)

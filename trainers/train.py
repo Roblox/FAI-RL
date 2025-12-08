@@ -17,7 +17,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from core.config import ExperimentConfig, ModelConfig, DataConfig, TrainingConfig, WandbConfig, DatasetInfo
+from core.config import ExperimentConfig, ModelConfig, DataConfig, TrainingConfig, WandbConfig, DatasetInfo, RewardAPIConfig
 from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
 from trainers.gspo_trainer import GSPOTrainer
@@ -254,12 +254,18 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
         # Default to empty list if no datasets specified
         data_config['datasets'] = []
     
+    # Handle reward_api configuration
+    reward_api = None
+    if 'reward_api' in recipe_dict and recipe_dict['reward_api']:
+        reward_api = RewardAPIConfig(**recipe_dict['reward_api'])
+    
     # Create config objects with defaults
     return ExperimentConfig(
         model=ModelConfig(**recipe_dict.get('model', {})),
         data=DataConfig(**data_config),
         training=TrainingConfig(**recipe_dict.get('training', {})),
         wandb=WandbConfig(**recipe_dict.get('wandb', {})),
+        reward_api=reward_api,
     )
 
 

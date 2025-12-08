@@ -1,0 +1,92 @@
+# Model Configuration
+# Defines the base model and its loading parameters
+model:
+  base_model_name: "Qwen/Qwen3-4B-Instruct-2507"             # HuggingFace model name or local path
+  torch_dtype: "bfloat16"                                  # Data type for model weights (bfloat16/float16/float32)
+  low_cpu_mem_usage: true                                  # Reduce CPU memory usage during model loading
+  load_in_8bit: false                                      # Enable 8-bit quantization
+  load_in_4bit: false                                      # Enable 4-bit quantization (for QLoRA)
+  use_flash_attention: false                               # Use Flash Attention for faster training (if supported)
+
+  # LoRA configuration (for parameter-efficient fine-tuning)
+  use_lora: true                                        # Enable LoRA
+  lora_r: 8                                             # LoRA rank (8 for LoRA, 16 for QLoRA)
+  lora_alpha: 16                                        # LoRA alpha scaling factor (typically 2x rank)
+  lora_dropout: 0.05                                    # LoRA dropout rate
+  lora_target_modules:                                  # Target modules for LoRA
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_bias: "none"                                     # Bias handling: "none", "all", or "lora_only"
+
+# Data Configuration
+# Specifies datasets and preprocessing settings
+data:
+  datasets: # YOUR TRAINING DATASET
+    # For subjective evaluation, use datasets that require quality assessment
+    # rather than verifiable answers
+    - name: "your-org/your-subjective-dataset"             # HuggingFace dataset name/path (required)
+      split: "train"                                       # Dataset split to use (default: "train")
+      prompt_column: "prompt"                              # Name of question/prompt column
+  
+  # Text processing settings
+  max_length: 2048                                         # Maximum sequence length for model input
+  max_prompt_length: 1024                                  # Maximum length for prompts (rest reserved for responses)
+  remove_unused_columns: false                             # Keep all dataset columns (set true to save memory)
+
+# Reward API Configuration
+# Configuration for the API-based subjective reward model
+reward_api:
+  endpoint: "https://<YOUR_API_ENDPOINT>"  # Custom API endpoint URL for hosted model
+  key: "<YOUR_API_KEY>"                    # API authentication key (e.g., OpenAI API key)
+  model: "<YOUR_MODEL_IDENTIFIER>"         # API model identifier (format depends on API provider)
+
+# Training Configuration
+# Controls the training process and optimization settings
+training:
+  algorithm: "grpo"                                        # Training algorithm: sft, dpo, ppo, grpo, gspo
+  output_dir: "models/qwen3-4B-grpo-subjective-v1"         # Directory to save trained model and checkpoints
+  
+  # Core training hyperparameters
+  per_device_train_batch_size: 1                           # Batch size per GPU (adjust based on GPU memory)
+  gradient_accumulation_steps: 16                          # Steps to accumulate gradients
+  learning_rate: 1.0e-5                                    # Learning rate (1e-5 for full fine-tuning)
+  num_train_epochs: 3                                      # Number of complete passes through the dataset
+  max_steps: -1                                            # Maximum number of training steps (-1 = train for num_train_epochs)
+  warmup_steps: 50                                         # Linear warmup steps for learning rate scheduler
+  
+  # Logging and checkpointing
+  logging_steps: 5                                         # Log training metrics every N steps
+  save_steps: 100                                          # Save model checkpoint every N steps
+  eval_steps: 100                                          # Evaluate model every N steps
+  
+  # Memory and precision optimization
+  bf16: true                                               # Use bfloat16 precision (recommended for modern GPUs)
+  fp16: false                                              # Use float16 precision (alternative to bf16)
+  gradient_checkpointing: true                             # Trade compute for memory
+  
+  # Data loading optimization
+  dataloader_num_workers: 0                                # Number of CPU workers for data loading
+  dataloader_pin_memory: false                             # Pin memory for faster GPU transfer
+  dataloader_drop_last: true                               # Drop last incomplete batch
+  
+  # Output and evaluation settings
+  save_only_model: true                                    # Save only model weights
+  prediction_loss_only: true                               # Only compute prediction loss during evaluation
+
+  # GRPO-specific parameters
+  num_generations: 2                                       # Group size for sequence grouping
+
+# Weights & Biases Integration
+# Optional experiment tracking and monitoring
+wandb:
+  enabled: false                                           # Enable W&B logging
+  project: "rl"                                            # W&B project name
+  entity: "fai-llmaas"                                     # W&B username or team name
+  name: "Qwen3-4B-GRPO-Subjective"                         # Experiment name in W&B
+  tags: ["GRPO", "qwen3", "4B", "subjective-reward"]       # Tags for organizing experiments
+

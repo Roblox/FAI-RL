@@ -153,6 +153,8 @@ class BaseTrainer(ABC):
         Returns:
             AutoConfig object with model_type set if specified, None otherwise.
         """
+        from transformers import CONFIG_MAPPING
+        
         if model_name is None:
             model_name = self.config.model.base_model_name
         
@@ -164,18 +166,27 @@ class BaseTrainer(ABC):
         self.logger.info(f"Loading model config with explicit model_type: {model_type}")
         
         try:
-            # Load the config from the model
+            # First try loading config normally
             config = AutoConfig.from_pretrained(
                 model_name,
                 trust_remote_code=True
             )
         except ValueError as e:
-            # If AutoConfig fails due to missing model_type, create config with explicit type
-            if "model_type" in str(e):
-                self.logger.info(f"Model config missing model_type, loading with explicit type: {model_type}")
-                config = AutoConfig.from_pretrained(
+            # If AutoConfig fails due to missing model_type, use the specific config class
+            if "model_type" in str(e) or "Unrecognized model" in str(e):
+                self.logger.info(f"Model config missing model_type, using CONFIG_MAPPING for: {model_type}")
+                
+                if model_type not in CONFIG_MAPPING:
+                    raise ValueError(
+                        f"Unknown model_type '{model_type}'. Available types: {list(CONFIG_MAPPING.keys())}"
+                    )
+                
+                # Get the specific config class for this model type
+                config_class = CONFIG_MAPPING[model_type]
+                
+                # Load config using the specific class (this bypasses model_type detection)
+                config = config_class.from_pretrained(
                     model_name,
-                    model_type=model_type,
                     trust_remote_code=True
                 )
             else:
@@ -202,6 +213,7 @@ class BaseTrainer(ABC):
         model_kwargs = {
             "torch_dtype": torch_dtype,
             "low_cpu_mem_usage": self.config.model.low_cpu_mem_usage,
+            "trust_remote_code": True,  # Allow loading custom model architectures
         }
         
         # Load config with explicit model_type if specified
@@ -243,7 +255,7 @@ class BaseTrainer(ABC):
         if model_name is None:
             model_name = self.config.model.base_model_name
             
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         
         # Set pad token if not present
         if tokenizer.pad_token is None:

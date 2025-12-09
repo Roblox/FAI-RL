@@ -164,15 +164,15 @@ def _get_model_provider(api_endpoint: str) -> str:
     endpoint_lower = api_endpoint.lower()
     
     # Check for Google/Gemini endpoints
-    if "generativelanguage.googleapis.com" in endpoint_lower or "gemini" in endpoint_lower:
+    if "generativelanguage.googleapis.com" in endpoint_lower:
         return "google"
     
     # Check for OpenAI endpoints
-    elif "api.openai.com" in endpoint_lower or "openai" in endpoint_lower:
+    elif "api.openai.com" in endpoint_lower:
         return "openai"
     
     # Check for Anthropic endpoints
-    elif "api.anthropic.com" in endpoint_lower or "anthropic" in endpoint_lower:
+    elif "api.anthropic.com" in endpoint_lower:
         return "anthropic"
     
     # Default for custom/other providers

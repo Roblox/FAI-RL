@@ -95,11 +95,11 @@ class GSPOTrainer(BaseTrainer):
                 lambda example: template_class.format_for_training(example, prompt_col, answer_col)
             )
 
-            # Filter out invalid rows where prompt or answer are None or empty
+            # Filter out invalid rows where prompt is None or empty
+            # For subjective datasets, answer is optional (model generates it)
             def is_valid_example(example):
-                """Check if example has valid prompt and answer fields."""
+                """Check if example has valid prompt field."""
                 prompt = example.get("prompt")
-                answer = example.get("answer")
                 
                 # Check prompt validity - can be string or list of dicts
                 prompt_valid = False
@@ -108,7 +108,13 @@ class GSPOTrainer(BaseTrainer):
                 elif isinstance(prompt, list) and len(prompt) > 0:
                     prompt_valid = True
                 
-                # Check answer validity
+                # For subjective datasets, only require valid prompt
+                # For math datasets, also require valid answer
+                if use_subjective:
+                    return prompt_valid
+                
+                # Check answer validity for non-subjective datasets
+                answer = example.get("answer")
                 answer_valid = answer is not None and isinstance(answer, str) and answer.strip() != ""
                 
                 return prompt_valid and answer_valid
@@ -121,7 +127,7 @@ class GSPOTrainer(BaseTrainer):
             if skipped > 0:
                 self.logger.warning(
                     f"Skipped {skipped} invalid examples from {dataset_info.name} "
-                    f"(missing or empty 'prompt'/'answer' fields)"
+                    f"(missing or empty 'prompt' field{'' if use_subjective else \" or 'answer' field\"})"
                 )
 
             datasets.append(processed_dataset)

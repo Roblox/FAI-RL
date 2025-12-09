@@ -267,22 +267,16 @@ def _build_headers(api_endpoint: str, api_key: str) -> dict:
 
 def _prepare_api_url(api_endpoint: str, api_key: str) -> str:
     """Prepare the API URL with necessary query parameters."""
-    provider = _get_model_provider(api_endpoint)
     
-    if provider == "google":
-        # Google/Gemini API key goes in the URL
-        separator = "&" if "?" in api_endpoint else "?"
-        return f"{api_endpoint}{separator}key={api_key}"
-    else:
-        # Check if custom hosted LLM configuration exists
-        if hosted_llm_config:
-            custom_url = hosted_llm_config.prepare_hosted_llm_url(api_endpoint, api_key)
-            if custom_url is not None:
-                logger.debug("Using custom hosted LLM URL")
-                return custom_url
-        
-        # Default: Use endpoint as-is (auth in headers)
-        return api_endpoint
+    # Check if custom hosted LLM configuration exists
+    if hosted_llm_config:
+        custom_url = hosted_llm_config.prepare_hosted_llm_url(api_endpoint, api_key)
+        if custom_url is not None:
+            logger.debug("Using custom hosted LLM URL")
+            return custom_url
+    
+    # Default: Use endpoint as-is (auth in headers)
+    return api_endpoint
 
 
 def generate_response_by_api(

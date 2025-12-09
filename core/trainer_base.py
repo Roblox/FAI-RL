@@ -283,16 +283,18 @@ class BaseTrainer(ABC):
         """
         target_dtype = getattr(torch, self.config.model.torch_dtype)
         
-        # Cast input embeddings - use .to() to handle all parameters in the module
+        # Cast input embeddings - directly modify weight data for reliable conversion
+        # Using .weight.data ensures the conversion happens in-place and persists
         input_embeddings = model.get_input_embeddings()
         if input_embeddings is not None and input_embeddings.weight.dtype != target_dtype:
-            input_embeddings.to(target_dtype)
+            input_embeddings.weight.data = input_embeddings.weight.data.to(target_dtype)
             self.logger.info(f"Cast input embeddings to {target_dtype}")
         
-        # Cast output embeddings (lm_head) - use .to() for the entire module
+        # Cast output embeddings (lm_head) - directly modify weight data for reliable conversion
+        # This is critical for generation where lm_head must match hidden states dtype
         output_embeddings = model.get_output_embeddings()
         if output_embeddings is not None and output_embeddings.weight.dtype != target_dtype:
-            output_embeddings.to(target_dtype)
+            output_embeddings.weight.data = output_embeddings.weight.data.to(target_dtype)
             self.logger.info(f"Cast output embeddings to {target_dtype}")
 
     def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM, 

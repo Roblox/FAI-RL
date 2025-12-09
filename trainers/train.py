@@ -284,10 +284,12 @@ def main():
             return launch_distributed_training(args)
     
     # For single GPU or already in distributed mode, proceed with normal training
-    if args.num_gpus == 1:
-        print("Running single-GPU training...")
+    if is_distributed_launch():
+        rank = os.environ.get('RANK', os.environ.get('LOCAL_RANK', 'unknown'))
+        world_size = os.environ.get('WORLD_SIZE', 'unknown')
+        print(f"Running as distributed process (rank {rank}/{world_size})...")
     else:
-        print(f"Running as distributed process (rank: {os.environ.get('RANK', 'unknown')})...")
+        print("Running single-GPU training...")
 
     # Load recipe from file and/or CLI arguments
     config = load_recipe_with_overrides(args)

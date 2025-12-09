@@ -1,10 +1,20 @@
 """Subjective reward functions for API-based quality evaluation."""
-import json
 import logging
-import requests
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
+
+from utils.api_utils import generate_response_by_api
 
 logger = logging.getLogger(__name__)
+
+
+class RewardAPIConfig:
+    """Simple config class for reward API calls."""
+    def __init__(self, api_endpoint: str, api_key: str, model: str = "default"):
+        self.api_endpoint = api_endpoint
+        self.api_key = api_key
+        self.model = model
+        self.max_new_tokens = 1000
+        self.temperature = 0.0
 
 
 def subjective_api_reward_func_simple(
@@ -112,6 +122,9 @@ def _call_reward_api(
     """
     Call the reward API to get an evaluation score.
     
+    Uses api_utils.generate_response_by_api for multi-provider support
+    (OpenAI, Google/Gemini, Anthropic, and custom hosted LLMs).
+    
     Args:
         eval_prompt: The evaluation prompt to send
         api_endpoint: The API endpoint URL
@@ -127,28 +140,8 @@ def _call_reward_api(
         return 0.0
     
     try:
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
-        data = {
-            "messages": [{"role": "user", "content": eval_prompt}],
-            "max_tokens": 1000,
-            "temperature": 0.0
-        }
-        
-        response = requests.post(api_endpoint, headers=headers, json=data, timeout=30)
-        response.raise_for_status()
-        
-        result = response.json()
-        
-        # Parse the response to extract the score
-        response_text = ""
-        if "choices" in result and len(result["choices"]) > 0:
-            response_text = result["choices"][0].get("message", {}).get("content", "")
-        elif "content" in result:
-            response_text = result["content"][0].get("text", "") if isinstance(result["content"], list) else result["content"]
+        config = RewardAPIConfig(api_endpoint, api_key)
+        response_text = generate_response_by_api(eval_prompt, config)
         
         # Extract numeric score from response
         score = _parse_score(response_text)
@@ -158,13 +151,9 @@ def _call_reward_api(
         
         return max(0.0, min(1.0, normalized_score))
         
-    except requests.exceptions.RequestException as e:
-        if logger:
-            logger.warning(f"API request failed: {str(e)}")
-        return 0.0
     except Exception as e:
         if logger:
-            logger.warning(f"Error parsing reward API response: {str(e)}")
+            logger.warning(f"Error calling reward API: {str(e)}")
         return 0.0
 
 

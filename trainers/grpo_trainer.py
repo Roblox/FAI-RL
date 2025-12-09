@@ -123,9 +123,10 @@ class GRPOTrainer(BaseTrainer):
             total_skipped += skipped
             
             if skipped > 0:
+                field_info = "prompt" if use_subjective else "prompt/answer"
                 self.logger.warning(
                     f"Skipped {skipped} invalid examples from {dataset_info.name} "
-                    f"(missing or empty 'prompt' field{'' if use_subjective else \" or 'answer' field\"})"
+                    f"(missing or empty '{field_info}' field(s))"
                 )
 
             datasets.append(processed_dataset)

@@ -66,6 +66,13 @@ class GSPOTrainer(BaseTrainer):
         total_examples = 0
         total_skipped = 0
 
+        # Determine if we're in subjective mode (based on reward_api presence or dataset type)
+        use_subjective = any(
+            is_subjective_dataset(ds.name) for ds in self.config.data.datasets
+        )
+        if hasattr(self.config, 'reward_api') and self.config.reward_api is not None:
+            use_subjective = True
+
         for dataset_info in self.config.data.datasets:
             subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
             self.logger.info(f"Loading dataset: {dataset_info.name}{subset_info} (split: {dataset_info.split})")
@@ -83,7 +90,7 @@ class GSPOTrainer(BaseTrainer):
             answer_col = getattr(dataset_info, "answer_column", "answer")
 
             # Get appropriate template for this dataset
-            template_class = get_template_for_dataset(dataset_info.name, logger=self.logger)
+            template_class = get_template_for_dataset(dataset_info.name, logger=self.logger, use_subjective=use_subjective)
             processed_dataset = dataset.map(
                 lambda example: template_class.format_for_training(example, prompt_col, answer_col)
             )

@@ -338,6 +338,13 @@ class BaseTrainer(ABC):
         # Apply LoRA to model
         model = get_peft_model(model, lora_config)
         
+        # Cast the entire model (including LoRA adapters) to target dtype
+        # LoRA layers are created in float32 by default, which causes dtype mismatches
+        # during generation when the base model is in bfloat16/float16
+        target_dtype = getattr(torch, self.config.model.torch_dtype)
+        model = model.to(target_dtype)
+        self.logger.info(f"Cast model (including LoRA adapters) to {target_dtype}")
+        
         # Print trainable parameters
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in model.parameters())

@@ -5,18 +5,13 @@ model:
   torch_dtype: "bfloat16"                                  # Data type for model weights (bfloat16/float16/float32)
   low_cpu_mem_usage: true                                  # Reduce CPU memory usage during model loading
   load_in_8bit: false                                      # Enable 8-bit quantization
-  load_in_4bit: true                                       # Enable 4-bit quantization (for QLoRA)
+  load_in_4bit: false                                      # Enable 4-bit quantization (for QLoRA)
   use_flash_attention: false                               # Use Flash Attention for faster training (if supported)
 
-  # QLoRA-specific quantization parameters (only when load_in_4bit: true)
-  bnb_4bit_compute_dtype: "bfloat16"                    # Compute dtype for 4-bit quantization
-  bnb_4bit_quant_type: "nf4"                            # Quantization type: "nf4" or "fp4"
-  bnb_4bit_use_double_quant: true                       # Use double quantization for better accuracy
-  
   # LoRA configuration (for parameter-efficient fine-tuning)
   use_lora: true                                        # Enable LoRA
-  lora_r: 16                                            # LoRA rank (8 for LoRA, 16 for QLoRA)
-  lora_alpha: 32                                        # LoRA alpha scaling factor (typically 2x rank)
+  lora_r: 8                                             # LoRA rank (8 for LoRA, 16 for QLoRA)
+  lora_alpha: 16                                        # LoRA alpha scaling factor (typically 2x rank)
   lora_dropout: 0.05                                    # LoRA dropout rate
   lora_target_modules:                                  # Target modules for LoRA
     - q_proj
@@ -60,8 +55,8 @@ training:
   per_device_train_batch_size: 1                           # Batch size per GPU (adjust based on GPU memory)
   gradient_accumulation_steps: 16                          # Steps to accumulate gradients
   learning_rate: 1.0e-5                                    # Learning rate (1e-5 for full fine-tuning)
-  num_train_epochs: 3                                      # Number of complete passes through the dataset
-  max_steps: -1                                            # Maximum number of training steps (-1 = train for num_train_epochs)
+  num_train_epochs: 1                                      # Number of complete passes through the dataset
+  max_steps: -1                                          # Maximum number of training steps (-1 = train for num_train_epochs)
   warmup_steps: 50                                         # Linear warmup steps for learning rate scheduler
   
   # Logging and checkpointing

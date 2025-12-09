@@ -130,8 +130,8 @@ class PPOTrainer(BaseTrainer):
             **model_kwargs
         )
         
-        # Resize embeddings for policy model
-        self.model.resize_token_embeddings(len(self.tokenizer))
+        # Resize embeddings for policy model using base class method
+        self.resize_and_cast_embeddings(self.model, self.tokenizer)
         
         # Load reference model (for KL penalty in PPO)
         self.ref_policy = AutoModelForCausalLM.from_pretrained(
@@ -139,8 +139,8 @@ class PPOTrainer(BaseTrainer):
             **model_kwargs
         )
         
-        # Resize embeddings for reference model
-        self.ref_policy.resize_token_embeddings(len(self.tokenizer))
+        # Resize embeddings for reference model using base class method
+        self.resize_and_cast_embeddings(self.ref_policy, self.tokenizer)
         
         # Load value model (for advantage estimation)
         self.value_model = AutoModelForSequenceClassification.from_pretrained(
@@ -149,8 +149,8 @@ class PPOTrainer(BaseTrainer):
             **model_kwargs
         )
         
-        # Resize embeddings for value model
-        self.value_model.resize_token_embeddings(len(self.tokenizer))
+        # Resize embeddings for value model using base class method
+        self.resize_and_cast_embeddings(self.value_model, self.tokenizer)
         
         # Load reward model (for computing rewards)
         self.reward_model = AutoModelForSequenceClassification.from_pretrained(
@@ -159,8 +159,8 @@ class PPOTrainer(BaseTrainer):
             **model_kwargs
         )
         
-        # Resize embeddings for reward model
-        self.reward_model.resize_token_embeddings(len(self.tokenizer))
+        # Resize embeddings for reward model using base class method
+        self.resize_and_cast_embeddings(self.reward_model, self.tokenizer)
 
         # Propagate pad_token_id to all model configs to allow batching with padding
         try:

@@ -254,7 +254,43 @@ class BaseTrainer(ABC):
         # Resize embeddings
         model.resize_token_embeddings(len(tokenizer))
         
+        # Cast embeddings to match model dtype
+        self._cast_embeddings_to_model_dtype(model)
+        
         return tokenizer
+
+    def resize_and_cast_embeddings(self, model, tokenizer):
+        """Resize model embeddings to match tokenizer and cast to correct dtype.
+        
+        Use this method for secondary models (e.g., reference models) that need
+        their embeddings resized to match a tokenizer that was already set up.
+        
+        Args:
+            model: The model to resize embeddings for.
+            tokenizer: The tokenizer to match vocabulary size.
+        """
+        model.resize_token_embeddings(len(tokenizer))
+        self._cast_embeddings_to_model_dtype(model)
+
+    def _cast_embeddings_to_model_dtype(self, model):
+        """Cast embeddings to match model dtype to avoid dtype mismatch errors.
+        
+        This is particularly important for bfloat16/float16 models where
+        resize_token_embeddings may create new embeddings in float32.
+        
+        Args:
+            model: The model whose embeddings should be cast.
+        """
+        target_dtype = getattr(torch, self.config.model.torch_dtype)
+        input_embeddings = model.get_input_embeddings()
+        if input_embeddings is not None and input_embeddings.weight.dtype != target_dtype:
+            input_embeddings.weight.data = input_embeddings.weight.data.to(target_dtype)
+            self.logger.info(f"Cast input embeddings to {target_dtype}")
+        
+        output_embeddings = model.get_output_embeddings()
+        if output_embeddings is not None and output_embeddings.weight.dtype != target_dtype:
+            output_embeddings.weight.data = output_embeddings.weight.data.to(target_dtype)
+            self.logger.info(f"Cast output embeddings to {target_dtype}")
 
     def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM, 
                            quantization_config: Optional[BitsAndBytesConfig] = None):

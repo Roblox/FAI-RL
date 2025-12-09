@@ -51,8 +51,8 @@ class DPOTrainer(BaseTrainer):
         # Setup tokenizer and resize embeddings using base class method
         self.tokenizer = self.setup_tokenizer_with_model(self.model)
         
-        # Resize embeddings for reference model
-        self.ref_model.resize_token_embeddings(len(self.tokenizer))
+        # Resize embeddings for reference model using base class method
+        self.resize_and_cast_embeddings(self.ref_model, self.tokenizer)
 
         # Apply LoRA if enabled (including QLoRA) using base class method
         # Note: Only apply LoRA to the main model, not the reference model

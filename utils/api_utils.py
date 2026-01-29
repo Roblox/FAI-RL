@@ -4,6 +4,7 @@ import logging
 import re
 import requests
 from typing import Dict, Any, List, Union
+from urllib.parse import urlparse
 
 # Set up logger for API utilities
 logger = logging.getLogger(__name__)
@@ -161,23 +162,39 @@ def _get_model_provider(api_endpoint: str) -> str:
     Returns:
         Provider name: "google", "openai", "anthropic", or "default"
     """
-    endpoint_lower = api_endpoint.lower()
-    
-    # Check for Google/Gemini endpoints
-    if "generativelanguage.googleapis.com" in endpoint_lower or "gemini" in endpoint_lower:
+    # Parse the URL and operate on the hostname to avoid substring matches
+    parsed = urlparse(api_endpoint)
+    hostname = (parsed.hostname or "").lower()
+
+    # Fallback: if parsing did not yield a hostname (e.g., bare host string),
+    # use the lowercased input as a heuristic while preserving compatibility.
+    target = hostname or api_endpoint.lower()
+
+    # Check for Google/Gemini endpoints by hostname
+    if (
+        target == "generativelanguage.googleapis.com"
+        or target.endswith(".generativelanguage.googleapis.com")
+        or "gemini" in target
+    ):
         return "google"
-    
-    # Check for OpenAI endpoints
-    elif "api.openai.com" in endpoint_lower:
+    # Check for OpenAI endpoints by hostname
+    if (
+        target == "api.openai.com"
+        or target.endswith(".api.openai.com")
+        or "openai" in target
+    ):
         return "openai"
-    
-    # Check for Anthropic endpoints
-    elif "api.anthropic.com" in endpoint_lower:
+
+    # Check for Anthropic endpoints by hostname
+    if (
+        target == "api.anthropic.com"
+        or target.endswith(".api.anthropic.com")
+        or "anthropic" in target
+    ):
         return "anthropic"
-    
+
     # Default for custom/other providers
-    else:
-        return "default"
+    return "default"
 
 
 def _make_api_request(url: str, headers: dict, data: dict) -> requests.Response:
@@ -218,7 +235,10 @@ def _parse_api_response(response_json: dict, api_endpoint: str) -> str:
             return response_json['choices'][0]['message']['content']
     except (KeyError, IndexError, TypeError) as e:
         logger.warning(f"Failed to parse API response: {e}")
-        logger.warning(f"Response JSON structure: {response_json}")
+        if isinstance(response_json, dict):
+            logger.warning("Response JSON top-level keys: %s", list(response_json.keys()))
+        else:
+            logger.warning("Response JSON type: %s", type(response_json).__name__)
         return ""
 
 

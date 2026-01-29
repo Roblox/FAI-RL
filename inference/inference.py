@@ -448,8 +448,15 @@ def run_inference(config, debug=False):
                     response = generate_response(model, tokenizer, full_prompt, config)
                 
                 if debug:
-                    print("Response:")
-                    print(f"{response}")
+                    print("Response (truncated):")
+                    # Avoid logging the full response to prevent leaking sensitive data
+                    response_str = str(response)
+                    max_log_length = 200
+                    if len(response_str) > max_log_length:
+                        safe_preview = response_str[:max_log_length] + "...[truncated]"
+                    else:
+                        safe_preview = response_str
+                    print(safe_preview)
                     print(f"{'='*50}\n")
                 
                 # Store the result with dataset columns first, then response column

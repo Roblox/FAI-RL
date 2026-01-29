@@ -236,7 +236,10 @@ def _parse_api_response(response_json: dict, api_endpoint: str) -> str:
             return response_json['choices'][0]['message']['content']
     except (KeyError, IndexError, TypeError) as e:
         logger.warning(f"Failed to parse API response: {e}")
-        logger.warning(f"Response JSON structure: {response_json}")
+        if isinstance(response_json, dict):
+            logger.warning("Response JSON top-level keys: %s", list(response_json.keys()))
+        else:
+            logger.warning("Response JSON type: %s", type(response_json).__name__)
         return ""
 
 

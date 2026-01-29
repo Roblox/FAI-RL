@@ -29,7 +29,7 @@ data:
   datasets: # YOUR TRAINING DATASET
     # For subjective evaluation, use datasets that require quality assessment
     # rather than verifiable answers
-    - name: "your-org/your-subjective-dataset"             # HuggingFace dataset name/path (required)
+    - name: "<YOUR SUBJECTIVE TRAINING DATASET>"           # HuggingFace dataset name/path (required)
       split: "train"                                       # Dataset split to use (default: "train")
       prompt_column: "prompt"                              # Name of question/prompt column
   

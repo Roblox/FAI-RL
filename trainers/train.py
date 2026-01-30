@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import logging
 import time
 import sys
 import os
@@ -58,6 +59,11 @@ Examples:
         "--nohup",
         action="store_true",
         help="Run training in background with nohup (output redirected to nohup.out)"
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode with verbose logging"
     )
     parser.add_argument(
         "overrides",
@@ -120,6 +126,10 @@ def launch_distributed_training(args):
     # Add recipe file if provided
     if args.recipe:
         cmd_args.extend(["--recipe", args.recipe])
+    
+    # Add debug flag if provided
+    if args.debug:
+        cmd_args.append("--debug")
     
     # Add overrides
     if args.overrides:
@@ -293,6 +303,14 @@ def main():
 
     # Load recipe from file and/or CLI arguments
     config = load_recipe_with_overrides(args)
+    
+    # Enable debug logging if --debug flag is passed
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        # Also set debug level for specific modules
+        logging.getLogger('utils.api_utils').setLevel(logging.DEBUG)
+        logging.getLogger('trainers.rewards.subjective_rewards').setLevel(logging.DEBUG)
+        print("Debug mode enabled - verbose logging activated")
     
     # Get deepspeed config from environment variable (auto-set by launcher)
     if 'DEEPSPEED_CONFIG' in os.environ:

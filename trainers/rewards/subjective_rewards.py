@@ -22,6 +22,7 @@ def subjective_api_reward_func_simple(
     prompt: Optional[List[str]] = None,
     api_endpoint: Optional[str] = None,
     api_key: Optional[str] = None,
+    api_model: Optional[str] = None,
     num_generations: int = 1,
     logger: Optional[logging.Logger] = None,
     **kwargs
@@ -64,6 +65,7 @@ def subjective_api_reward_func_simple(
                 eval_prompt,
                 api_endpoint=api_endpoint,
                 api_key=api_key,
+                api_model=api_model,
                 logger=logger
             )
             
@@ -183,6 +185,7 @@ def _call_reward_api(
     eval_prompt: str,
     api_endpoint: Optional[str] = None,
     api_key: Optional[str] = None,
+    api_model: Optional[str] = None,
     logger: Optional[logging.Logger] = None
 ) -> float:
     """
@@ -195,6 +198,7 @@ def _call_reward_api(
         eval_prompt: The evaluation prompt to send
         api_endpoint: The API endpoint URL
         api_key: API key for authentication
+        api_model: The model name to use for the API call
         logger: Optional logger
         
     Returns:
@@ -206,7 +210,17 @@ def _call_reward_api(
         return 0.0
     
     try:
-        config = RewardAPIConfig(api_endpoint, api_key)
+        # Use the model from config if provided, otherwise use default
+        model_name = api_model if api_model else "default"
+        config = RewardAPIConfig(api_endpoint, api_key, model=model_name)
+        
+        # Log reward API configuration for debugging
+        if logger:
+            logger.debug(f"Reward API Endpoint: {api_endpoint}")
+            logger.debug(f"Reward API Model: {config.model}")
+            logger.debug(f"Reward API max_new_tokens: {config.max_new_tokens}")
+            logger.debug(f"Reward API temperature: {config.temperature}")
+        
         response_text = generate_response_by_api(eval_prompt, config)
         
         # Extract numeric score from response

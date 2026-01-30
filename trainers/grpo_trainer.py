@@ -219,9 +219,11 @@ class GRPOTrainer(BaseTrainer):
             # Get API configuration
             api_endpoint = None
             api_key = None
+            api_model = None
             if hasattr(self.config, 'reward_api') and self.config.reward_api is not None:
                 api_endpoint = self.config.reward_api.endpoint
                 api_key = self.config.reward_api.key
+                api_model = getattr(self.config.reward_api, 'model', None)
             
             if not api_endpoint or not api_key:
                 raise ValueError(
@@ -229,9 +231,13 @@ class GRPOTrainer(BaseTrainer):
                     "Please set 'reward_api.endpoint' and 'reward_api.key' in your config file."
                 )
             
-            # Log configuration source
-            self.logger.info(f"Using Reward API endpoint from config: {api_endpoint}")
-            self.logger.info("Using Reward API key from config")
+            # Log full reward_api configuration
+            self.logger.debug("=" * 60)
+            self.logger.debug("REWARD API CONFIGURATION:")
+            self.logger.debug(f"  endpoint: {api_endpoint}")
+            self.logger.debug(f"  model: {api_model}")
+            self.logger.debug(f"  key: {'*' * 8}...{api_key[-8:] if api_key and len(api_key) > 8 else '(hidden)'}")
+            self.logger.debug("=" * 60)
             
             # Create wrapper function for subjective rewards
             def subjective_with_logger(prompts, completions, **kwargs):
@@ -241,6 +247,8 @@ class GRPOTrainer(BaseTrainer):
                     kwargs['api_endpoint'] = api_endpoint
                 if api_key:
                     kwargs['api_key'] = api_key
+                if api_model:
+                    kwargs['api_model'] = api_model
                 # Pass num_generations from training config
                 kwargs['num_generations'] = self.config.training.num_generations
                 # Pass prompts to the reward function

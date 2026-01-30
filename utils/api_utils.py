@@ -339,6 +339,11 @@ def generate_response_by_api(
         else:
             data = _build_default_request_data(prompt, config)
         
+        # Log request details for debugging
+        logger.debug(f"API Request URL: {url}")
+        logger.debug(f"API Request Provider: {provider}")
+        logger.debug(f"API Request Body: {json.dumps(data, indent=2)}")
+        
         # Make the API request
         response = _make_api_request(url, headers, data)
         response.raise_for_status()
@@ -349,6 +354,9 @@ def generate_response_by_api(
         
     except requests.exceptions.RequestException as e:
         logger.error(f"API request failed: {str(e)}")
+        logger.debug(f"Failed URL: {url}")
+        logger.debug(f"Failed Provider: {provider}")
+        logger.debug(f"Failed Request Body: {json.dumps(data, indent=2)}")
         return ""
 
 

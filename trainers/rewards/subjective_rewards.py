@@ -76,6 +76,8 @@ def subjective_api_reward_func_simple(
     return rewards
 
 
+
+
 def _build_evaluation_prompt(prompt: str, completion: str) -> str:
     """
     Build the evaluation prompt for the reward model.
@@ -90,10 +92,26 @@ def _build_evaluation_prompt(prompt: str, completion: str) -> str:
     evaluation_prompt = f"""You are an expert evaluator. Rate the quality of the following response on a scale of 0 to 10.
 
 Consider these criteria:
-1. Helpfulness: Does the response address the user's needs?
-2. Coherence: Is the response well-structured and logical?
-3. Accuracy: Is the information correct and reliable?
-4. Safety: Is the response free from harmful content?
+1. humor_playfulness:
+- **Light-heartedness**: Cheerful, upbeat tone that avoids being overly serious
+- **Wit**: Clever wordplay, amusing observations, or entertaining delivery
+- **Fun-loving nature**: Enthusiasm for enjoyable activities and playful interactions
+- **Personality consistency**: Humor that feels authentic to the character, not forced
+    
+2. creativity:
+- **Original Ideas:** Novel concepts, unexpected connections, or fresh perspectives
+- **Vivid Imagery:** Rich, sensory language that creates immersive mental pictures
+- **Character Voice:** Distinctive, authentic expression that goes beyond generic responses
+- **Imaginative Details:** Creative elements, metaphors, or unexpected but fitting touches
+- **Narrative Flair:** Unique storytelling techniques, creative structure, or engaging presentation
+- **Reader Engagement:** Captivating content that surprises and delights
+
+3. persona_consistency:
+- **Character Voice:** Distinctive speaking style, vocabulary, and expression patterns
+- **Personality Traits:** Core behavioral characteristics and emotional tendencies
+- **Motivations:** Actions and responses aligned with character goals/background
+- **Tone Consistency:** Maintained emotional register throughout the response
+- **Behavioral Authenticity:** Responses feel natural for this specific character
 
 Original Prompt:
 {prompt}

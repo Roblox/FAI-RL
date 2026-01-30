@@ -78,9 +78,73 @@ def subjective_api_reward_func_simple(
 
 
 
+# Criteria definitions for evaluation
+CRITERIA_HUMOR_PLAYFULNESS = """Humor & Playfulness:
+- **Light-heartedness**: Cheerful, upbeat tone that avoids being overly serious
+- **Wit**: Clever wordplay, amusing observations, or entertaining delivery
+- **Fun-loving nature**: Enthusiasm for enjoyable activities and playful interactions
+- **Personality consistency**: Humor that feels authentic to the character, not forced"""
+
+CRITERIA_CREATIVITY = """Creativity and Imaginative Expression:
+- **Original Ideas:** Novel concepts, unexpected connections, or fresh perspectives
+- **Vivid Imagery:** Rich, sensory language that creates immersive mental pictures
+- **Character Voice:** Distinctive, authentic expression that goes beyond generic responses
+- **Imaginative Details:** Creative elements, metaphors, or unexpected but fitting touches
+- **Narrative Flair:** Unique storytelling techniques, creative structure, or engaging presentation
+- **Reader Engagement:** Captivating content that surprises and delights"""
+
+CRITERIA_PERSONA_CONSISTENCY = """Persona Consistency:
+- **Character Voice:** Distinctive speaking style, vocabulary, and expression patterns
+- **Personality Traits:** Core behavioral characteristics and emotional tendencies
+- **Motivations:** Actions and responses aligned with character goals/background
+- **Tone Consistency:** Maintained emotional register throughout the response
+- **Behavioral Authenticity:** Responses feel natural for this specific character"""
+
+
+def _detect_evaluation_criterion(prompt: str) -> str:
+    """
+    Detect which evaluation criterion to use based on the prompt content.
+    
+    Args:
+        prompt: The original prompt text
+        
+    Returns:
+        The appropriate criteria string for evaluation
+    """
+    prompt_lower = prompt.lower()
+    
+    # Keywords for humor & playfulness
+    humor_keywords = [
+        'Humor & Playfulness'
+    ]
+    
+    # Keywords for creativity
+    creativity_keywords = [
+        'Creativity and Imaginative Expression'
+    ]
+    
+    # Keywords for persona consistency
+    persona_keywords = [
+        'Persona Consistency'
+    ]
+    
+    # Check if prompt contains one of the criterion phrases
+    if any(kw in prompt_lower for kw in humor_keywords):
+        return CRITERIA_HUMOR_PLAYFULNESS
+    elif any(kw in prompt_lower for kw in creativity_keywords):
+        return CRITERIA_CREATIVITY
+    elif any(kw in prompt_lower for kw in persona_keywords):
+        return CRITERIA_PERSONA_CONSISTENCY
+    else:
+        # Default to creativity if no criterion phrase detected
+        return CRITERIA_CREATIVITY
+
+
 def _build_evaluation_prompt(prompt: str, completion: str) -> str:
     """
     Build the evaluation prompt for the reward model.
+    
+    Automatically detects which criterion to use based on the prompt content.
     
     Args:
         prompt: The original prompt
@@ -89,29 +153,13 @@ def _build_evaluation_prompt(prompt: str, completion: str) -> str:
     Returns:
         Formatted evaluation prompt
     """
+    # Detect the appropriate criterion based on prompt content
+    criterion = _detect_evaluation_criterion(prompt)
+    
     evaluation_prompt = f"""You are an expert evaluator. Rate the quality of the following response on a scale of 0 to 10.
 
-Consider these criteria:
-1. humor_playfulness:
-- **Light-heartedness**: Cheerful, upbeat tone that avoids being overly serious
-- **Wit**: Clever wordplay, amusing observations, or entertaining delivery
-- **Fun-loving nature**: Enthusiasm for enjoyable activities and playful interactions
-- **Personality consistency**: Humor that feels authentic to the character, not forced
-    
-2. creativity:
-- **Original Ideas:** Novel concepts, unexpected connections, or fresh perspectives
-- **Vivid Imagery:** Rich, sensory language that creates immersive mental pictures
-- **Character Voice:** Distinctive, authentic expression that goes beyond generic responses
-- **Imaginative Details:** Creative elements, metaphors, or unexpected but fitting touches
-- **Narrative Flair:** Unique storytelling techniques, creative structure, or engaging presentation
-- **Reader Engagement:** Captivating content that surprises and delights
-
-3. persona_consistency:
-- **Character Voice:** Distinctive speaking style, vocabulary, and expression patterns
-- **Personality Traits:** Core behavioral characteristics and emotional tendencies
-- **Motivations:** Actions and responses aligned with character goals/background
-- **Tone Consistency:** Maintained emotional register throughout the response
-- **Behavioral Authenticity:** Responses feel natural for this specific character
+Evaluate based on this criterion:
+{criterion}
 
 Original Prompt:
 {prompt}

@@ -341,13 +341,12 @@ def generate_response_by_api(
         else:
             data = _build_default_request_data(prompt, config)
 
-        logger.info(f"Prompt: {prompt}")
-        
         # Log request details for debugging
-        if debug:
-            logger.debug(f"API Request URL: {url}")
-            logger.debug(f"API Request Provider: {provider}")
-            logger.debug(f"API Request Body: {json.dumps(data, indent=2)}")
+        # if debug:
+        logger.info(f"API Request URL: {url}")
+        logger.info(f"Prompt: {prompt}")
+        logger.info(f"API Request Provider: {provider}")
+        logger.info(f"API Request Body: {json.dumps(data, indent=2)}")
         
         # Make the API request
         response = _make_api_request(url, headers, data)

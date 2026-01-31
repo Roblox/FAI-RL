@@ -144,6 +144,7 @@ class TrainingConfig:
     logging_steps: int = 10
     save_steps: int = 500
     eval_steps: int = 500
+    debug: bool = False
     
     # Optimization
     bf16: bool = True

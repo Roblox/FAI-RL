@@ -321,6 +321,8 @@ def generate_response_by_api(
     
     validate_api_config(config)
 
+    debug = getattr(config, 'debug', False)
+
     try:
         # Prepare URL (Google needs API key in URL)
         url = _prepare_api_url(config.api_endpoint, config.api_key)
@@ -340,9 +342,10 @@ def generate_response_by_api(
             data = _build_default_request_data(prompt, config)
         
         # Log request details for debugging
-        logger.debug(f"API Request URL: {url}")
-        logger.debug(f"API Request Provider: {provider}")
-        logger.debug(f"API Request Body: {json.dumps(data, indent=2)}")
+        if debug:
+            logger.debug(f"API Request URL: {url}")
+            logger.debug(f"API Request Provider: {provider}")
+            logger.debug(f"API Request Body: {json.dumps(data, indent=2)}")
         
         # Make the API request
         response = _make_api_request(url, headers, data)
@@ -350,13 +353,20 @@ def generate_response_by_api(
         
         # Parse and return the response
         response_json = response.json()
-        return _parse_api_response(response_json, config.api_endpoint)
+        response_text = _parse_api_response(response_json, config.api_endpoint)
+        
+        # Log the LLM response for debugging
+        if debug:
+            logger.debug(f"LLM Response: {response_text}")
+        
+        return response_text
         
     except requests.exceptions.RequestException as e:
         logger.error(f"API request failed: {str(e)}")
-        logger.debug(f"Failed URL: {url}")
-        logger.debug(f"Failed Provider: {provider}")
-        logger.debug(f"Failed Request Body: {json.dumps(data, indent=2)}")
+        if debug:
+            logger.debug(f"Failed URL: {url}")
+            logger.debug(f"Failed Provider: {provider}")
+            logger.debug(f"Failed Request Body: {json.dumps(data, indent=2)}")
         return ""
 
 

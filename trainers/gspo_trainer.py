@@ -250,6 +250,7 @@ class GSPOTrainer(BaseTrainer):
             # Create wrapper function for subjective rewards
             def subjective_with_logger(prompts, completions, **kwargs):
                 kwargs['logger'] = self.logger
+                kwargs['debug'] = getattr(self.config.training, 'debug', False)
                 # Pass API configuration if available
                 if api_endpoint:
                     kwargs['api_endpoint'] = api_endpoint

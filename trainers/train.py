@@ -311,6 +311,12 @@ def main():
         logging.getLogger('utils.api_utils').setLevel(logging.DEBUG)
         logging.getLogger('trainers.rewards.subjective_rewards').setLevel(logging.DEBUG)
         print("Debug mode enabled - verbose logging activated")
+        config.training.debug = True
+    else:
+        # Explicitly keep non-debug logs at INFO level
+        logging.getLogger().setLevel(logging.INFO)
+        logging.getLogger('utils.api_utils').setLevel(logging.INFO)
+        logging.getLogger('trainers.rewards.subjective_rewards').setLevel(logging.INFO)
     
     # Get deepspeed config from environment variable (auto-set by launcher)
     if 'DEEPSPEED_CONFIG' in os.environ:

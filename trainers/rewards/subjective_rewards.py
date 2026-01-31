@@ -9,12 +9,13 @@ logger = logging.getLogger(__name__)
 
 class RewardAPIConfig:
     """Simple config class for reward API calls."""
-    def __init__(self, api_endpoint: str, api_key: str, model: str = "default"):
+    def __init__(self, api_endpoint: str, api_key: str, model: str = "default", debug: bool = False):
         self.api_endpoint = api_endpoint
         self.api_key = api_key
         self.model = model
         self.max_new_tokens = 1000
         self.temperature = 0.0
+        self.debug = debug
 
 
 def subjective_api_reward_func_simple(
@@ -25,6 +26,7 @@ def subjective_api_reward_func_simple(
     api_model: Optional[str] = None,
     num_generations: int = 1,
     logger: Optional[logging.Logger] = None,
+    debug: bool = False,
     **kwargs
 ) -> List[float]:
     """
@@ -66,7 +68,8 @@ def subjective_api_reward_func_simple(
                 api_endpoint=api_endpoint,
                 api_key=api_key,
                 api_model=api_model,
-                logger=logger
+                logger=logger,
+                debug=debug
             )
             
             rewards.append(score)
@@ -186,7 +189,8 @@ def _call_reward_api(
     api_endpoint: Optional[str] = None,
     api_key: Optional[str] = None,
     api_model: Optional[str] = None,
-    logger: Optional[logging.Logger] = None
+    logger: Optional[logging.Logger] = None,
+    debug: bool = False
 ) -> float:
     """
     Call the reward API to get an evaluation score.
@@ -212,10 +216,10 @@ def _call_reward_api(
     try:
         # Use the model from config if provided, otherwise use default
         model_name = api_model if api_model else "default"
-        config = RewardAPIConfig(api_endpoint, api_key, model=model_name)
+        config = RewardAPIConfig(api_endpoint, api_key, model=model_name, debug=debug)
         
         # Log reward API configuration for debugging
-        if logger:
+        if debug and logger:
             logger.debug(f"Reward API Endpoint: {api_endpoint}")
             logger.debug(f"Reward API Model: {config.model}")
             logger.debug(f"Reward API max_new_tokens: {config.max_new_tokens}")
@@ -223,11 +227,20 @@ def _call_reward_api(
         
         response_text = generate_response_by_api(eval_prompt, config)
         
+        # Log the LLM response for debugging
+        if debug and logger:
+            logger.debug(f"Reward LLM Evaluation Prompt:\n{eval_prompt}")
+            logger.debug(f"Reward LLM Response: {response_text}")
+        
         # Extract numeric score from response
         score = _parse_score(response_text)
         
         # Normalize to 0-1 range
         normalized_score = score / 10.0
+        
+        # Log the parsed score for debugging
+        if debug and logger:
+            logger.debug(f"Reward LLM Parsed Score: {score}/10 -> Normalized: {normalized_score:.4f}")
         
         return max(0.0, min(1.0, normalized_score))
         

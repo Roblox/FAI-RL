@@ -332,6 +332,8 @@ def generate_response(model, tokenizer, prompt: str, config):
 
 def run_inference(config, debug=False):
     """Run inference on the specified dataset."""
+    if debug:
+        config.debug = True
     # Determine if we should use API or local model
     # API requires both model and api_key
     use_api = (hasattr(config, 'model') and config.model is not None) and \

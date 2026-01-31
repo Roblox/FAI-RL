@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import logging
 import time
 import sys
 import os
@@ -17,7 +18,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from core.config import ExperimentConfig, ModelConfig, DataConfig, TrainingConfig, WandbConfig, DatasetInfo
+from core.config import ExperimentConfig, ModelConfig, DataConfig, TrainingConfig, WandbConfig, DatasetInfo, RewardAPIConfig
 from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
 from trainers.gspo_trainer import GSPOTrainer
@@ -58,6 +59,11 @@ Examples:
         "--nohup",
         action="store_true",
         help="Run training in background with nohup (output redirected to nohup.out)"
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode with verbose logging"
     )
     parser.add_argument(
         "overrides",
@@ -120,6 +126,10 @@ def launch_distributed_training(args):
     # Add recipe file if provided
     if args.recipe:
         cmd_args.extend(["--recipe", args.recipe])
+    
+    # Add debug flag if provided
+    if args.debug:
+        cmd_args.append("--debug")
     
     # Add overrides
     if args.overrides:
@@ -254,12 +264,18 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
         # Default to empty list if no datasets specified
         data_config['datasets'] = []
     
+    # Handle reward_api configuration
+    reward_api = None
+    if 'reward_api' in recipe_dict and recipe_dict['reward_api']:
+        reward_api = RewardAPIConfig(**recipe_dict['reward_api'])
+    
     # Create config objects with defaults
     return ExperimentConfig(
         model=ModelConfig(**recipe_dict.get('model', {})),
         data=DataConfig(**data_config),
         training=TrainingConfig(**recipe_dict.get('training', {})),
         wandb=WandbConfig(**recipe_dict.get('wandb', {})),
+        reward_api=reward_api,
     )
 
 
@@ -278,13 +294,30 @@ def main():
             return launch_distributed_training(args)
     
     # For single GPU or already in distributed mode, proceed with normal training
-    if args.num_gpus == 1:
-        print("Running single-GPU training...")
+    if is_distributed_launch():
+        rank = os.environ.get('RANK', os.environ.get('LOCAL_RANK', 'unknown'))
+        world_size = os.environ.get('WORLD_SIZE', 'unknown')
+        print(f"Running as distributed process (rank {rank}/{world_size})...")
     else:
-        print(f"Running as distributed process (rank: {os.environ.get('RANK', 'unknown')})...")
+        print("Running single-GPU training...")
 
     # Load recipe from file and/or CLI arguments
     config = load_recipe_with_overrides(args)
+    
+    # Enable debug logging if --debug flag is passed
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        # Also set debug level for specific modules
+        logging.getLogger('utils.api_utils').setLevel(logging.DEBUG)
+        logging.getLogger('trainers.rewards.subjective_rewards').setLevel(logging.DEBUG)
+        print("Debug mode enabled - verbose logging activated")
+        config.debug = True
+        config.training.debug = True
+    else:
+        # Explicitly keep non-debug logs at INFO level
+        logging.getLogger().setLevel(logging.INFO)
+        logging.getLogger('utils.api_utils').setLevel(logging.INFO)
+        logging.getLogger('trainers.rewards.subjective_rewards').setLevel(logging.INFO)
     
     # Get deepspeed config from environment variable (auto-set by launcher)
     if 'DEEPSPEED_CONFIG' in os.environ:

@@ -177,7 +177,6 @@ def _get_model_provider(api_endpoint: str) -> str:
         or "gemini" in target
     ):
         return "google"
-
     # Check for OpenAI endpoints by hostname
     if (
         target == "api.openai.com"
@@ -288,22 +287,16 @@ def _build_headers(api_endpoint: str, api_key: str) -> dict:
 
 def _prepare_api_url(api_endpoint: str, api_key: str) -> str:
     """Prepare the API URL with necessary query parameters."""
-    provider = _get_model_provider(api_endpoint)
     
-    if provider == "google":
-        # Google/Gemini API key goes in the URL
-        separator = "&" if "?" in api_endpoint else "?"
-        return f"{api_endpoint}{separator}key={api_key}"
-    else:
-        # Check if custom hosted LLM configuration exists
-        if hosted_llm_config:
-            custom_url = hosted_llm_config.prepare_hosted_llm_url(api_endpoint, api_key)
-            if custom_url is not None:
-                logger.debug("Using custom hosted LLM URL")
-                return custom_url
-        
-        # Default: Use endpoint as-is (auth in headers)
-        return api_endpoint
+    # Check if custom hosted LLM configuration exists
+    if hosted_llm_config:
+        custom_url = hosted_llm_config.prepare_hosted_llm_url(api_endpoint, api_key)
+        if custom_url is not None:
+            logger.debug("Using custom hosted LLM URL")
+            return custom_url
+    
+    # Default: Use endpoint as-is (auth in headers)
+    return api_endpoint
 
 
 def generate_response_by_api(
@@ -328,6 +321,8 @@ def generate_response_by_api(
     
     validate_api_config(config)
 
+    debug = getattr(config, 'debug', False)
+
     try:
         # Prepare URL (Google needs API key in URL)
         url = _prepare_api_url(config.api_endpoint, config.api_key)
@@ -345,17 +340,34 @@ def generate_response_by_api(
             data = _build_anthropic_request_data(prompt, config)
         else:
             data = _build_default_request_data(prompt, config)
-        
+
+        # Log request details for debugging
+        if debug:
+            logger.debug(f"API Request URL: {url}")
+            logger.debug(f"Prompt: {prompt}")
+            logger.debug(f"API Request Provider: {provider}")
+            logger.debug(f"API Request Body: {json.dumps(data, indent=2)}")
+            
         # Make the API request
         response = _make_api_request(url, headers, data)
         response.raise_for_status()
         
         # Parse and return the response
         response_json = response.json()
-        return _parse_api_response(response_json, config.api_endpoint)
+        response_text = _parse_api_response(response_json, config.api_endpoint)
+        
+        # Log the LLM response for debugging
+        if debug:
+            logger.debug(f"LLM Response: {response_text}")
+        
+        return response_text
         
     except requests.exceptions.RequestException as e:
         logger.error(f"API request failed: {str(e)}")
+        if debug:
+            logger.debug(f"Failed URL: {url}")
+            logger.debug(f"Failed Provider: {provider}")
+            logger.debug(f"Failed Request Body: {json.dumps(data, indent=2)}")
         return ""
 
 

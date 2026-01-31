@@ -23,6 +23,7 @@ class ModelConfig:
     load_in_4bit: bool = False
     use_flash_attention: bool = False
     value_model_name: Optional[str] = None  # For PPO: value and reward models
+    model_type: Optional[str] = None  # Explicit model architecture type (e.g., "qwen3", "llama") for models with missing config.json model_type
     
     # Quantization configuration for QLoRA
     bnb_4bit_compute_dtype: str = "bfloat16"
@@ -46,6 +47,7 @@ class ModelConfig:
             "load_in_4bit": self.load_in_4bit,
             "use_flash_attention": self.use_flash_attention,
             "value_model_name": self.value_model_name,
+            "model_type": self.model_type,
             "bnb_4bit_compute_dtype": self.bnb_4bit_compute_dtype,
             "bnb_4bit_quant_type": self.bnb_4bit_quant_type,
             "bnb_4bit_use_double_quant": self.bnb_4bit_use_double_quant,
@@ -142,6 +144,7 @@ class TrainingConfig:
     logging_steps: int = 10
     save_steps: int = 500
     eval_steps: int = 500
+    debug: bool = False
     
     # Optimization
     bf16: bool = True
@@ -162,6 +165,21 @@ class TrainingConfig:
     
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+
+
+@dataclass
+class RewardAPIConfig:
+    """Configuration for Reward API"""
+    endpoint: Optional[str] = None
+    key: Optional[str] = None
+    model: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "endpoint": self.endpoint,
+            "key": self.key,
+            "model": self.model,
+        }
 
 
 @dataclass
@@ -264,6 +282,7 @@ class ExperimentConfig:
     data: DataConfig
     training: TrainingConfig
     wandb: WandbConfig
+    reward_api: Optional[RewardAPIConfig] = None
     
     @classmethod
     def from_yaml(cls, config_path: str) -> 'ExperimentConfig':
@@ -278,11 +297,17 @@ class ExperimentConfig:
                 DatasetInfo(**ds) for ds in data_config['datasets']
             ]
         
+        # Handle reward_api configuration
+        reward_api = None
+        if 'reward_api' in config_dict:
+            reward_api = RewardAPIConfig(**config_dict['reward_api'])
+        
         return cls(
             model=ModelConfig(**config_dict['model']),
             data=DataConfig(**data_config),
             training=TrainingConfig(**config_dict['training']),
             wandb=WandbConfig(**config_dict.get('wandb', {})),
+            reward_api=reward_api,
         )
     
     @classmethod
@@ -319,6 +344,9 @@ class ExperimentConfig:
             'training': self.training.to_dict(),
             'wandb': self.wandb.to_dict(),
         }
+        
+        if self.reward_api is not None:
+            config_dict['reward_api'] = self.reward_api.to_dict()
         
         with open(output_path, 'w') as f:
             yaml.dump(config_dict, f, default_flow_style=False)

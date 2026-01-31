@@ -174,8 +174,9 @@ Additional features supported across all algorithms:
 
 **Custom Reward Functions:**
 - `exact_match_reward_func` - Accuracy-based rewards for verifiable tasks
+- `subjective_api_reward_func` - API-based evaluation for subjective quality
 - `structured_xml_reward_func` - Format-based rewards for structured outputs
-- Easy to add your custom reward function
+- Easy to add your own custom reward logic
 
 **Dataset Templates:**
 - `GSM8KTemplate` - Math problem formatting with chain-of-thought
@@ -242,10 +243,12 @@ FAI-RL/
 ├── trainers/                  # Algorithm implementations
 │   ├── rewards/               # Custom reward functions
 │   │   ├── accuracy_rewards.py
-│   │   └── format_rewards.py
+│   │   ├── format_rewards.py
+│   │   └── subjective_rewards.py
 │   └── templates/             # Dataset formatting templates
 │       ├── gsm8k_template.py
-│       └── openmathinstruct_template.py
+│       ├── openmathinstruct_template.py
+│       └── subjective_template.py
 ├── inference/                 # Inference system
 ├── evaluations/               # Evaluation system
 │   └── eval_datasets/         # Dataset-specific evaluation logic

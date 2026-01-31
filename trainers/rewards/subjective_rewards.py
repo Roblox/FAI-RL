@@ -58,6 +58,7 @@ def subjective_api_reward_func_simple(
             prompt_text = ""
             if prompt and i < len(prompt):
                 prompt_text = prompt[i] if isinstance(prompt[i], str) else str(prompt[i])
+                prompt_text = _strip_chat_template_tokens(prompt_text)
             
             # Build evaluation prompt for the reward model
             eval_prompt = _build_evaluation_prompt(prompt_text, completion)
@@ -182,6 +183,22 @@ Provide your rating as a single number from 0 to 10, where:
 Rating (just the number):"""
     
     return evaluation_prompt
+
+
+def _strip_chat_template_tokens(text: str) -> str:
+    """
+    Remove common chat template control tokens from a prompt string.
+    
+    This avoids leaking special tokens like <|im_start|> and <|im_end|>
+    into evaluation prompts for API-based scoring.
+    """
+    if not text:
+        return text
+    
+    return (
+        text.replace("<|im_start|>", "")
+            .replace("<|im_end|>", "")
+    )
 
 
 def _call_reward_api(

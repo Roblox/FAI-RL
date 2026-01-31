@@ -311,6 +311,7 @@ def main():
         logging.getLogger('utils.api_utils').setLevel(logging.DEBUG)
         logging.getLogger('trainers.rewards.subjective_rewards').setLevel(logging.DEBUG)
         print("Debug mode enabled - verbose logging activated")
+        config.debug = True
         config.training.debug = True
     else:
         # Explicitly keep non-debug logs at INFO level

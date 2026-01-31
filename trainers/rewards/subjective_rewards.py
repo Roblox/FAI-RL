@@ -13,7 +13,7 @@ class RewardAPIConfig:
         self.api_endpoint = api_endpoint
         self.api_key = api_key
         self.model = model
-        self.max_new_tokens = 1000
+        self.max_new_tokens = 10000
         self.temperature = 0.0
         self.debug = debug
 

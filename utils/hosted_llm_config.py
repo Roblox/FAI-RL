@@ -121,7 +121,7 @@ def parse_hosted_llm_response(response_json: Dict[str, Any]) -> Optional[str]:
     except (KeyError, IndexError, TypeError) as e:
         logger.warning(f"Failed to parse response with OpenAI format: {e}")
         if isinstance(response_json, dict):
-            logger.warning(f"Response structure keys: {list(response_json.keys())}")
+            logger.warning(f"Response JSON: {response_json}")
         else:
             logger.warning(f"Response structure type: {type(response_json).__name__}")
         return ""

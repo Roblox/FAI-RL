@@ -340,12 +340,13 @@ def generate_response_by_api(
             data = _build_anthropic_request_data(prompt, config)
         else:
             data = _build_default_request_data(prompt, config)
+
+        logger.info(f"Prompt: {prompt}")
         
         # Log request details for debugging
         if debug:
             logger.debug(f"API Request URL: {url}")
             logger.debug(f"API Request Provider: {provider}")
-            logger.debug(f"Prompt: {prompt}")
             logger.debug(f"API Request Body: {json.dumps(data, indent=2)}")
         
         # Make the API request

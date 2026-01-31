@@ -195,10 +195,16 @@ def _strip_chat_template_tokens(text: str) -> str:
     if not text:
         return text
     
-    return (
+    cleaned = (
         text.replace("<|im_start|>", "")
             .replace("<|im_end|>", "")
     )
+    
+    # Remove common role labels that appear as standalone lines
+    for role in ("system", "user", "assistant"):
+        cleaned = cleaned.replace(f"{role}\n", "")
+    
+    return cleaned
 
 
 def _call_reward_api(

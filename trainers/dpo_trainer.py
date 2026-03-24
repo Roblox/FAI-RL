@@ -32,7 +32,7 @@ class DPOTrainer(BaseTrainer):
 
         # Create quantization config using base class method
         quantization_config = self.create_quantization_config()
-        
+
         # Prepare model kwargs using base class method
         model_kwargs = self.prepare_model_kwargs(quantization_config)
 
@@ -42,17 +42,26 @@ class DPOTrainer(BaseTrainer):
             **model_kwargs
         )
 
-        # Load reference model (required for DPO)
-        self.ref_model = AutoModelForCausalLM.from_pretrained(
-            self.config.model.base_model_name,
-            **model_kwargs
-        )
+        # When using LoRA, skip loading a separate reference model.
+        # TRL's DPOTrainer supports ref_model=None with LoRA — it computes
+        # reference logprobs by temporarily disabling LoRA adapters, saving
+        # an entire model copy worth of GPU memory.
+        if not getattr(self.config.model, 'use_lora', False):
+            self.logger.info("Loading separate reference model (no LoRA)")
+            self.ref_model = AutoModelForCausalLM.from_pretrained(
+                self.config.model.base_model_name,
+                **model_kwargs
+            )
+        else:
+            self.logger.info("Using LoRA — skipping separate reference model (TRL implicit ref)")
+            self.ref_model = None
 
         # Setup tokenizer and resize embeddings using base class method
         self.tokenizer = self.setup_tokenizer_with_model(self.model)
-        
-        # Resize embeddings for reference model
-        self.ref_model.resize_token_embeddings(len(self.tokenizer))
+
+        # Resize embeddings for reference model if loaded
+        if self.ref_model is not None:
+            self.ref_model.resize_token_embeddings(len(self.tokenizer))
 
         # Apply LoRA if enabled (including QLoRA) using base class method
         # Note: Only apply LoRA to the main model, not the reference model
@@ -61,7 +70,8 @@ class DPOTrainer(BaseTrainer):
 
         # Disable cache when using gradient checkpointing using base class method
         self.disable_cache_for_gradient_checkpointing(self.model)
-        self.disable_cache_for_gradient_checkpointing(self.ref_model)
+        if self.ref_model is not None:
+            self.disable_cache_for_gradient_checkpointing(self.ref_model)
 
         self.logger.info("Model and tokenizer loaded successfully")
 

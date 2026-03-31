@@ -294,7 +294,7 @@ Add an `s3` section to your training recipe YAML:
 s3:
   enabled: true                                          # Enable S3 upload
   bucket: "your-s3-bucket"                               # S3 bucket name
-  prefix: "checkpoints/qwen3-4B-inst-dpo-lora-150k"     # Key prefix (folder path inside bucket)
+  prefix: "your-s3-prefix"                               # Key prefix (folder path inside bucket)
   region: null                                           # AWS region (null = use default)
   endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO)
   upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)

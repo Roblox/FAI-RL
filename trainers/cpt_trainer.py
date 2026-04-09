@@ -137,9 +137,6 @@ class CPTTrainer(BaseTrainer):
             dataloader_drop_last=self.config.training.dataloader_drop_last,
             report_to=report_to,
             ddp_find_unused_parameters=False,
-            dataset_text_field="text",
-            packing=True,
-            max_seq_length=self.config.data.max_length,
         )
 
     def setup_trainer(self):
@@ -152,6 +149,9 @@ class CPTTrainer(BaseTrainer):
             processing_class=self.tokenizer,
             train_dataset=self.train_dataset,
             callbacks=self.build_callbacks(),
+            dataset_text_field="text",
+            packing=True,
+            max_seq_length=self.config.data.max_length,
         )
 
         self.logger.info("CPT trainer initialized")

@@ -18,6 +18,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from core.config import ExperimentConfig, ModelConfig, DataConfig, TrainingConfig, WandbConfig, S3Config, DatasetInfo
+from trainers.cpt_trainer import CPTTrainer
 from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
 from trainers.gspo_trainer import GSPOTrainer
@@ -31,7 +32,7 @@ from utils.device_utils import get_device_type, supports_deepspeed, is_mps_avail
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Train DPO, GRPO, GSPO, PPO, or SFT model",
+        description="Train CPT, DPO, GRPO, GSPO, PPO, or SFT model",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -240,7 +241,7 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
     if not recipe_dict.get('training', {}).get('algorithm'):
         raise ValueError(
             "training.algorithm is required. "
-            "Provide it via recipe file or CLI: training.algorithm='sft' (options: sft, dpo, ppo, grpo, gspo)"
+            "Provide it via recipe file or CLI: training.algorithm='sft' (options: cpt, sft, dpo, ppo, grpo, gspo)"
         )
     
     # Handle datasets configuration
@@ -328,7 +329,9 @@ def main():
 
     try:
         # Create trainer based on algorithm and run training
-        if algorithm == "dpo":
+        if algorithm == "cpt":
+            trainer_class = CPTTrainer
+        elif algorithm == "dpo":
             trainer_class = DPOTrainer
         elif algorithm == "grpo":
             trainer_class = GRPOTrainer

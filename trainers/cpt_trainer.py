@@ -103,12 +103,7 @@ class CPTTrainer(BaseTrainer):
         self.logger.info(f"Total dataset loaded with {total_examples} valid examples from {len(datasets)} datasets")
 
     def setup_training_args(self) -> SFTConfig:
-        """Create CPT training configuration.
-
-        Uses SFTConfig with dataset_text_field="text" and packing=True.
-        Packing concatenates short text samples to fill max_seq_length,
-        which is standard practice for pre-training efficiency.
-        """
+        """Create CPT training configuration."""
         report_to = ["wandb"] if self.config.wandb.enabled else []
 
         gradient_checkpointing_kwargs = None
@@ -149,9 +144,6 @@ class CPTTrainer(BaseTrainer):
             processing_class=self.tokenizer,
             train_dataset=self.train_dataset,
             callbacks=self.build_callbacks(),
-            dataset_text_field="text",
-            packing=True,
-            max_seq_length=self.config.data.max_length,
         )
 
         self.logger.info("CPT trainer initialized")

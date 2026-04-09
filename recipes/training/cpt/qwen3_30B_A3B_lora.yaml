@@ -31,7 +31,7 @@ data:
       split: "train"                                        # Dataset split to use
 
   # Text processing settings
-  max_length: 2048                                          # Maximum sequence length for model input
+  max_length: 1024                                          # Maximum sequence length for model input
   remove_unused_columns: false                              # Keep all dataset columns
 
 # Training Configuration
@@ -42,10 +42,10 @@ training:
 
   # Core training hyperparameters
   per_device_train_batch_size: 1                            # Batch size per GPU (adjust based on GPU memory)
-  gradient_accumulation_steps: 16                           # Steps to accumulate gradients
+  gradient_accumulation_steps: 8                            # Steps to accumulate gradients
   learning_rate: 1.0e-4                                     # Learning rate (1e-4 for LoRA)
-  num_train_epochs: 3                                       # Number of complete passes through the dataset
-  max_steps: -1                                             # Maximum number of training steps (-1 = train for num_train_epochs)
+  num_train_epochs: 1                                       # Number of complete passes through the dataset
+  max_steps: 600                                            # Maximum number of training steps (-1 = train for num_train_epochs)
   warmup_steps: 100                                         # Linear warmup steps for learning rate scheduler
 
   # Logging and checkpointing

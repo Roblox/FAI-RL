@@ -66,12 +66,17 @@ class CPTTrainer(BaseTrainer):
 
             original_size = len(dataset)
 
-            if "text" not in dataset.column_names:
+            text_col = dataset_info.text_column
+            if text_col not in dataset.column_names:
                 raise ValueError(
-                    f"Dataset '{dataset_info.name}' does not contain a 'text' column. "
+                    f"Dataset '{dataset_info.name}' does not contain a '{text_col}' column. "
                     f"Available columns: {dataset.column_names}. "
-                    f"CPT requires a 'text' column with raw text for next-token prediction."
+                    f"CPT requires a text column with raw text for next-token prediction."
                 )
+
+            # Rename to "text" if a different column name was specified
+            if text_col != "text":
+                dataset = dataset.rename_column(text_col, "text")
 
             def is_valid_example(example):
                 text = example.get("text")
@@ -85,7 +90,7 @@ class CPTTrainer(BaseTrainer):
             if skipped > 0:
                 self.logger.warning(
                     f"Skipped {skipped} invalid examples from {dataset_info.name} "
-                    f"(empty 'text' field)"
+                    f"(empty '{text_col}' field)"
                 )
 
             datasets.append(dataset)

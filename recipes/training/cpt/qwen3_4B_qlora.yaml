@@ -1,0 +1,91 @@
+# Model Configuration
+# Defines the base model and its loading parameters
+model:
+  base_model_name: "Qwen/Qwen3-4B-Instruct-2507"          # HuggingFace model name or local path
+  torch_dtype: "bfloat16"                                  # Data type for model weights
+  low_cpu_mem_usage: true                                  # Reduce CPU memory usage during model loading
+  load_in_8bit: false                                      # Enable 8-bit quantization
+  load_in_4bit: true                                       # Enable 4-bit quantization (for QLoRA)
+  use_flash_attention: false                               # Use Flash Attention for faster training (if supported)
+
+  # QLoRA-specific quantization parameters (only when load_in_4bit: true)
+  bnb_4bit_compute_dtype: "bfloat16"                       # Compute dtype for 4-bit quantization
+  bnb_4bit_quant_type: "nf4"                               # Quantization type: "nf4" or "fp4"
+  bnb_4bit_use_double_quant: true                          # Use double quantization for better accuracy
+
+  # LoRA configuration (for parameter-efficient fine-tuning)
+  use_lora: true                                           # Enable LoRA
+  lora_r: 16                                               # LoRA rank (16 for QLoRA)
+  lora_alpha: 32                                           # LoRA alpha scaling factor (typically 2x rank)
+  lora_dropout: 0.05                                       # LoRA dropout rate
+  lora_target_modules:                                     # Target modules for LoRA
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_bias: "none"                                        # Bias handling: "none", "all", or "lora_only"
+
+# Data Configuration
+# Specifies datasets and preprocessing settings
+data:
+  datasets:
+    - name: "your-org/your-dataset"                          # HuggingFace dataset name/path
+      split: "train"                                        # Dataset split to use
+      text_column: "text"                                   # Column name containing raw text for CPT
+
+  # Text processing settings
+  max_length: 2048                                          # Maximum sequence length for model input
+  remove_unused_columns: false                              # Keep all dataset columns
+
+# Training Configuration
+# Controls the training process and optimization settings
+training:
+  algorithm: "cpt"                                          # Training algorithm: cpt, sft, dpo, ppo, grpo, gspo
+  output_dir: "models/qwen3-4B-cpt-qlora-v1"               # Directory to save trained model and checkpoints
+
+  # Core training hyperparameters
+  per_device_train_batch_size: 1                            # Batch size per GPU (adjust based on GPU memory)
+  gradient_accumulation_steps: 16                           # Steps to accumulate gradients
+  learning_rate: 2.0e-4                                     # Learning rate (1e-4 to 2e-4 for QLoRA)
+  num_train_epochs: 1                                       # Number of complete passes through the dataset
+  max_steps: -1                                             # Maximum number of training steps (-1 = train for num_train_epochs)
+  warmup_steps: 100                                         # Linear warmup steps for learning rate scheduler
+
+  # Logging and checkpointing
+  logging_steps: 5                                          # Log training metrics every N steps
+  save_steps: 50                                            # Save model checkpoint every N steps
+  eval_steps: 50                                            # Evaluate model every N steps
+
+  # Memory and precision optimization
+  bf16: true                                                # Use bfloat16 precision (recommended for modern GPUs)
+  fp16: false                                               # Use float16 precision (alternative to bf16)
+  gradient_checkpointing: true                              # Trade compute for memory
+
+  # Data loading optimization
+  dataloader_num_workers: 0                                 # Number of CPU workers for data loading
+  dataloader_pin_memory: false                              # Pin memory for faster GPU transfer
+  dataloader_drop_last: true                                # Drop last incomplete batch
+
+# Weights & Biases Integration
+# Optional experiment tracking and monitoring
+wandb:
+  enabled: false                                            # Enable W&B logging
+  project: "your-project"                                             # W&B project name
+  entity: "your-wandb-entity"                                      # W&B username or team name
+  name: "Qwen3-4B-CPT-QLoRA"                                # Experiment name in W&B
+  tags: ["CPT", "qwen3", "4B", "QLoRA", "4-bit"]            # Tags for organizing experiments
+
+# S3 Checkpoint Upload
+# Automatically uploads checkpoints and the final model to S3
+s3:
+  enabled: true                                          # Enable S3 checkpoint upload
+  bucket: "your-s3-bucket"                               # S3 bucket name
+  prefix: "checkpoints/qwen3-4B-cpt-qlora-v1"              # S3 key prefix (folder path inside bucket)
+  region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
+  endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
+  upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)
+  upload_final_model: true                               # Upload the final model at end of training
+  delete_local_after_upload: false                       # Delete local checkpoint files after successful upload

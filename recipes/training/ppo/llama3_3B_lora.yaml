@@ -75,7 +75,7 @@ training:
 # Optional experiment tracking and monitoring
 wandb:
   enabled: false                                        # Enable W&B logging
-  project: "rl"                                         # W&B project name
-  entity: "fai-llmaas"                                  # W&B username or team name
+  project: "your-project"                                         # W&B project name
+  entity: "your-wandb-entity"                                  # W&B username or team name
   name: "Llama-3.2-3B-Inst-LoRA-PPO"                    # Experiment name in W&B
   tags: ["PPO", "llama3", "3B-Inst", "LoRA"]            # Tags for organizing experiments

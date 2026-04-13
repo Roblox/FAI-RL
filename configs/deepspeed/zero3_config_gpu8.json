@@ -19,11 +19,11 @@
         "stage3_max_reuse_distance": 1e9,
         "stage3_gather_16bit_weights_on_model_save": true
     },
-    "gradient_accumulation_steps": 16,
+    "gradient_accumulation_steps": "auto",
     "gradient_clipping": 1.0,
     "steps_per_print": 10,
-    "train_batch_size": 128,
-    "train_micro_batch_size_per_gpu": 1,
+    "train_batch_size": "auto",
+    "train_micro_batch_size_per_gpu": "auto",
     "wall_clock_breakdown": false,
     "bf16": {
         "enabled": true

@@ -64,6 +64,7 @@ class DatasetInfo:
     name: str
     split: str = "train"
     subset: Optional[str] = None
+    text_column: str = "text"
     prompt_column: str = "prompt"
     chosen_column: str = "chosen"
     rejected_column: str = "rejected"
@@ -89,6 +90,7 @@ class DataConfig:
                     "name": ds.name,
                     "split": ds.split,
                     "subset": ds.subset,
+                    "text_column": ds.text_column,
                     "prompt_column": ds.prompt_column,
                     "chosen_column": ds.chosen_column,
                     "rejected_column": ds.rejected_column,

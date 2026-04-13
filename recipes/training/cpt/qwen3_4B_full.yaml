@@ -12,7 +12,7 @@ model:
 # Specifies datasets and preprocessing settings
 data:
   datasets:
-    - name: "Roblox/ftp-ro-pilot"                          # HuggingFace dataset name/path
+    - name: "your-org/your-dataset"                          # HuggingFace dataset name/path
       split: "train"                                        # Dataset split to use
 
   # Text processing settings
@@ -52,7 +52,7 @@ training:
 # Optional experiment tracking and monitoring
 wandb:
   enabled: false                                            # Enable W&B logging
-  project: "rl"                                             # W&B project name
-  entity: "fai-llmaas"                                      # W&B username or team name
+  project: "your-project"                                             # W&B project name
+  entity: "your-wandb-entity"                                      # W&B username or team name
   name: "Qwen3-4B-CPT-Full"                                 # Experiment name in W&B
   tags: ["CPT", "qwen3", "4B", "full"]                      # Tags for organizing experiments

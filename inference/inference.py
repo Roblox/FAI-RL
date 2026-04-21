@@ -39,7 +39,11 @@ from core.config import ExperimentConfig
 from utils.config_validation import validate_api_config
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 from utils.logging_utils import setup_logging, SafeLogger
-from utils.device_utils import get_device_type, get_optimal_dtype
+from utils.device_utils import (
+    get_device_type,
+    get_optimal_dtype,
+    resolve_transformers_attn_implementation,
+)
 
 # Setup module-level logger with SafeLogger for robustness
 # This prevents logging errors from crashing long-running inference jobs
@@ -206,6 +210,14 @@ def load_model_and_tokenizer(config):
     else:
         device_map = {"": "cpu"}
         print(f"Running on CPU with dtype: {optimal_dtype}")
+
+    model_load_kwargs: Dict[str, Any] = {
+        "torch_dtype": optimal_dtype,
+        "device_map": device_map,
+    }
+    attn_impl = resolve_transformers_attn_implementation(False)
+    if attn_impl is not None:
+        model_load_kwargs["attn_implementation"] = attn_impl
     
     print(f"Loading model from: {model_identifier}")
     
@@ -252,8 +264,7 @@ def load_model_and_tokenizer(config):
         print("Loading base model...")
         model = AutoModelForCausalLM.from_pretrained(
             base_model_name,
-            torch_dtype=optimal_dtype,
-            device_map=device_map
+            **model_load_kwargs,
         )
         
         # Resize embeddings to match tokenizer BEFORE loading adapter
@@ -290,8 +301,7 @@ def load_model_and_tokenizer(config):
         # Load the model
         model = AutoModelForCausalLM.from_pretrained(
             model_identifier,
-            torch_dtype=optimal_dtype,
-            device_map=device_map
+            **model_load_kwargs,
         )
     
     model.eval()  # Set the model to inference mode

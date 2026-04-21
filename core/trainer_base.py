@@ -158,6 +158,10 @@ class BaseTrainer(ABC):
             "torch_dtype": torch_dtype,
             "low_cpu_mem_usage": self.config.model.low_cpu_mem_usage,
         }
+
+        if self.config.model.use_flash_attention:
+            model_kwargs["attn_implementation"] = "flash_attention_2"
+            self.logger.info("Using Flash Attention 2.")
         
         if quantization_config is not None:
             model_kwargs["quantization_config"] = quantization_config

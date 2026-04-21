@@ -158,6 +158,9 @@ class TrainingConfig:
     dataloader_pin_memory: bool = False
     dataloader_drop_last: bool = True
     
+    # DDP
+    ddp_find_unused_parameters: bool = False
+
     # Miscellaneous
     save_only_model: bool = True
     prediction_loss_only: bool = True

@@ -59,6 +59,9 @@ training:
   fp16: false                                               # Use float16 precision (alternative to bf16)
   gradient_checkpointing: true                              # Trade compute for memory
 
+  # MoE compatibility — sparse expert routing leaves some parameters without gradients on each rank
+  ddp_find_unused_parameters: true                         # Required for MoE models (Qwen3-30B-A3B)
+
   # Data loading optimization
   dataloader_num_workers: 0                                 # Number of CPU workers for data loading
   dataloader_pin_memory: false                              # Pin memory for faster GPU transfer

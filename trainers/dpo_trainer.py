@@ -192,7 +192,7 @@ class DPOTrainer(BaseTrainer):
             dataloader_drop_last=self.config.training.dataloader_drop_last,
             prediction_loss_only=self.config.training.prediction_loss_only,
             report_to=report_to,
-            ddp_find_unused_parameters=False,  # Critical for LoRA + DDP stability
+            ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
         )
 
     def setup_trainer(self):

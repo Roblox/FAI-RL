@@ -37,8 +37,9 @@ data:
       text_column: "text"                                   # Column name containing raw text for CPT
 
   # Text processing settings
-  max_length: 1024                                          # Maximum sequence length for model input
+  max_length: 4096                                          # 4x increase: longer sequences drive higher compute utilization
   remove_unused_columns: false                              # Keep all dataset columns
+  dataset_num_proc: 4                                       # Parallelize dataset tokenization across CPUs
 
 # Training Configuration
 # Controls the training process and optimization settings
@@ -47,9 +48,9 @@ training:
   output_dir: "models/qwen3-30B-A3B-cpt-qlora-v1"          # Directory to save trained model and checkpoints
 
   # Core training hyperparameters
-  per_device_train_batch_size: 1                            # Batch size per GPU (adjust based on GPU memory)
-  gradient_accumulation_steps: 8                            # Steps to accumulate gradients
-  learning_rate: 2.0e-4                                     # Learning rate (1e-4 to 2e-4 for QLoRA)
+  per_device_train_batch_size: 4                            # 4x increase — ZeRO-3 optimizer sharding frees memory
+  gradient_accumulation_steps: 2                            # effective batch = 4 × 2 × 8 GPUs = 64
+  learning_rate: 2.0e-4                                     # Learning rate (1e-4 for LoRA)
   num_train_epochs: 1                                       # Number of complete passes through the dataset
   max_steps: 600                                            # Maximum number of training steps (-1 = train for num_train_epochs)
   warmup_steps: 100                                         # Linear warmup steps for learning rate scheduler
@@ -67,9 +68,9 @@ training:
   # MoE compatibility — sparse expert routing leaves some parameters without gradients on each rank
   ddp_find_unused_parameters: true                         # Required for MoE models (Qwen3-30B-A3B)
 
-  # Data loading optimization
-  dataloader_num_workers: 0                                 # Number of CPU workers for data loading
-  dataloader_pin_memory: false                              # Pin memory for faster GPU transfer
+  # Data loading — overlap CPU preprocessing with GPU compute
+  dataloader_num_workers: 4
+  dataloader_pin_memory: true
   dataloader_drop_last: true                                # Drop last incomplete batch
 
 # Weights & Biases Integration

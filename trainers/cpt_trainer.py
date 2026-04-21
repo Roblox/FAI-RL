@@ -136,7 +136,9 @@ class CPTTrainer(BaseTrainer):
             dataloader_pin_memory=self.config.training.dataloader_pin_memory,
             dataloader_drop_last=self.config.training.dataloader_drop_last,
             report_to=report_to,
-            ddp_find_unused_parameters=False,
+            ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
+            max_length=self.config.data.max_length,
+            dataset_num_proc=self.config.data.dataset_num_proc,
         )
 
     def setup_trainer(self):

@@ -279,7 +279,18 @@ def main():
             else:
                 print("Launching single-GPU training with nohup...")
             return launch_distributed_training(args)
-    
+    else:
+        # Already in distributed mode (e.g., Ray Train pre-set RANK/WORLD_SIZE).
+        # Auto-select DeepSpeed ZeRO-3 config if not already provided.
+        if 'DEEPSPEED_CONFIG' not in os.environ:
+            world_size = int(os.environ.get('WORLD_SIZE', 1))
+            uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
+            if world_size > 1 and not uses_quantization and supports_deepspeed():
+                ds_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{world_size}.json")
+                if os.path.exists(ds_config):
+                    os.environ['DEEPSPEED_CONFIG'] = ds_config
+                    print(f"Auto-selected DeepSpeed ZeRO-3 config for distributed environment: {ds_config}")
+
     # For single GPU or already in distributed mode, proceed with normal training
     if args.num_gpus == 1:
         print("Running single-GPU training...")

@@ -27,6 +27,7 @@ from utils.device_utils import (
     supports_quantization,
     adapt_config_for_device,
     log_device_info,
+    resolve_transformers_attn_implementation,
 )
 
 
@@ -158,7 +159,17 @@ class BaseTrainer(ABC):
             "torch_dtype": torch_dtype,
             "low_cpu_mem_usage": self.config.model.low_cpu_mem_usage,
         }
-        
+
+        attn_impl = resolve_transformers_attn_implementation(
+            self.config.model.use_flash_attention
+        )
+        if attn_impl is not None:
+            model_kwargs["attn_implementation"] = attn_impl
+            if attn_impl == "flash_attention_2":
+                self.logger.info("Using Flash Attention 2.")
+            elif attn_impl == "sdpa":
+                self.logger.info("Using PyTorch SDPA for attention.")
+
         if quantization_config is not None:
             model_kwargs["quantization_config"] = quantization_config
             # When training with DeepSpeed, let DeepSpeed/Accelerate manage device placement

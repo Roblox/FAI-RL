@@ -136,11 +136,10 @@ def supports_quantization() -> bool:
 
 
 def flash_attn_installed() -> bool:
-    """Return True if flash_attn or flash_attn_hopper (flash-attn-4) is importable."""
     try:
         return (
             importlib.util.find_spec("flash_attn") is not None
-            or importlib.util.find_spec("flash_attn_hopper") is not None
+            or importlib.util.find_spec("flash_attn_4") is not None
         )
     except Exception:
         return False

@@ -76,6 +76,57 @@ class BaseTrainer(ABC):
         if is_cuda_available():
             os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
+        # Distributed debugging hooks — must be exported before NCCL
+        # communicators are created (i.e. before the first collective),
+        # which happens on the first forward/backward after init_process_group.
+        # This block runs during trainer construction, well before that point.
+        if getattr(self.config.training, "debug_distributed", False):
+            self._enable_distributed_debugging()
+
+    def _enable_distributed_debugging(self):
+        """Turn on NCCL FlightRecorder + PyTorch distributed DETAIL tracing.
+
+        The NCCL FlightRecorder is the only reliable way to get a per-rank
+        stack trace out of a stuck collective. It must be enabled via env
+        vars *before* the first collective fires, otherwise the ring buffer
+        is never allocated and torch prints
+        "FlightRecorder is disabled" when a watchdog timeout triggers.
+        """
+        debug_env = {
+            # Surface NCCL errors as Python exceptions instead of silent hangs.
+            "TORCH_NCCL_ASYNC_ERROR_HANDLING": "1",
+            # Allocate the FlightRecorder ring buffer (entries, not bytes).
+            # 20000 is enough to cover several thousand collectives per rank.
+            "TORCH_NCCL_TRACE_BUFFER_SIZE": "20000",
+            # Dump the FlightRecorder on watchdog timeout.
+            "TORCH_NCCL_DUMP_ON_TIMEOUT": "1",
+            # Where FlightRecorder writes its per-rank pickles on timeout.
+            # Files land at <path>_<rank>.
+            "TORCH_NCCL_DEBUG_INFO_TEMP_FILE": os.environ.get(
+                "TORCH_NCCL_DEBUG_INFO_TEMP_FILE", "/tmp/nccl_trace"
+            ),
+            # Per-collective logging from NCCL itself.
+            "NCCL_DEBUG": os.environ.get("NCCL_DEBUG", "INFO"),
+            # Log every collective + its shapes at the torch.distributed layer.
+            "TORCH_DISTRIBUTED_DEBUG": "DETAIL",
+            # Flush on timeout so we don't lose the dump to a buffered writer.
+            "TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC": os.environ.get(
+                "TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC", "600"
+            ),
+        }
+
+        # Respect anything the user has already set (e.g. via launch script).
+        applied = {}
+        for k, v in debug_env.items():
+            if k not in os.environ:
+                os.environ[k] = v
+            applied[k] = os.environ[k]
+
+        if self.is_main_process:
+            self.logger.info(
+                "Distributed debugging enabled. Env: %s", applied
+            )
+
     def setup_wandb(self):
         """Initialize Weights & Biases logging."""
         wandb.init(

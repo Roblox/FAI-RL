@@ -161,6 +161,12 @@ class TrainingConfig:
     # DDP
     ddp_find_unused_parameters: bool = False
 
+    # Distributed debugging — when true, exports NCCL FlightRecorder + DETAIL
+    # debug env vars before any collective is initialized so that a hang
+    # surfaces a ranked stack trace instead of a silent timeout. Intended for
+    # diagnosing collectives that hang on same-node NVLink fabrics (e.g. 8xB200).
+    debug_distributed: bool = False
+
     # Miscellaneous
     save_only_model: bool = True
     prediction_loss_only: bool = True

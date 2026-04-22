@@ -48,8 +48,10 @@ class GSPOTrainer(BaseTrainer):
             **model_kwargs
         )
 
-        # Setup tokenizer and resize embeddings using base class method
-        self.tokenizer = self.setup_tokenizer_with_model(self.model)
+        # Setup tokenizer and resize embeddings using base class method.
+        # GSPO performs on-policy generation during training, so left-padding
+        # is required for correct batched generation.
+        self.tokenizer = self.setup_tokenizer_with_model(self.model, padding_side="left")
 
         # Apply LoRA if enabled (including QLoRA) using base class method
         self.model = self.apply_lora_to_model(self.model, TaskType.CAUSAL_LM, quantization_config)

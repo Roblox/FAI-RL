@@ -191,30 +191,83 @@ class BaseTrainer(ABC):
         
         return model_kwargs
 
-    def setup_tokenizer_with_model(self, model, model_name: Optional[str] = None):
-        """Setup tokenizer and resize model embeddings.
-        
+    def setup_tokenizer_with_model(
+        self,
+        model,
+        model_name: Optional[str] = None,
+        padding_side: str = "right",
+    ):
+        """Load the tokenizer and align it with the given model.
+
+        This method:
+          1. Loads the tokenizer for ``model_name``.
+          2. Ensures a usable ``pad_token`` exists — preferring the existing
+             ``eos_token`` over inventing a new ``[PAD]`` entry. A brand-new
+             ``[PAD]`` token is only added (and embeddings resized) when the
+             tokenizer truly has no pad and no EOS.
+          3. Sets ``padding_side`` (defaults to ``"right"`` which is correct
+             for SFT/CPT/DPO-style training where loss is aligned with
+             next-token targets; pass ``"left"`` for generation-heavy
+             trainers like PPO/GRPO/GSPO).
+          4. Propagates ``pad_token_id`` into ``model.config`` and
+             ``model.generation_config`` so the HF Trainer does not have to
+             reconcile them later (which previously produced the noisy
+             "The tokenizer has new PAD/BOS/EOS tokens..." log line).
+
         Args:
-            model: The model to resize embeddings for.
-            model_name: Optional model name for loading tokenizer. Defaults to config.model.base_model_name.
-            
+            model: The model to align with the tokenizer.
+            model_name: Optional model name for loading tokenizer.
+                Defaults to ``config.model.base_model_name``.
+            padding_side: ``"right"`` (default) for training, ``"left"`` for
+                generation-based trainers.
+
         Returns:
             The configured tokenizer.
         """
         if model_name is None:
             model_name = self.config.model.base_model_name
-            
+
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        
-        # Set pad token if not present
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        tokenizer.padding_side = "left"
-        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-        
-        # Resize embeddings
-        model.resize_token_embeddings(len(tokenizer))
-        
+
+        added_new_pad = False
+        if tokenizer.pad_token_id is None:
+            if tokenizer.eos_token_id is not None:
+                # Prefer reusing EOS as pad rather than growing the vocab.
+                tokenizer.pad_token = tokenizer.eos_token
+                self.logger.info(
+                    "Tokenizer had no pad_token; reusing eos_token "
+                    f"('{tokenizer.eos_token}', id={tokenizer.eos_token_id}) as pad_token."
+                )
+            else:
+                # No EOS either — add a genuinely new [PAD] token.
+                tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+                added_new_pad = True
+                self.logger.info(
+                    "Tokenizer had no pad_token or eos_token; added new '[PAD]' special token "
+                    f"(id={tokenizer.pad_token_id})."
+                )
+
+        tokenizer.padding_side = padding_side
+
+        # Only resize embeddings if we actually grew the vocabulary.
+        if added_new_pad:
+            model.resize_token_embeddings(len(tokenizer))
+
+        # Keep model configs in sync with the tokenizer so HF Trainer does not
+        # emit the "tokenizer has new PAD/BOS/EOS tokens..." reconciliation log.
+        pad_id = tokenizer.pad_token_id
+        if pad_id is not None:
+            try:
+                model.config.pad_token_id = pad_id
+            except Exception:
+                pass
+            gen_config = getattr(model, "generation_config", None)
+            if gen_config is not None:
+                try:
+                    gen_config.pad_token_id = pad_id
+                except Exception:
+                    pass
+
         return tokenizer
 
     def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM, 

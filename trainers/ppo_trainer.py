@@ -6,7 +6,6 @@ from accelerate import PartialState
 from datasets import load_dataset, concatenate_datasets
 from trl import PPOConfig, PPOTrainer as TRLPPOTrainer
 from transformers import (
-    AutoTokenizer,
     AutoModelForCausalLM,
     AutoModelForSequenceClassification,
 )
@@ -114,64 +113,60 @@ class PPOTrainer(BaseTrainer):
         # Prepare model kwargs using base class method
         model_kwargs = self.prepare_model_kwargs(quantization_config)
         
-        # Load tokenizer first
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.config.model.base_model_name,
-        )
-
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.tokenizer.padding_side = "left"
-        self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-        
-        # Load policy model (main model for generation)
+        # Load policy model (main model for generation) first so the tokenizer
+        # helper can resize its embeddings if a new pad token is actually needed.
         self.model = AutoModelForCausalLM.from_pretrained(
             self.config.model.base_model_name,
             **model_kwargs
         )
-        
-        # Resize embeddings for policy model
-        self.model.resize_token_embeddings(len(self.tokenizer))
-        
+
+        # Setup tokenizer and align it with the policy model. PPO does on-policy
+        # generation every step, so left-padding is required for batched gen.
+        self.tokenizer = self.setup_tokenizer_with_model(self.model, padding_side="left")
+
         # Load reference model (for KL penalty in PPO)
         self.ref_policy = AutoModelForCausalLM.from_pretrained(
             self.config.model.value_model_name,
             **model_kwargs
         )
-        
-        # Resize embeddings for reference model
-        self.ref_policy.resize_token_embeddings(len(self.tokenizer))
-        
+
         # Load value model (for advantage estimation)
         self.value_model = AutoModelForSequenceClassification.from_pretrained(
             self.config.model.value_model_name,
             num_labels=1,
             **model_kwargs
         )
-        
-        # Resize embeddings for value model
-        self.value_model.resize_token_embeddings(len(self.tokenizer))
-        
+
         # Load reward model (for computing rewards)
         self.reward_model = AutoModelForSequenceClassification.from_pretrained(
             self.config.model.value_model_name,
             num_labels=1,
             **model_kwargs
         )
-        
-        # Resize embeddings for reward model
-        self.reward_model.resize_token_embeddings(len(self.tokenizer))
 
-        # Propagate pad_token_id to all model configs to allow batching with padding
-        try:
-            pad_id = self.tokenizer.pad_token_id
-            if pad_id is not None:
-                self.model.config.pad_token_id = pad_id
-                self.ref_policy.config.pad_token_id = pad_id
-                self.value_model.config.pad_token_id = pad_id
-                self.reward_model.config.pad_token_id = pad_id
-        except Exception:
-            pass
+        # If setup_tokenizer_with_model had to grow the policy model's vocab
+        # (rare: only when the base tokenizer lacks both pad and eos), mirror
+        # that resize on the other three models so all embeddings stay aligned.
+        tokenizer_len = len(self.tokenizer)
+        for aux_model in (self.ref_policy, self.value_model, self.reward_model):
+            if aux_model.get_input_embeddings().num_embeddings != tokenizer_len:
+                aux_model.resize_token_embeddings(tokenizer_len)
+
+        # Propagate pad_token_id to the auxiliary model configs as well so
+        # batched padding works consistently across policy/ref/value/reward.
+        pad_id = self.tokenizer.pad_token_id
+        if pad_id is not None:
+            for aux_model in (self.ref_policy, self.value_model, self.reward_model):
+                try:
+                    aux_model.config.pad_token_id = pad_id
+                except Exception:
+                    pass
+                gen_config = getattr(aux_model, "generation_config", None)
+                if gen_config is not None:
+                    try:
+                        gen_config.pad_token_id = pad_id
+                    except Exception:
+                        pass
         
         # Apply LoRA if enabled (including QLoRA) using base class method
         self.model = self.apply_lora_to_model(self.model, TaskType.CAUSAL_LM, quantization_config)

@@ -38,18 +38,6 @@ class RankFilter(logging.Filter):
         return _current_rank() == 0
 
 
-def rank_zero_print(*args, **kwargs) -> None:
-    """print() that fires only on rank 0 (or always if FAI_RL_LOG_ALL_RANKS=1).
-
-    Use this for FAI-RL stdout messages that don't go through the logging
-    module (banner-style status lines emitted before the logger is set up,
-    or in code paths where pulling in a logger would be overkill).
-    Third-party library prints (transformers, hf_hub, etc.) are not affected.
-    """
-    if os.environ.get("FAI_RL_LOG_ALL_RANKS") == "1" or _current_rank() == 0:
-        print(*args, **kwargs)
-
-
 class RobustFileHandler(logging.FileHandler):
     """
     A file handler that gracefully handles stale file handle errors.

@@ -23,9 +23,16 @@ from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
 from trainers.gspo_trainer import GSPOTrainer
 from trainers.sft_trainer import SFTTrainer
-from utils.logging_utils import TrainingLogger, log_system_info, rank_zero_print
+from utils.logging_utils import TrainingLogger, log_system_info, setup_logging
 from utils.recipe_overrides import apply_overrides_to_recipe, parse_value, set_nested_value, load_recipe_from_yaml
 from utils.device_utils import get_device_type, supports_deepspeed, is_mps_available
+
+# Module-level logger for the launcher / pre-trainer status messages.
+# setup_logging() attaches a RankFilter, so INFO/DEBUG records are dropped
+# on non-rank-0 workers automatically. file_output=False because the parent
+# training log already captures stdout (a second file would double-log
+# under nohup).
+logger = setup_logging("FAI-RL.launcher", file_output=False)
 
 
 def parse_args():
@@ -170,8 +177,7 @@ def launch_distributed_training(args):
     else:
         # Multi-GPU training - check platform support
         if is_mps_available():
-            print("Warning: Multi-GPU training is not supported on Apple Silicon (MPS).")
-            print("Running single-device training instead.")
+            logger.warning("Multi-GPU training is not supported on Apple Silicon (MPS); running single-device instead.")
             cmd = [sys.executable, script_path] + cmd_args
         else:
             # Check if using quantization (only if recipe file is provided)
@@ -181,19 +187,20 @@ def launch_distributed_training(args):
             if ds_path and supports_deepspeed():
                 if not os.path.exists(ds_path):
                     raise FileNotFoundError(f"training.deepspeed_config not found: {ds_path}")
-                print(f"Using deepspeed for {args.num_gpus} GPU(s) (config: {ds_path})")
+                logger.info("Using deepspeed for %d GPU(s) (config: %s)", args.num_gpus, ds_path)
                 os.environ['DEEPSPEED_CONFIG'] = ds_path
                 cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path] + cmd_args
             else:
                 if uses_quantization:
-                    print(f"Detected quantization (QLoRA) - using torchrun for {args.num_gpus} GPU(s)")
+                    logger.info("Detected quantization (QLoRA) - using torchrun for %d GPU(s)", args.num_gpus)
                 elif ds_path and not supports_deepspeed():
-                    print(
-                        f"Recipe sets deepspeed_config={ds_path} but DeepSpeed is not "
-                        f"installed - falling back to torchrun (DDP) for {args.num_gpus} GPU(s)"
+                    logger.warning(
+                        "Recipe sets deepspeed_config=%s but DeepSpeed is not installed - "
+                        "falling back to torchrun (DDP) for %d GPU(s)",
+                        ds_path, args.num_gpus,
                     )
                 else:
-                    print(f"Using torchrun (DDP) for {args.num_gpus} GPU(s)")
+                    logger.info("Using torchrun (DDP) for %d GPU(s)", args.num_gpus)
                 # Drop any stale DEEPSPEED_CONFIG so children don't accidentally enable DeepSpeed.
                 os.environ.pop('DEEPSPEED_CONFIG', None)
                 cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
@@ -210,7 +217,7 @@ def launch_distributed_training(args):
         # Create logs directory if it doesn't exist
         os.makedirs("logs", exist_ok=True)
         
-        print(f"Running in background with nohup. Output will be saved to: {log_file}")
+        logger.info("Running in background with nohup. Output will be saved to: %s", log_file)
         
         # Prepare environment with log file path
         env = os.environ.copy()
@@ -221,12 +228,12 @@ def launch_distributed_training(args):
         cmd_str = " ".join(cmd) + f" > {log_file} 2>&1"
         full_cmd = f"nohup {cmd_str} &"
         
-        print(f"Executing: {full_cmd}")
+        logger.info("Executing: %s", full_cmd)
         
         # Execute with Popen to start in background without waiting
         subprocess.Popen(full_cmd, shell=True, env=env)
         
-        print(f"Training started in background. Monitor progress with: tail -f {log_file}")
+        logger.info("Training started in background. Monitor progress with: tail -f %s", log_file)
         
         return 0
     else:
@@ -257,7 +264,7 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
             'wandb': {},
             's3': {}
         }
-        rank_zero_print("No recipe file provided, using defaults with CLI overrides")
+        logger.info("No recipe file provided, using defaults with CLI overrides")
     
     # Apply command-line overrides using common utility
     if args.overrides:
@@ -313,9 +320,9 @@ def main():
         # If nohup is requested OR multi-GPU training, use launcher
         if args.nohup or args.num_gpus > 1:
             if args.num_gpus > 1:
-                print(f"Launching distributed training with {args.num_gpus} GPUs...")
+                logger.info("Launching distributed training with %d GPUs...", args.num_gpus)
             else:
-                print("Launching single-GPU training with nohup...")
+                logger.info("Launching single-GPU training with nohup...")
             return launch_distributed_training(args)
     else:
         # Already in distributed mode (e.g. Ray Train pre-set RANK/WORLD_SIZE
@@ -329,14 +336,14 @@ def main():
                 ds_path = _peek_deepspeed_config(args.recipe, args.overrides)
                 if ds_path and os.path.exists(ds_path) and supports_deepspeed():
                     os.environ['DEEPSPEED_CONFIG'] = ds_path
-                    rank_zero_print(
-                        f"Distributed environment using DeepSpeed config: {ds_path} "
-                        f"(world_size={world_size})"
+                    logger.info(
+                        "Distributed environment using DeepSpeed config: %s (world_size=%d)",
+                        ds_path, world_size,
                     )
                 else:
-                    rank_zero_print(
-                        f"Distributed environment using DDP "
-                        f"(world_size={world_size}, no deepspeed_config)"
+                    logger.info(
+                        "Distributed environment using DDP (world_size=%d, no deepspeed_config)",
+                        world_size,
                     )
 
     # For single GPU or already in distributed mode, proceed with normal training.
@@ -345,12 +352,12 @@ def main():
     # job. Use is_distributed_launch() instead of args.num_gpus to decide what to
     # log here, otherwise every worker prints "Running single-GPU training...".
     if is_distributed_launch():
-        rank_zero_print(
-            f"Running as distributed process "
-            f"(world_size={os.environ.get('WORLD_SIZE', '?')})..."
+        logger.info(
+            "Running as distributed process (world_size=%s)",
+            os.environ.get('WORLD_SIZE', '?'),
         )
     else:
-        print("Running single-GPU training...")
+        logger.info("Running single-GPU training...")
 
     # Load recipe from file and/or CLI arguments
     config = load_recipe_with_overrides(args)
@@ -371,7 +378,7 @@ def main():
     if log_filename:
         # Running with nohup: use console output only (nohup handles file redirection)
         training_logger = TrainingLogger(f"{algorithm}_training", file_output=False)
-        print(f"Nohup mode detected. Logging to: {log_filename}")
+        logger.info("Nohup mode detected. Logging to: %s", log_filename)
     else:
         # Running normally: use both console and file output
         training_logger = TrainingLogger(f"{algorithm}_training")

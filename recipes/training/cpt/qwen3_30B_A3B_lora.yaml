@@ -60,13 +60,21 @@ training:
   fp16: false                                               # Use float16 precision (alternative to bf16)
   gradient_checkpointing: true                              # Trade compute for memory
 
-  # MoE compatibility — sparse expert routing leaves some parameters without gradients on each rank
-  ddp_find_unused_parameters: true                         # Required for MoE models (Qwen3-30B-A3B)
+  # MoE compatibility
+  # NOTE: ddp_find_unused_parameters only affects torch DDP; it is a no-op
+  # under DeepSpeed ZeRO-3 (what the launcher selects on CUDA). Kept true
+  # as a safety net for the torchrun fallback. Under ZeRO-3 the equivalent
+  # MoE-safety knobs live in the deepspeed config (bucket sizing + keeping
+  # expert params off CPU). See docs/troubleshooting/distributed-hangs.md.
+  ddp_find_unused_parameters: true
 
   # Data loading — overlap CPU preprocessing with GPU compute
   dataloader_num_workers: 4
   dataloader_pin_memory: true
   dataloader_drop_last: true                                # Drop last incomplete batch
+
+  deepspeed_config: "configs/deepspeed/zero3_config_gpu8_b200.json"
+  debug_distributed: true  
 
 # Weights & Biases Integration
 # Optional experiment tracking and monitoring

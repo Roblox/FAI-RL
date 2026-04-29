@@ -65,8 +65,12 @@ training:
   fp16: false                                               # Use float16 precision (alternative to bf16)
   gradient_checkpointing: true                              # Trade compute for memory
 
-  # MoE compatibility — sparse expert routing leaves some parameters without gradients on each rank
-  ddp_find_unused_parameters: true                         # Required for MoE models (Qwen3-30B-A3B)
+  # MoE compatibility
+  # NOTE: QLoRA uses torchrun (DeepSpeed is incompatible with bitsandbytes
+  # quantization), so ddp_find_unused_parameters DOES take effect here and
+  # is genuinely required for Qwen3-30B-A3B: sparse expert routing leaves
+  # some parameters without gradients on each rank.
+  ddp_find_unused_parameters: true
 
   # Data loading — overlap CPU preprocessing with GPU compute
   dataloader_num_workers: 4

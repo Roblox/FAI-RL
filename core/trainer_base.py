@@ -76,6 +76,57 @@ class BaseTrainer(ABC):
         if is_cuda_available():
             os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
+        # Distributed debugging hooks — must be exported before NCCL
+        # communicators are created (i.e. before the first collective),
+        # which happens on the first forward/backward after init_process_group.
+        # This block runs during trainer construction, well before that point.
+        if getattr(self.config.training, "debug_distributed", False):
+            self._enable_distributed_debugging()
+
+    def _enable_distributed_debugging(self):
+        """Turn on NCCL FlightRecorder + PyTorch distributed DETAIL tracing.
+
+        The NCCL FlightRecorder is the only reliable way to get a per-rank
+        stack trace out of a stuck collective. It must be enabled via env
+        vars *before* the first collective fires, otherwise the ring buffer
+        is never allocated and torch prints
+        "FlightRecorder is disabled" when a watchdog timeout triggers.
+        """
+        debug_env = {
+            # Surface NCCL errors as Python exceptions instead of silent hangs.
+            "TORCH_NCCL_ASYNC_ERROR_HANDLING": "1",
+            # Allocate the FlightRecorder ring buffer (entries, not bytes).
+            # 20000 is enough to cover several thousand collectives per rank.
+            "TORCH_NCCL_TRACE_BUFFER_SIZE": "20000",
+            # Dump the FlightRecorder on watchdog timeout.
+            "TORCH_NCCL_DUMP_ON_TIMEOUT": "1",
+            # Where FlightRecorder writes its per-rank pickles on timeout.
+            # Files land at <path>_<rank>.
+            "TORCH_NCCL_DEBUG_INFO_TEMP_FILE": os.environ.get(
+                "TORCH_NCCL_DEBUG_INFO_TEMP_FILE", "/tmp/nccl_trace"
+            ),
+            # Per-collective logging from NCCL itself.
+            "NCCL_DEBUG": os.environ.get("NCCL_DEBUG", "INFO"),
+            # Log every collective + its shapes at the torch.distributed layer.
+            "TORCH_DISTRIBUTED_DEBUG": "DETAIL",
+            # Flush on timeout so we don't lose the dump to a buffered writer.
+            "TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC": os.environ.get(
+                "TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC", "600"
+            ),
+        }
+
+        # Respect anything the user has already set (e.g. via launch script).
+        applied = {}
+        for k, v in debug_env.items():
+            if k not in os.environ:
+                os.environ[k] = v
+            applied[k] = os.environ[k]
+
+        if self.is_main_process:
+            self.logger.info(
+                "Distributed debugging enabled. Env: %s", applied
+            )
+
     def setup_wandb(self):
         """Initialize Weights & Biases logging."""
         # Export API key and base URL to env so HF Trainer subprocesses / TRL
@@ -213,30 +264,83 @@ class BaseTrainer(ABC):
         
         return model_kwargs
 
-    def setup_tokenizer_with_model(self, model, model_name: Optional[str] = None):
-        """Setup tokenizer and resize model embeddings.
-        
+    def setup_tokenizer_with_model(
+        self,
+        model,
+        model_name: Optional[str] = None,
+        padding_side: str = "right",
+    ):
+        """Load the tokenizer and align it with the given model.
+
+        This method:
+          1. Loads the tokenizer for ``model_name``.
+          2. Ensures a usable ``pad_token`` exists — preferring the existing
+             ``eos_token`` over inventing a new ``[PAD]`` entry. A brand-new
+             ``[PAD]`` token is only added (and embeddings resized) when the
+             tokenizer truly has no pad and no EOS.
+          3. Sets ``padding_side`` (defaults to ``"right"`` which is correct
+             for SFT/CPT/DPO-style training where loss is aligned with
+             next-token targets; pass ``"left"`` for generation-heavy
+             trainers like PPO/GRPO/GSPO).
+          4. Propagates ``pad_token_id`` into ``model.config`` and
+             ``model.generation_config`` so the HF Trainer does not have to
+             reconcile them later (which previously produced the noisy
+             "The tokenizer has new PAD/BOS/EOS tokens..." log line).
+
         Args:
-            model: The model to resize embeddings for.
-            model_name: Optional model name for loading tokenizer. Defaults to config.model.base_model_name.
-            
+            model: The model to align with the tokenizer.
+            model_name: Optional model name for loading tokenizer.
+                Defaults to ``config.model.base_model_name``.
+            padding_side: ``"right"`` (default) for training, ``"left"`` for
+                generation-based trainers.
+
         Returns:
             The configured tokenizer.
         """
         if model_name is None:
             model_name = self.config.model.base_model_name
-            
+
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        
-        # Set pad token if not present
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        tokenizer.padding_side = "left"
-        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-        
-        # Resize embeddings
-        model.resize_token_embeddings(len(tokenizer))
-        
+
+        added_new_pad = False
+        if tokenizer.pad_token_id is None:
+            if tokenizer.eos_token_id is not None:
+                # Prefer reusing EOS as pad rather than growing the vocab.
+                tokenizer.pad_token = tokenizer.eos_token
+                self.logger.info(
+                    "Tokenizer had no pad_token; reusing eos_token "
+                    f"('{tokenizer.eos_token}', id={tokenizer.eos_token_id}) as pad_token."
+                )
+            else:
+                # No EOS either — add a genuinely new [PAD] token.
+                tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+                added_new_pad = True
+                self.logger.info(
+                    "Tokenizer had no pad_token or eos_token; added new '[PAD]' special token "
+                    f"(id={tokenizer.pad_token_id})."
+                )
+
+        tokenizer.padding_side = padding_side
+
+        # Only resize embeddings if we actually grew the vocabulary.
+        if added_new_pad:
+            model.resize_token_embeddings(len(tokenizer))
+
+        # Keep model configs in sync with the tokenizer so HF Trainer does not
+        # emit the "tokenizer has new PAD/BOS/EOS tokens..." reconciliation log.
+        pad_id = tokenizer.pad_token_id
+        if pad_id is not None:
+            try:
+                model.config.pad_token_id = pad_id
+            except Exception:
+                pass
+            gen_config = getattr(model, "generation_config", None)
+            if gen_config is not None:
+                try:
+                    gen_config.pad_token_id = pad_id
+                except Exception:
+                    pass
+
         return tokenizer
 
     def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM, 

@@ -88,6 +88,28 @@ def check_uses_quantization(recipe_path):
         return False
 
 
+def get_recipe_deepspeed_config(recipe_path):
+    """Return an absolute path to a recipe-pinned DeepSpeed config, or None.
+
+    A recipe may pin a specific DeepSpeed config (e.g. a B200-tuned variant)
+    via ``training.deepspeed_config``. If set, it takes priority over the
+    auto-selected ``zero3_config_gpu{N}.json``.
+    """
+    if not recipe_path:
+        return None
+    try:
+        with open(recipe_path, 'r') as f:
+            recipe = yaml.safe_load(f)
+        ds_path = (recipe or {}).get('training', {}).get('deepspeed_config')
+        if not ds_path:
+            return None
+        if not os.path.isabs(ds_path):
+            ds_path = os.path.join(project_root, ds_path)
+        return ds_path if os.path.exists(ds_path) else None
+    except Exception:
+        return None
+
+
 def is_distributed_launch():
     """Check if already running under a distributed launcher."""
     return 'RANK' in os.environ or 'LOCAL_RANK' in os.environ or 'WORLD_SIZE' in os.environ
@@ -144,10 +166,19 @@ def launch_distributed_training(args):
                 print(f"Detected quantization (QLoRA) - using torchrun for {args.num_gpus} GPU(s)")
                 cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
             elif supports_deepspeed():
-                # Auto-select deepspeed config
-                deepspeed_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{args.num_gpus}.json")
-                if os.path.exists(deepspeed_config):
-                    print(f"Auto-selected deepspeed config: {deepspeed_config}")
+                # Prefer a recipe-pinned config (e.g. B200-tuned); otherwise
+                # fall back to the per-GPU-count default.
+                recipe_ds_config = get_recipe_deepspeed_config(args.recipe)
+                if recipe_ds_config:
+                    deepspeed_config = recipe_ds_config
+                    print(f"Using recipe-pinned deepspeed config: {deepspeed_config}")
+                else:
+                    deepspeed_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{args.num_gpus}.json")
+                    if os.path.exists(deepspeed_config):
+                        print(f"Auto-selected deepspeed config: {deepspeed_config}")
+                    else:
+                        deepspeed_config = None
+                if deepspeed_config:
                     # Set environment variable for deepspeed config
                     os.environ['DEEPSPEED_CONFIG'] = deepspeed_config
                     # Use deepspeed launcher
@@ -286,10 +317,16 @@ def main():
             world_size = int(os.environ.get('WORLD_SIZE', 1))
             uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
             if world_size > 1 and not uses_quantization and supports_deepspeed():
-                ds_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{world_size}.json")
-                if os.path.exists(ds_config):
-                    os.environ['DEEPSPEED_CONFIG'] = ds_config
-                    print(f"Auto-selected DeepSpeed ZeRO-3 config for distributed environment: {ds_config}")
+                # Prefer recipe-pinned config (e.g. B200-tuned) over default.
+                recipe_ds_config = get_recipe_deepspeed_config(args.recipe)
+                if recipe_ds_config:
+                    os.environ['DEEPSPEED_CONFIG'] = recipe_ds_config
+                    print(f"Using recipe-pinned DeepSpeed config for distributed environment: {recipe_ds_config}")
+                else:
+                    ds_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{world_size}.json")
+                    if os.path.exists(ds_config):
+                        os.environ['DEEPSPEED_CONFIG'] = ds_config
+                        print(f"Auto-selected DeepSpeed ZeRO-3 config for distributed environment: {ds_config}")
 
     # For single GPU or already in distributed mode, proceed with normal training
     if args.num_gpus == 1:

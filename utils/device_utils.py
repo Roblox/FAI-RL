@@ -136,9 +136,12 @@ def supports_quantization() -> bool:
 
 
 def flash_attn_installed() -> bool:
-    """Return True if the optional flash_attn (Flash Attention 2) package is importable."""
+    # Match HuggingFace's check (importlib.metadata.version("flash_attn")) so we don't
+    # set attn_implementation="flash_attention_2" when only flash-attn-4 is present.
     try:
-        return importlib.util.find_spec("flash_attn") is not None
+        from importlib.metadata import version as _meta_version
+        _meta_version("flash_attn")
+        return torch.cuda.is_available()
     except Exception:
         return False
 

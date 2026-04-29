@@ -76,6 +76,8 @@ wandb:
   entity: "your-wandb-entity"                                      # W&B username or team name
   name: "Qwen3-30B-A3B-CPT-LoRA"                            # Experiment name in W&B
   tags: ["CPT", "qwen3", "30B-A3B", "MoE", "LoRA"]          # Tags for organizing experiments
+  api_key: null                                             # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)
 
 # S3 Checkpoint Upload
 # Automatically uploads checkpoints and the final model to S3

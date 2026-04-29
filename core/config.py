@@ -177,7 +177,16 @@ class WandbConfig:
     entity: Optional[str] = None
     name: Optional[str] = None
     tags: list = field(default_factory=list)
-    
+    # Optional W&B API key. If set in the recipe, it is exported as the
+    # WANDB_API_KEY env var before wandb.init so non-interactive runs can
+    # authenticate without a prior `wandb login`. Falls back to the existing
+    # env var if left as None.
+    api_key: Optional[str] = None
+    # W&B server base URL. Defaults to the public SaaS endpoint; override for
+    # self-hosted / dedicated cloud deployments. Exported as WANDB_BASE_URL
+    # before wandb.init so HF Trainer / TRL subprocesses also pick it up.
+    base_url: str = "https://api.wandb.ai"
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "enabled": self.enabled,
@@ -185,6 +194,9 @@ class WandbConfig:
             "entity": self.entity,
             "name": self.name,
             "tags": self.tags,
+            # Redact api_key to avoid leaking secrets into logs / saved configs.
+            "api_key": "***" if self.api_key else None,
+            "base_url": self.base_url,
         }
 
 

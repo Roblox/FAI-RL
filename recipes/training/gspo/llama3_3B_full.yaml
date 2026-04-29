@@ -82,3 +82,5 @@ wandb:
   entity: "your-wandb-entity"                                  # W&B username or team name
   name: "Llama-3.1-3B-Inst-Full-GSPO"                   # Experiment name in W&B
   tags: ["GSPO", "llama3", "3B-Inst", "GSM8K", "OpenMathInstruct-2"]  # Tags for organizing experiments
+  api_key: null                                         # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)

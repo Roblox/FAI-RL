@@ -35,7 +35,7 @@ dependencies = [
     "datasets==4.0.0",
     "transformers==4.56.1",
     "trl==0.23.0",
-    "wandb==0.21.0",
+    "wandb==0.26.1",
     "peft==0.17.0",
     "ipykernel==6.30.1",
     "ipywidgets==8.1.7",

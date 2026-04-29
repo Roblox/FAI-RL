@@ -186,7 +186,6 @@ class DPOTrainer(BaseTrainer):
             gradient_checkpointing=self.config.training.gradient_checkpointing,
             gradient_checkpointing_kwargs=gradient_checkpointing_kwargs,
             max_length=self.config.data.max_length,
-            max_prompt_length=self.config.data.max_prompt_length,
             dataloader_pin_memory=self.config.training.dataloader_pin_memory,
             save_only_model=self.config.training.save_only_model,
             dataloader_drop_last=self.config.training.dataloader_drop_last,

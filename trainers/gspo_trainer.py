@@ -183,7 +183,6 @@ class GSPOTrainer(BaseTrainer):
             ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
             # GRPO specific parameters
             num_generations=self.config.training.num_generations,
-            max_prompt_length=self.config.data.max_prompt_length,
             max_completion_length=self.config.data.max_length - self.config.data.max_prompt_length,
             # GSPO specific parameters
             importance_sampling_level=self.config.training.importance_sampling_level,

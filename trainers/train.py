@@ -23,10 +23,6 @@ from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
 from trainers.gspo_trainer import GSPOTrainer
 from trainers.sft_trainer import SFTTrainer
-# PPOTrainer is imported lazily — the legacy trl PPOConfig/PPOTrainer API was
-# removed in trl >= 1.0, so the eager import would break every other algorithm.
-# `trainers/__init__.py` provides a placeholder that errors only if PPO is used.
-from trainers import PPOTrainer
 from utils.logging_utils import TrainingLogger, log_system_info, rank_zero_print
 from utils.recipe_overrides import apply_overrides_to_recipe, parse_value, set_nested_value, load_recipe_from_yaml
 from utils.device_utils import get_device_type, supports_deepspeed, is_mps_available
@@ -35,7 +31,7 @@ from utils.device_utils import get_device_type, supports_deepspeed, is_mps_avail
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Train CPT, DPO, GRPO, GSPO, PPO, or SFT model",
+        description="Train CPT, DPO, GRPO, GSPO, or SFT model",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -347,7 +343,7 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
     if not recipe_dict.get('training', {}).get('algorithm'):
         raise ValueError(
             "training.algorithm is required. "
-            "Provide it via recipe file or CLI: training.algorithm='sft' (options: cpt, sft, dpo, ppo, grpo, gspo)"
+            "Provide it via recipe file or CLI: training.algorithm='sft' (options: cpt, sft, dpo, grpo, gspo)"
         )
     
     # Handle datasets configuration
@@ -489,8 +485,6 @@ def main():
             trainer_class = GRPOTrainer
         elif algorithm == "gspo":
             trainer_class = GSPOTrainer
-        elif algorithm == "ppo":
-            trainer_class = PPOTrainer
         elif algorithm == "sft":
             trainer_class = SFTTrainer
         else:

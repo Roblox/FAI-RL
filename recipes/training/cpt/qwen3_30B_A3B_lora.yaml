@@ -45,14 +45,14 @@ data:
 # Controls the training process and optimization settings
 training:
   algorithm: "cpt"                                          # Training algorithm: cpt, sft, dpo, ppo, grpo, gspo
-  output_dir: "models/qwen3-30B-A3B-cpt-lora-v1"           # Directory to save trained model and checkpoints
+  output_dir: "models/qwen3-30B-A3B-cpt-lora-v1"            # Directory to save trained model and checkpoints
 
   # Core training hyperparameters
   per_device_train_batch_size: 4                            # 4x increase — ZeRO-3 optimizer sharding frees memory
   gradient_accumulation_steps: 2                            # effective batch = 4 × 2 × 8 GPUs = 64
   learning_rate: 1.0e-4                                     # Learning rate (1e-4 for LoRA)
   num_train_epochs: 1                                       # Number of complete passes through the dataset
-  max_steps: 600                                           # Maximum number of training steps (-1 = train for num_train_epochs)
+  max_steps: 600                                            # Maximum number of training steps (-1 = train for num_train_epochs)
   warmup_steps: 100                                         # Linear warmup steps for learning rate scheduler
 
   # Logging and checkpointing

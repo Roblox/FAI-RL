@@ -78,6 +78,28 @@ class BaseTrainer(ABC):
 
     def setup_wandb(self):
         """Initialize Weights & Biases logging."""
+        # Export API key and base URL to env so HF Trainer subprocesses / TRL
+        # integrations also pick them up. Recipe values take precedence over
+        # existing env vars so configs are reproducible.
+        api_key = getattr(self.config.wandb, "api_key", None)
+        base_url = getattr(self.config.wandb, "base_url", None)
+        if base_url:
+            os.environ["WANDB_BASE_URL"] = base_url
+        if api_key:
+            os.environ["WANDB_API_KEY"] = api_key
+            try:
+                login_kwargs = {"key": api_key}
+                if base_url:
+                    login_kwargs["host"] = base_url
+                wandb.login(**login_kwargs)
+            except Exception as e:
+                self.logger.warning(f"wandb.login failed, will rely on env var: {e}")
+        elif not os.environ.get("WANDB_API_KEY"):
+            self.logger.warning(
+                "wandb.enabled=true but no api_key in recipe and no WANDB_API_KEY env var set; "
+                "wandb.init may fail or fall back to anonymous mode."
+            )
+
         wandb.init(
             project=self.config.wandb.project,
             entity=self.config.wandb.entity,

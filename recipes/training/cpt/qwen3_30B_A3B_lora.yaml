@@ -81,13 +81,15 @@ wandb:
   entity: "your-wandb-entity"                                      # W&B username or team name
   name: "Qwen3-30B-A3B-CPT-LoRA"                            # Experiment name in W&B
   tags: ["CPT", "qwen3", "30B-A3B", "MoE", "LoRA"]          # Tags for organizing experiments
+  api_key: null                                             # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)
 
 # S3 Checkpoint Upload
 # Automatically uploads checkpoints and the final model to S3
 s3:
-  enabled: true                                          # Enable S3 checkpoint upload
-  bucket: "s3_bucket_name"                               # S3 bucket name
-  prefix: "project_name/model_name"     # S3 key prefix (folder path inside bucket)
+  enabled: false                                         # Enable S3 checkpoint upload
+  bucket: "your-s3-bucket"                               # S3 bucket name
+  prefix: "your-prefix/qwen3-30B-inst-cpt-lora"     # S3 key prefix (folder path inside bucket)
   region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
   endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
   upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)

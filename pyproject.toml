@@ -13,6 +13,7 @@ license-files = ["LICENSE"]
 authors = [
     {name = "Roblox", email = "ylim@roblox.com"},
     {name = "Roblox", email = "mnandwana@roblox.com"},
+    {name = "Roblox", email = "ylong@roblox.com"},
 ]
 keywords = ["reinforcement learning", "language models", "transformers", "rlhf", "dpo", "ppo", "sft"]
 classifiers = [

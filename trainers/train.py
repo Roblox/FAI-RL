@@ -92,12 +92,19 @@ def is_distributed_launch():
     return 'RANK' in os.environ or 'LOCAL_RANK' in os.environ or 'WORLD_SIZE' in os.environ
 
 
-def _peek_recipe(recipe_path: Optional[str], overrides: Optional[list]) -> Dict:
-    """Cheap, side-effect-free read of recipe + CLI overrides into a plain dict.
+def _peek_deepspeed_config(
+    recipe_path: Optional[str], overrides: Optional[list]
+) -> Optional[str]:
+    """Read training.deepspeed_config from recipe + CLI overrides, returning
+    an absolute path (or None if the field isn't set).
 
     Quieter than the public `load_recipe_from_yaml` / `apply_overrides_to_recipe`
-    pair (which print) so the launcher can call this multiple times without
-    spamming logs.
+    pair (which print and validate strictly) so the launcher can call this
+    multiple times without spamming logs or crashing on partial recipes.
+
+    Recipes for full fine-tuning typically set this to
+    "configs/deepspeed/zero1_config.json"; LoRA recipes leave it unset and
+    fall through to plain DDP.
     """
     recipe: Dict = {}
     if recipe_path:
@@ -105,7 +112,7 @@ def _peek_recipe(recipe_path: Optional[str], overrides: Optional[list]) -> Dict:
             with open(recipe_path, 'r') as f:
                 recipe = yaml.safe_load(f) or {}
         except Exception:
-            recipe = {}
+            return None
     if overrides:
         for override in overrides:
             if '=' not in override:
@@ -115,52 +122,13 @@ def _peek_recipe(recipe_path: Optional[str], overrides: Optional[list]) -> Dict:
                 set_nested_value(recipe, key.strip(), parse_value(value_str))
             except Exception:
                 pass
-    return recipe
 
-
-def resolve_parallelism(
-    recipe_path: Optional[str], overrides: Optional[list]
-) -> tuple:
-    """Resolve (strategy_name, deepspeed_config_path_or_None) from recipe + overrides.
-
-    Precedence:
-      1. If `training.deepspeed_config` is set explicitly in the recipe/overrides,
-         honor it as a custom DeepSpeed config (escape hatch for legacy zero3
-         users or anyone with a hand-tuned config).
-      2. Otherwise consult `training.parallelism_strategy`:
-           - "auto"  -> "ddp" if model.use_lora else "zero1"
-           - "ddp"   -> ("ddp", None)        # use torchrun, no DeepSpeed
-           - "zero1" -> ("zero1", configs/deepspeed/zero1_config.json)
-
-    ZeRO-3 is intentionally not auto-picked anymore: LoRA on MoE models
-    deadlocks under ZeRO-3 because per-rank expert routing diverges and the
-    _ALLGATHER_BASE collective never completes.
-    """
-    recipe = _peek_recipe(recipe_path, overrides)
-    training = recipe.get("training", {}) or {}
-    model = recipe.get("model", {}) or {}
-
-    explicit_ds = training.get("deepspeed_config")
-    if explicit_ds:
-        ds_path = explicit_ds
-        if not os.path.isabs(ds_path):
-            ds_path = os.path.join(project_root, ds_path)
-        return "custom", ds_path
-
-    strategy = training.get("parallelism_strategy", "auto")
-    use_lora = bool(model.get("use_lora", False))
-
-    if strategy == "auto":
-        strategy = "ddp" if use_lora else "zero1"
-
-    if strategy == "ddp":
-        return "ddp", None
-    if strategy == "zero1":
-        return "zero1", os.path.join(project_root, "configs/deepspeed/zero1_config.json")
-    raise ValueError(
-        f"Unknown training.parallelism_strategy={strategy!r}; "
-        "supported values: auto, ddp, zero1"
-    )
+    ds_path = (recipe.get("training") or {}).get("deepspeed_config")
+    if not ds_path:
+        return None
+    if not os.path.isabs(ds_path):
+        ds_path = os.path.join(project_root, ds_path)
+    return ds_path
 
 
 def get_algorithm_from_recipe(recipe_path, overrides):
@@ -209,36 +177,26 @@ def launch_distributed_training(args):
             # Check if using quantization (only if recipe file is provided)
             uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
             
-            if uses_quantization:
-                # QLoRA is incompatible with DeepSpeed, use torchrun
-                print(f"Detected quantization (QLoRA) - using torchrun for {args.num_gpus} GPU(s)")
+            ds_path = None if uses_quantization else _peek_deepspeed_config(args.recipe, args.overrides)
+            if ds_path and supports_deepspeed():
+                if not os.path.exists(ds_path):
+                    raise FileNotFoundError(f"training.deepspeed_config not found: {ds_path}")
+                print(f"Using deepspeed for {args.num_gpus} GPU(s) (config: {ds_path})")
+                os.environ['DEEPSPEED_CONFIG'] = ds_path
+                cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path] + cmd_args
+            else:
+                if uses_quantization:
+                    print(f"Detected quantization (QLoRA) - using torchrun for {args.num_gpus} GPU(s)")
+                elif ds_path and not supports_deepspeed():
+                    print(
+                        f"Recipe sets deepspeed_config={ds_path} but DeepSpeed is not "
+                        f"installed - falling back to torchrun (DDP) for {args.num_gpus} GPU(s)"
+                    )
+                else:
+                    print(f"Using torchrun (DDP) for {args.num_gpus} GPU(s)")
                 # Drop any stale DEEPSPEED_CONFIG so children don't accidentally enable DeepSpeed.
                 os.environ.pop('DEEPSPEED_CONFIG', None)
                 cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
-            else:
-                strategy, ds_path = resolve_parallelism(args.recipe, args.overrides)
-                if strategy == "ddp":
-                    print(f"Resolved parallelism: ddp -> using torchrun for {args.num_gpus} GPU(s)")
-                    os.environ.pop('DEEPSPEED_CONFIG', None)
-                    cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
-                elif not supports_deepspeed():
-                    print(
-                        f"Resolved parallelism: {strategy} but DeepSpeed not installed - "
-                        f"falling back to torchrun (DDP) for {args.num_gpus} GPU(s)"
-                    )
-                    os.environ.pop('DEEPSPEED_CONFIG', None)
-                    cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
-                else:
-                    if not ds_path or not os.path.exists(ds_path):
-                        raise FileNotFoundError(
-                            f"DeepSpeed config for strategy={strategy!r} not found: {ds_path}"
-                        )
-                    print(
-                        f"Resolved parallelism: {strategy} -> using deepspeed for "
-                        f"{args.num_gpus} GPU(s) (config: {ds_path})"
-                    )
-                    os.environ['DEEPSPEED_CONFIG'] = ds_path
-                    cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path] + cmd_args
     
     # Handle nohup mode
     if args.nohup:
@@ -360,43 +318,25 @@ def main():
                 print("Launching single-GPU training with nohup...")
             return launch_distributed_training(args)
     else:
-        # Already in distributed mode (e.g., Ray Train pre-set RANK/WORLD_SIZE
+        # Already in distributed mode (e.g. Ray Train pre-set RANK/WORLD_SIZE
         # before launching this script). The parent launcher in
-        # `launch_distributed_training` never ran here, so we have to resolve
-        # the parallelism strategy ourselves and possibly set DEEPSPEED_CONFIG.
+        # `launch_distributed_training` never ran here, so honor the recipe's
+        # training.deepspeed_config ourselves if it's set and supported.
         if 'DEEPSPEED_CONFIG' not in os.environ:
             world_size = int(os.environ.get('WORLD_SIZE', 1))
             uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
             if world_size > 1 and not uses_quantization:
-                try:
-                    strategy, ds_path = resolve_parallelism(args.recipe, args.overrides)
-                except Exception as e:
-                    rank_zero_print(
-                        f"Warning: failed to resolve parallelism strategy ({e}); "
-                        "defaulting to DDP (no DeepSpeed)."
-                    )
-                    strategy, ds_path = "ddp", None
-
-                if strategy == "ddp":
-                    rank_zero_print(
-                        f"Distributed environment using strategy=ddp "
-                        f"(world_size={world_size}, no DeepSpeed)."
-                    )
-                elif not supports_deepspeed():
-                    rank_zero_print(
-                        f"Distributed environment requested strategy={strategy} but "
-                        "DeepSpeed not installed - falling back to DDP."
-                    )
-                elif ds_path and os.path.exists(ds_path):
+                ds_path = _peek_deepspeed_config(args.recipe, args.overrides)
+                if ds_path and os.path.exists(ds_path) and supports_deepspeed():
                     os.environ['DEEPSPEED_CONFIG'] = ds_path
                     rank_zero_print(
-                        f"Auto-selected DeepSpeed config for distributed environment: "
-                        f"{ds_path} (strategy={strategy})"
+                        f"Distributed environment using DeepSpeed config: {ds_path} "
+                        f"(world_size={world_size})"
                     )
                 else:
                     rank_zero_print(
-                        f"Distributed environment requested strategy={strategy} but "
-                        f"config not found at {ds_path} - falling back to DDP."
+                        f"Distributed environment using DDP "
+                        f"(world_size={world_size}, no deepspeed_config)"
                     )
 
     # For single GPU or already in distributed mode, proceed with normal training.

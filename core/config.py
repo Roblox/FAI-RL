@@ -150,17 +150,15 @@ class TrainingConfig:
     fp16: bool = False
     gradient_checkpointing: bool = True
     
-    # Parallelism strategy. "auto" => LoRA picks "ddp" (no DeepSpeed; replicate
-    # full model on each GPU; only allreduce grads), full-FT picks "zero1"
-    # (DeepSpeed stage 1, optimizer-state sharded only). Pin explicitly to
-    # override. ZeRO-3 is intentionally not auto-picked: LoRA on MoE models
-    # deadlocks under ZeRO-3 because per-rank expert routing diverges and the
-    # _ALLGATHER_BASE collective never completes.
-    parallelism_strategy: Literal["auto", "ddp", "zero1"] = "auto"
-
-    # DeepSpeed config path. Normally set automatically by the launcher based
-    # on parallelism_strategy. Can be pinned to a custom DeepSpeed JSON as an
-    # escape hatch (e.g. legacy zero3 configs).
+    # DeepSpeed config path. If set, the launcher uses `deepspeed --num_gpus=N`
+    # with this config; if unset, the launcher uses plain `torchrun` (DDP).
+    # LoRA recipes leave this unset (DDP replicates the frozen base on every
+    # GPU and only allreduces the small adapter grads). Full-FT recipes
+    # typically point this at configs/deepspeed/zero1_config.json (sharded
+    # optimizer states, no parameter sharding). configs/deepspeed/zero3_config.json
+    # is available as an escape hatch but is NOT recommended for LoRA on MoE
+    # models -- per-rank expert routing diverges and the _ALLGATHER_BASE
+    # collective deadlocks.
     deepspeed_config: Optional[str] = None
     
     # DataLoader

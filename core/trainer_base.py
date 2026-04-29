@@ -231,13 +231,11 @@ class BaseTrainer(ABC):
     def validate_parallelism(self, model) -> None:
         """Fail fast on the MoE+LoRA+ZeRO-3 deadlock combo.
 
-        See moe_model_training_bug.md for the full analysis: per-rank MoE
-        routing diverges, ZeRO-3 issues per-expert LoRA-shard allgathers in
-        rank-divergent order, NCCL pairs them by call position, the buffers
-        don't agree, and PyTorch's 30-min watchdog eventually SIGABRTs.
-
-        Only checked when LoRA is enabled (the only configuration that
-        actually trips this).
+        Per-rank MoE routing diverges, ZeRO-3 issues per-expert LoRA-shard
+        allgathers in rank-divergent order, NCCL pairs them by call position,
+        the buffers don't agree, and PyTorch's 30-min watchdog eventually
+        SIGABRTs. Only checked when LoRA is enabled (the only configuration
+        that actually trips this).
         """
         if not getattr(self.config.model, "use_lora", False):
             return
@@ -253,8 +251,8 @@ class BaseTrainer(ABC):
         if stage == 3 and self._detect_moe(model):
             raise ValueError(
                 f"LoRA on an MoE model with ZeRO-3 is known to deadlock at "
-                f"_ALLGATHER_BASE because per-rank expert routing diverges "
-                f"(see moe_model_training_bug.md). DeepSpeed config: {ds_path}. "
+                f"_ALLGATHER_BASE because per-rank expert routing diverges. "
+                f"DeepSpeed config: {ds_path}. "
                 f"Recommended fixes: set training.parallelism_strategy='ddp' "
                 f"(default for LoRA) or 'zero1', or remove the explicit "
                 f"training.deepspeed_config override."

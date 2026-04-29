@@ -153,8 +153,9 @@ class TrainingConfig:
     # Parallelism strategy. "auto" => LoRA picks "ddp" (no DeepSpeed; replicate
     # full model on each GPU; only allreduce grads), full-FT picks "zero1"
     # (DeepSpeed stage 1, optimizer-state sharded only). Pin explicitly to
-    # override. ZeRO-3 is intentionally not auto-picked anymore -- see
-    # moe_model_training_bug.md for the MoE+LoRA+ZeRO-3 deadlock.
+    # override. ZeRO-3 is intentionally not auto-picked: LoRA on MoE models
+    # deadlocks under ZeRO-3 because per-rank expert routing diverges and the
+    # _ALLGATHER_BASE collective never completes.
     parallelism_strategy: Literal["auto", "ddp", "zero1"] = "auto"
 
     # DeepSpeed config path. Normally set automatically by the launcher based

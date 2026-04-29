@@ -158,8 +158,9 @@ def resolve_parallelism(
            - "ddp"   -> ("ddp", None)        # use torchrun, no DeepSpeed
            - "zero1" -> ("zero1", configs/deepspeed/zero1_config.json)
 
-    ZeRO-3 is intentionally not auto-picked anymore -- see
-    moe_model_training_bug.md for the MoE+LoRA+ZeRO-3 deadlock.
+    ZeRO-3 is intentionally not auto-picked anymore: LoRA on MoE models
+    deadlocks under ZeRO-3 because per-rank expert routing diverges and the
+    _ALLGATHER_BASE collective never completes.
     """
     recipe = _peek_recipe(recipe_path, overrides)
     training = recipe.get("training", {}) or {}

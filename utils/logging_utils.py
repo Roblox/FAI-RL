@@ -5,6 +5,51 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _current_rank() -> int:
+    """Best-effort global rank lookup. Reads env vars lazily so this works
+    regardless of when the logger is configured relative to dist init.
+    Returns 0 when not running under a distributed launcher.
+    """
+    for key in ("RANK", "LOCAL_RANK"):
+        v = os.environ.get(key)
+        if v is None or v == "":
+            continue
+        try:
+            return int(v)
+        except ValueError:
+            continue
+    return 0
+
+
+class RankFilter(logging.Filter):
+    """Drop INFO/DEBUG records on non-rank-0 workers.
+
+    WARNING and above always pass through on every rank so distributed
+    failures (NCCL errors, OOMs, validator violations, etc.) remain visible.
+    Set FAI_RL_LOG_ALL_RANKS=1 to disable the filter entirely (useful when
+    you actually want per-rank trace logs).
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if os.environ.get("FAI_RL_LOG_ALL_RANKS") == "1":
+            return True
+        if record.levelno >= logging.WARNING:
+            return True
+        return _current_rank() == 0
+
+
+def rank_zero_print(*args, **kwargs) -> None:
+    """print() that fires only on rank 0 (or always if FAI_RL_LOG_ALL_RANKS=1).
+
+    Use this for FAI-RL stdout messages that don't go through the logging
+    module (banner-style status lines emitted before the logger is set up,
+    or in code paths where pulling in a logger would be overkill).
+    Third-party library prints (transformers, hf_hub, etc.) are not affected.
+    """
+    if os.environ.get("FAI_RL_LOG_ALL_RANKS") == "1" or _current_rank() == 0:
+        print(*args, **kwargs)
+
+
 class RobustFileHandler(logging.FileHandler):
     """
     A file handler that gracefully handles stale file handle errors.
@@ -83,6 +128,12 @@ def setup_logging(
         return logger
 
     logger.setLevel(level)
+
+    # Collapse duplicate INFO/DEBUG lines from every distributed worker down
+    # to a single copy from rank 0. WARNING+ still passes on every rank so
+    # rank-divergent failures stay visible. (Filter applies regardless of
+    # console_output / file_output, including subsequently-attached handlers.)
+    logger.addFilter(RankFilter())
 
     # Create formatter
     formatter = logging.Formatter(

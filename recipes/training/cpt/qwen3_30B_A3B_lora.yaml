@@ -12,7 +12,12 @@ model:
   use_lora: true                                           # Enable LoRA
   lora_r: 16                                               # LoRA rank
   lora_alpha: 32                                           # LoRA alpha scaling factor (typically 2x rank)
-  lora_dropout: 0.05                                       # LoRA dropout rate
+  # MoE note: Qwen3-30B-A3B's expert FFN weights (gate/up/down_proj) are stored
+  # as stacked raw nn.Parameters across all 128 experts, so PEFT injects via
+  # ParamWrapper, which cannot implement dropout (you cannot pull x out of
+  # lora_B(lora_A(dropout(x)))). Keep this at 0.0 for any MoE recipe that
+  # targets gate_proj/up_proj/down_proj.
+  lora_dropout: 0.0
   lora_target_modules:                                     # Target modules for LoRA
     - q_proj
     - v_proj
@@ -27,7 +32,7 @@ model:
 # Specifies datasets and preprocessing settings
 data:
   datasets:
-    - name: "your-org/your-dataset"                          # HuggingFace dataset name/path
+    - name: "organization_name/dataset_name"                          # HuggingFace dataset name/path
       split: "train"                                        # Dataset split to use
       text_column: "text"                                   # Column name containing raw text for CPT
 
@@ -47,7 +52,7 @@ training:
   gradient_accumulation_steps: 2                            # effective batch = 4 × 2 × 8 GPUs = 64
   learning_rate: 1.0e-4                                     # Learning rate (1e-4 for LoRA)
   num_train_epochs: 1                                       # Number of complete passes through the dataset
-  max_steps: 600                                            # Maximum number of training steps (-1 = train for num_train_epochs)
+  max_steps: 600                                           # Maximum number of training steps (-1 = train for num_train_epochs)
   warmup_steps: 100                                         # Linear warmup steps for learning rate scheduler
 
   # Logging and checkpointing
@@ -81,8 +86,8 @@ wandb:
 # Automatically uploads checkpoints and the final model to S3
 s3:
   enabled: true                                          # Enable S3 checkpoint upload
-  bucket: "your-s3-bucket"                               # S3 bucket name
-  prefix: "your-prefix/qwen3-30B-inst-cpt-lora"     # S3 key prefix (folder path inside bucket)
+  bucket: "s3_bucket_name"                               # S3 bucket name
+  prefix: "project_name/model_name"     # S3 key prefix (folder path inside bucket)
   region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
   endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
   upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)

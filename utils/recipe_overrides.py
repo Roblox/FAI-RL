@@ -6,6 +6,8 @@ import ast
 import yaml
 from typing import Any, Dict
 
+from utils.logging_utils import rank_zero_print
+
 
 def parse_value(value_str: str) -> Any:
     """Parse a string value to its appropriate Python type."""
@@ -48,16 +50,16 @@ def apply_overrides_to_recipe(recipe_dict: Dict, overrides: list) -> Dict:
         Updated recipe dictionary
     """
     if overrides:
-        print("Applying command-line overrides:")
+        rank_zero_print("Applying command-line overrides:")
         for override in overrides:
             if '=' not in override:
-                print(f"  Warning: Skipping invalid override '{override}' (expected key=value format)")
+                rank_zero_print(f"  Warning: Skipping invalid override '{override}' (expected key=value format)")
                 continue
             
             key, value_str = override.split('=', 1)
             value = parse_value(value_str)
             set_nested_value(recipe_dict, key, value)
-            print(f"  {key} = {value}")
+            rank_zero_print(f"  {key} = {value}")
     
     return recipe_dict
 
@@ -73,6 +75,6 @@ def load_recipe_from_yaml(yaml_path: str) -> Dict:
     """
     with open(yaml_path, 'r') as f:
         recipe_dict = yaml.safe_load(f)
-    print(f"Loaded base recipe from: {yaml_path}")
+    rank_zero_print(f"Loaded base recipe from: {yaml_path}")
     return recipe_dict
 

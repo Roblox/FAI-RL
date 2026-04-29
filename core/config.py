@@ -1,6 +1,6 @@
 # rl_finetuning/core/config.py
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 import yaml
 import sys
 import os
@@ -150,7 +150,16 @@ class TrainingConfig:
     fp16: bool = False
     gradient_checkpointing: bool = True
     
-    # DeepSpeed
+    # Parallelism strategy. "auto" => LoRA picks "ddp" (no DeepSpeed; replicate
+    # full model on each GPU; only allreduce grads), full-FT picks "zero1"
+    # (DeepSpeed stage 1, optimizer-state sharded only). Pin explicitly to
+    # override. ZeRO-3 is intentionally not auto-picked anymore -- see
+    # moe_model_training_bug.md for the MoE+LoRA+ZeRO-3 deadlock.
+    parallelism_strategy: Literal["auto", "ddp", "zero1"] = "auto"
+
+    # DeepSpeed config path. Normally set automatically by the launcher based
+    # on parallelism_strategy. Can be pinned to a custom DeepSpeed JSON as an
+    # escape hatch (e.g. legacy zero3 configs).
     deepspeed_config: Optional[str] = None
     
     # DataLoader
@@ -199,6 +208,14 @@ class S3Config:
     upload_final_model: bool = True
     upload_checkpoints: bool = True
     delete_local_after_upload: bool = False
+
+    # Upload backend.
+    #   "auto"   -> use s5cmd if it's on $PATH, else boto3
+    #   "s5cmd"  -> always use s5cmd (errors if not installed)
+    #   "boto3"  -> always use boto3 (slow but no extra binary)
+    # On EKS pods we measured s5cmd ~1.25 GiB/s vs boto3 ~150 MiB/s for the
+    # same workload (Qwen3-30B final/ dir, 90 GiB), so "auto" is a safe default.
+    uploader: Literal["auto", "boto3", "s5cmd"] = "auto"
 
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}

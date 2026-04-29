@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os, sys
 import logging
 from abc import ABC, abstractmethod
@@ -217,6 +218,48 @@ class BaseTrainer(ABC):
         
         return tokenizer
 
+    def _detect_moe(self, model) -> bool:
+        """Heuristic: does this model use a Mixture-of-Experts FFN?"""
+        cfg = getattr(model, "config", None)
+        if cfg is None:
+            return False
+        if getattr(cfg, "num_local_experts", 0) or getattr(cfg, "num_experts", 0):
+            return True
+        archs = getattr(cfg, "architectures", None) or []
+        return any(("Moe" in a) or ("Mixtral" in a) for a in archs)
+
+    def validate_parallelism(self, model) -> None:
+        """Fail fast on the MoE+LoRA+ZeRO-3 deadlock combo.
+
+        See moe_model_training_bug.md for the full analysis: per-rank MoE
+        routing diverges, ZeRO-3 issues per-expert LoRA-shard allgathers in
+        rank-divergent order, NCCL pairs them by call position, the buffers
+        don't agree, and PyTorch's 30-min watchdog eventually SIGABRTs.
+
+        Only checked when LoRA is enabled (the only configuration that
+        actually trips this).
+        """
+        if not getattr(self.config.model, "use_lora", False):
+            return
+        ds_path = self.config.training.deepspeed_config
+        if not ds_path:
+            return
+        try:
+            with open(ds_path) as f:
+                stage = json.load(f).get("zero_optimization", {}).get("stage")
+        except Exception as e:
+            self.logger.warning(f"Could not read DeepSpeed config at {ds_path}: {e}")
+            return
+        if stage == 3 and self._detect_moe(model):
+            raise ValueError(
+                f"LoRA on an MoE model with ZeRO-3 is known to deadlock at "
+                f"_ALLGATHER_BASE because per-rank expert routing diverges "
+                f"(see moe_model_training_bug.md). DeepSpeed config: {ds_path}. "
+                f"Recommended fixes: set training.parallelism_strategy='ddp' "
+                f"(default for LoRA) or 'zero1', or remove the explicit "
+                f"training.deepspeed_config override."
+            )
+
     def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM, 
                            quantization_config: Optional[BitsAndBytesConfig] = None):
         """Apply LoRA/QLoRA to a model.
@@ -231,7 +274,9 @@ class BaseTrainer(ABC):
         """
         if not getattr(self.config.model, 'use_lora', False):
             return model
-            
+
+        self.validate_parallelism(model)
+
         self.logger.info("Applying LoRA configuration...")
         
         # Prepare model for k-bit training if using quantization

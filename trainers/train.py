@@ -6,7 +6,7 @@ import os
 import subprocess
 import yaml
 import warnings
-from typing import Dict
+from typing import Dict, Optional
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
@@ -22,9 +22,12 @@ from trainers.cpt_trainer import CPTTrainer
 from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
 from trainers.gspo_trainer import GSPOTrainer
-from trainers.ppo_trainer import PPOTrainer
 from trainers.sft_trainer import SFTTrainer
-from utils.logging_utils import TrainingLogger, log_system_info
+# PPOTrainer is imported lazily — the legacy trl PPOConfig/PPOTrainer API was
+# removed in trl >= 1.0, so the eager import would break every other algorithm.
+# `trainers/__init__.py` provides a placeholder that errors only if PPO is used.
+from trainers import PPOTrainer
+from utils.logging_utils import TrainingLogger, log_system_info, rank_zero_print
 from utils.recipe_overrides import apply_overrides_to_recipe, parse_value, set_nested_value, load_recipe_from_yaml
 from utils.device_utils import get_device_type, supports_deepspeed, is_mps_available
 
@@ -93,6 +96,98 @@ def is_distributed_launch():
     return 'RANK' in os.environ or 'LOCAL_RANK' in os.environ or 'WORLD_SIZE' in os.environ
 
 
+def resolve_deepspeed_config(num_gpus: int) -> Optional[str]:
+    """Resolve a DeepSpeed config path for the current world size.
+
+    Lookup order (first hit wins):
+      1. configs/deepspeed/zero3_config_gpu{N}.json  -- legacy per-GPU file, if
+         someone hand-tuned one for a specific count.
+      2. configs/deepspeed/zero3_config.json         -- GPU-count-agnostic
+         default. Works for any world size because train_batch_size and
+         gradient_accumulation_steps are 'auto' (DeepSpeed derives them).
+
+    Returns the resolved path, or None if neither file exists.
+    """
+    candidates = [
+        os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{num_gpus}.json"),
+        os.path.join(project_root, "configs/deepspeed/zero3_config.json"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def _peek_recipe(recipe_path: Optional[str], overrides: Optional[list]) -> Dict:
+    """Cheap, side-effect-free read of recipe + CLI overrides into a plain dict.
+
+    Quieter than the public `load_recipe_from_yaml` / `apply_overrides_to_recipe`
+    pair (which print) so the launcher can call this multiple times without
+    spamming logs.
+    """
+    recipe: Dict = {}
+    if recipe_path:
+        try:
+            with open(recipe_path, 'r') as f:
+                recipe = yaml.safe_load(f) or {}
+        except Exception:
+            recipe = {}
+    if overrides:
+        for override in overrides:
+            if '=' not in override:
+                continue
+            key, value_str = override.split('=', 1)
+            try:
+                set_nested_value(recipe, key.strip(), parse_value(value_str))
+            except Exception:
+                pass
+    return recipe
+
+
+def resolve_parallelism(
+    recipe_path: Optional[str], overrides: Optional[list]
+) -> tuple:
+    """Resolve (strategy_name, deepspeed_config_path_or_None) from recipe + overrides.
+
+    Precedence:
+      1. If `training.deepspeed_config` is set explicitly in the recipe/overrides,
+         honor it as a custom DeepSpeed config (escape hatch for legacy zero3
+         users or anyone with a hand-tuned config).
+      2. Otherwise consult `training.parallelism_strategy`:
+           - "auto"  -> "ddp" if model.use_lora else "zero1"
+           - "ddp"   -> ("ddp", None)        # use torchrun, no DeepSpeed
+           - "zero1" -> ("zero1", configs/deepspeed/zero1_config.json)
+
+    ZeRO-3 is intentionally not auto-picked anymore -- see
+    moe_model_training_bug.md for the MoE+LoRA+ZeRO-3 deadlock.
+    """
+    recipe = _peek_recipe(recipe_path, overrides)
+    training = recipe.get("training", {}) or {}
+    model = recipe.get("model", {}) or {}
+
+    explicit_ds = training.get("deepspeed_config")
+    if explicit_ds:
+        ds_path = explicit_ds
+        if not os.path.isabs(ds_path):
+            ds_path = os.path.join(project_root, ds_path)
+        return "custom", ds_path
+
+    strategy = training.get("parallelism_strategy", "auto")
+    use_lora = bool(model.get("use_lora", False))
+
+    if strategy == "auto":
+        strategy = "ddp" if use_lora else "zero1"
+
+    if strategy == "ddp":
+        return "ddp", None
+    if strategy == "zero1":
+        return "zero1", os.path.join(project_root, "configs/deepspeed/zero1_config.json")
+    raise ValueError(
+        f"Unknown training.parallelism_strategy={strategy!r}; "
+        "supported values: auto, ddp, zero1"
+    )
+
+
 def get_algorithm_from_recipe(recipe_path, overrides):
     """Get algorithm name from recipe file and overrides."""
     try:
@@ -142,23 +237,33 @@ def launch_distributed_training(args):
             if uses_quantization:
                 # QLoRA is incompatible with DeepSpeed, use torchrun
                 print(f"Detected quantization (QLoRA) - using torchrun for {args.num_gpus} GPU(s)")
+                # Drop any stale DEEPSPEED_CONFIG so children don't accidentally enable DeepSpeed.
+                os.environ.pop('DEEPSPEED_CONFIG', None)
                 cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
-            elif supports_deepspeed():
-                # Auto-select deepspeed config
-                deepspeed_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{args.num_gpus}.json")
-                if os.path.exists(deepspeed_config):
-                    print(f"Auto-selected deepspeed config: {deepspeed_config}")
-                    # Set environment variable for deepspeed config
-                    os.environ['DEEPSPEED_CONFIG'] = deepspeed_config
-                    # Use deepspeed launcher
-                    print(f"Using deepspeed for {args.num_gpus} GPU(s)")
-                    cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path] + cmd_args
-                else:
-                    print(f"Warning: DeepSpeed config for {args.num_gpus} GPU(s) not found, using torchrun")
-                    cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
             else:
-                print("DeepSpeed not available, using torchrun for multi-GPU training")
-                cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
+                strategy, ds_path = resolve_parallelism(args.recipe, args.overrides)
+                if strategy == "ddp":
+                    print(f"Resolved parallelism: ddp -> using torchrun for {args.num_gpus} GPU(s)")
+                    os.environ.pop('DEEPSPEED_CONFIG', None)
+                    cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
+                elif not supports_deepspeed():
+                    print(
+                        f"Resolved parallelism: {strategy} but DeepSpeed not installed - "
+                        f"falling back to torchrun (DDP) for {args.num_gpus} GPU(s)"
+                    )
+                    os.environ.pop('DEEPSPEED_CONFIG', None)
+                    cmd = ["torchrun", f"--nproc_per_node={args.num_gpus}", script_path] + cmd_args
+                else:
+                    if not ds_path or not os.path.exists(ds_path):
+                        raise FileNotFoundError(
+                            f"DeepSpeed config for strategy={strategy!r} not found: {ds_path}"
+                        )
+                    print(
+                        f"Resolved parallelism: {strategy} -> using deepspeed for "
+                        f"{args.num_gpus} GPU(s) (config: {ds_path})"
+                    )
+                    os.environ['DEEPSPEED_CONFIG'] = ds_path
+                    cmd = ["deepspeed", f"--num_gpus={args.num_gpus}", script_path] + cmd_args
     
     # Handle nohup mode
     if args.nohup:
@@ -219,7 +324,7 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
             'wandb': {},
             's3': {}
         }
-        print("No recipe file provided, using defaults with CLI overrides")
+        rank_zero_print("No recipe file provided, using defaults with CLI overrides")
     
     # Apply command-line overrides using common utility
     if args.overrides:
@@ -280,22 +385,57 @@ def main():
                 print("Launching single-GPU training with nohup...")
             return launch_distributed_training(args)
     else:
-        # Already in distributed mode (e.g., Ray Train pre-set RANK/WORLD_SIZE).
-        # Auto-select DeepSpeed ZeRO-3 config if not already provided.
+        # Already in distributed mode (e.g., Ray Train pre-set RANK/WORLD_SIZE
+        # before launching this script). The parent launcher in
+        # `launch_distributed_training` never ran here, so we have to resolve
+        # the parallelism strategy ourselves and possibly set DEEPSPEED_CONFIG.
         if 'DEEPSPEED_CONFIG' not in os.environ:
             world_size = int(os.environ.get('WORLD_SIZE', 1))
             uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
-            if world_size > 1 and not uses_quantization and supports_deepspeed():
-                ds_config = os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{world_size}.json")
-                if os.path.exists(ds_config):
-                    os.environ['DEEPSPEED_CONFIG'] = ds_config
-                    print(f"Auto-selected DeepSpeed ZeRO-3 config for distributed environment: {ds_config}")
+            if world_size > 1 and not uses_quantization:
+                try:
+                    strategy, ds_path = resolve_parallelism(args.recipe, args.overrides)
+                except Exception as e:
+                    rank_zero_print(
+                        f"Warning: failed to resolve parallelism strategy ({e}); "
+                        "defaulting to DDP (no DeepSpeed)."
+                    )
+                    strategy, ds_path = "ddp", None
 
-    # For single GPU or already in distributed mode, proceed with normal training
-    if args.num_gpus == 1:
-        print("Running single-GPU training...")
+                if strategy == "ddp":
+                    rank_zero_print(
+                        f"Distributed environment using strategy=ddp "
+                        f"(world_size={world_size}, no DeepSpeed)."
+                    )
+                elif not supports_deepspeed():
+                    rank_zero_print(
+                        f"Distributed environment requested strategy={strategy} but "
+                        "DeepSpeed not installed - falling back to DDP."
+                    )
+                elif ds_path and os.path.exists(ds_path):
+                    os.environ['DEEPSPEED_CONFIG'] = ds_path
+                    rank_zero_print(
+                        f"Auto-selected DeepSpeed config for distributed environment: "
+                        f"{ds_path} (strategy={strategy})"
+                    )
+                else:
+                    rank_zero_print(
+                        f"Distributed environment requested strategy={strategy} but "
+                        f"config not found at {ds_path} - falling back to DDP."
+                    )
+
+    # For single GPU or already in distributed mode, proceed with normal training.
+    # NOTE: every torchrun/deepspeed worker re-parses argv without --num-gpus, so
+    # `args.num_gpus` is the parser default (1) inside children even on an 8-GPU
+    # job. Use is_distributed_launch() instead of args.num_gpus to decide what to
+    # log here, otherwise every worker prints "Running single-GPU training...".
+    if is_distributed_launch():
+        rank_zero_print(
+            f"Running as distributed process "
+            f"(world_size={os.environ.get('WORLD_SIZE', '?')})..."
+        )
     else:
-        print(f"Running as distributed process (rank: {os.environ.get('RANK', 'unknown')})...")
+        print("Running single-GPU training...")
 
     # Load recipe from file and/or CLI arguments
     config = load_recipe_with_overrides(args)

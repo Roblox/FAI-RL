@@ -45,7 +45,7 @@ pip install FAI-RL[cuda] --extra-index-url https://download.pytorch.org/whl/cu11
 **For macOS (Apple Silicon or Intel):**
 
 ```bash
-pip install FAI-RL==0.1.14
+pip install FAI-RL==0.1.17
 ```
 
 ### Clone the Repository for Configuration Recipes
@@ -86,6 +86,13 @@ wandb login
 
 You'll be prompted to enter your W&B API key. Get your API key at [https://wandb.ai/authorize](https://wandb.ai/authorize).
 
+For self-hosted or private W&B deployments, set `WANDB_BASE_URL` before training:
+
+```bash
+export WANDB_BASE_URL="https://your-wandb-instance.com"
+```
+
+The default value (`https://api.wandb.ai`) points to the public W&B cloud. This can also be set directly in the recipe under `wandb.base_url`.
 
 > **Note**: W&B integration is optional. If not logged in, training will proceed without experiment tracking.
 

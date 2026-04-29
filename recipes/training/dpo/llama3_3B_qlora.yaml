@@ -98,7 +98,7 @@ wandb:
 # S3 Checkpoint Upload
 # Automatically uploads checkpoints and the final model to S3
 s3:
-  enabled: true                                          # Enable S3 checkpoint upload
+  enabled: false                                         # Enable S3 checkpoint upload
   bucket: "your-s3-bucket"                               # S3 bucket name
   prefix: "checkpoints/qwen3-4B-inst-dpo-qlora-v1"       # S3 key prefix (folder path inside bucket)
   region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)

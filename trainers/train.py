@@ -92,28 +92,6 @@ def is_distributed_launch():
     return 'RANK' in os.environ or 'LOCAL_RANK' in os.environ or 'WORLD_SIZE' in os.environ
 
 
-def resolve_deepspeed_config(num_gpus: int) -> Optional[str]:
-    """Resolve a DeepSpeed config path for the current world size.
-
-    Lookup order (first hit wins):
-      1. configs/deepspeed/zero3_config_gpu{N}.json  -- legacy per-GPU file, if
-         someone hand-tuned one for a specific count.
-      2. configs/deepspeed/zero3_config.json         -- GPU-count-agnostic
-         default. Works for any world size because train_batch_size and
-         gradient_accumulation_steps are 'auto' (DeepSpeed derives them).
-
-    Returns the resolved path, or None if neither file exists.
-    """
-    candidates = [
-        os.path.join(project_root, f"configs/deepspeed/zero3_config_gpu{num_gpus}.json"),
-        os.path.join(project_root, "configs/deepspeed/zero3_config.json"),
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-    return None
-
-
 def _peek_recipe(recipe_path: Optional[str], overrides: Optional[list]) -> Dict:
     """Cheap, side-effect-free read of recipe + CLI overrides into a plain dict.
 

@@ -6,6 +6,14 @@ import ast
 import yaml
 from typing import Any, Dict
 
+from utils.logging_utils import setup_logging
+
+# Module-level logger. setup_logging() attaches a RankFilter, so INFO/DEBUG
+# records are automatically dropped on non-rank-0 workers; WARNING+ still
+# passes on every rank. file_output=False because the parent training log
+# already captures stdout (a second file would double-log under nohup).
+logger = setup_logging("FAI-RL.recipe", file_output=False)
+
 
 def parse_value(value_str: str) -> Any:
     """Parse a string value to its appropriate Python type."""
@@ -48,16 +56,16 @@ def apply_overrides_to_recipe(recipe_dict: Dict, overrides: list) -> Dict:
         Updated recipe dictionary
     """
     if overrides:
-        print("Applying command-line overrides:")
+        logger.info("Applying command-line overrides:")
         for override in overrides:
             if '=' not in override:
-                print(f"  Warning: Skipping invalid override '{override}' (expected key=value format)")
+                logger.warning("Skipping invalid override %r (expected key=value format)", override)
                 continue
             
             key, value_str = override.split('=', 1)
             value = parse_value(value_str)
             set_nested_value(recipe_dict, key, value)
-            print(f"  {key} = {value}")
+            logger.info("  %s = %r", key, value)
     
     return recipe_dict
 
@@ -73,6 +81,6 @@ def load_recipe_from_yaml(yaml_path: str) -> Dict:
     """
     with open(yaml_path, 'r') as f:
         recipe_dict = yaml.safe_load(f)
-    print(f"Loaded base recipe from: {yaml_path}")
+    logger.info("Loaded base recipe from: %s", yaml_path)
     return recipe_dict
 

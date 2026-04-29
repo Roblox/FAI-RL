@@ -1,6 +1,6 @@
 # rl_finetuning/core/config.py
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 import yaml
 import sys
 import os
@@ -150,7 +150,15 @@ class TrainingConfig:
     fp16: bool = False
     gradient_checkpointing: bool = True
     
-    # DeepSpeed
+    # DeepSpeed config path. If set, the launcher uses `deepspeed --num_gpus=N`
+    # with this config; if unset, the launcher uses plain `torchrun` (DDP).
+    # LoRA recipes leave this unset (DDP replicates the frozen base on every
+    # GPU and only allreduces the small adapter grads). Full-FT recipes
+    # typically point this at configs/deepspeed/zero1_config.json (sharded
+    # optimizer states, no parameter sharding). configs/deepspeed/zero3_config.json
+    # is available as an escape hatch but is NOT recommended for LoRA on MoE
+    # models -- per-rank expert routing diverges and the _ALLGATHER_BASE
+    # collective deadlocks.
     deepspeed_config: Optional[str] = None
     
     # DataLoader
@@ -211,6 +219,14 @@ class S3Config:
     upload_final_model: bool = True
     upload_checkpoints: bool = True
     delete_local_after_upload: bool = False
+
+    # Upload backend.
+    #   "auto"   -> use s5cmd if it's on $PATH, else boto3
+    #   "s5cmd"  -> always use s5cmd (errors if not installed)
+    #   "boto3"  -> always use boto3 (slow but no extra binary)
+    # On EKS pods we measured s5cmd ~1.25 GiB/s vs boto3 ~150 MiB/s for the
+    # same workload (Qwen3-30B final/ dir, 90 GiB), so "auto" is a safe default.
+    uploader: Literal["auto", "boto3", "s5cmd"] = "auto"
 
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}

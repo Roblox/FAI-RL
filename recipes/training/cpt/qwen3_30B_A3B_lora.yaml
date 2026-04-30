@@ -12,7 +12,12 @@ model:
   use_lora: true                                           # Enable LoRA
   lora_r: 16                                               # LoRA rank
   lora_alpha: 32                                           # LoRA alpha scaling factor (typically 2x rank)
-  lora_dropout: 0.05                                       # LoRA dropout rate
+  # MoE note: Qwen3-30B-A3B's expert FFN weights (gate/up/down_proj) are stored
+  # as stacked raw nn.Parameters across all 128 experts, so PEFT injects via
+  # ParamWrapper, which cannot implement dropout (you cannot pull x out of
+  # lora_B(lora_A(dropout(x)))). Keep this at 0.0 for any MoE recipe that
+  # targets gate_proj/up_proj/down_proj.
+  lora_dropout: 0.0
   lora_target_modules:                                     # Target modules for LoRA
     - q_proj
     - v_proj
@@ -27,7 +32,7 @@ model:
 # Specifies datasets and preprocessing settings
 data:
   datasets:
-    - name: "your-org/your-dataset"                          # HuggingFace dataset name/path
+    - name: "organization_name/dataset_name"                          # HuggingFace dataset name/path
       split: "train"                                        # Dataset split to use
       text_column: "text"                                   # Column name containing raw text for CPT
 
@@ -40,7 +45,7 @@ data:
 # Controls the training process and optimization settings
 training:
   algorithm: "cpt"                                          # Training algorithm: cpt, sft, dpo, ppo, grpo, gspo
-  output_dir: "models/qwen3-30B-A3B-cpt-lora-v1"           # Directory to save trained model and checkpoints
+  output_dir: "models/qwen3-30B-A3B-cpt-lora-v1"            # Directory to save trained model and checkpoints
 
   # Core training hyperparameters
   per_device_train_batch_size: 4                            # 4x increase — ZeRO-3 optimizer sharding frees memory

@@ -253,7 +253,7 @@ class BaseTrainer(ABC):
         """
         if not getattr(self.config.model, 'use_lora', False):
             return model
-            
+
         self.logger.info("Applying LoRA configuration...")
         
         # Prepare model for k-bit training if using quantization

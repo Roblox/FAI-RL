@@ -39,13 +39,13 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
 **For Linux/Windows with NVIDIA GPUs (CUDA):**
 
 ```bash 
-pip install FAI-RL[cuda] --extra-index-url https://download.pytorch.org/whl/cu118
+pip install FAI-RL[cuda] --extra-index-url https://download.pytorch.org/whl/cu130
 ```
 
 **For macOS (Apple Silicon or Intel):**
 
 ```bash
-pip install FAI-RL==0.1.17
+pip install FAI-RL==0.1.18
 ```
 
 ### Clone the Repository for Configuration Recipes

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "FAI-RL"
-version = "0.1.17"
+version = "0.1.18"
 description = "Foundation of AI - Reinforcement learning Library"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -13,6 +13,7 @@ license-files = ["LICENSE"]
 authors = [
     {name = "Roblox", email = "ylim@roblox.com"},
     {name = "Roblox", email = "mnandwana@roblox.com"},
+    {name = "Roblox", email = "ylong@roblox.com"},
 ]
 keywords = ["reinforcement learning", "language models", "transformers", "rlhf", "dpo", "ppo", "sft"]
 classifiers = [
@@ -29,29 +30,27 @@ classifiers = [
 
 # Core dependencies that work across all platforms (Mac, Linux, Windows)
 dependencies = [
-    "torch==2.9.0", 
-    "torchvision==0.24.0",
-    "torchaudio==2.9.0",
-    "datasets==4.0.0",
-    "transformers==4.56.1",
-    "trl==0.23.0",
-    "wandb==0.26.1",
-    "peft==0.17.0",
+    "torch==2.10.0",
+    "datasets==4.8.4",
+    "transformers==5.6.2",
+    "trl==1.2.0",
+    "wandb==0.26.0",
+    "peft==0.19.0",
     "ipykernel==6.30.1",
     "ipywidgets==8.1.7",
     "fsspec==2025.3.0",
-    "huggingface_hub==0.34.4",
+    "huggingface_hub==1.11.0",
     "tiktoken==0.12.0",
-    "boto3==1.42.78"
+    "boto3==1.42.92"
 ]
 
 [project.optional-dependencies]
 # CUDA-specific dependencies for Linux/Windows with NVIDIA GPUs
 # These are not available on macOS and are optional
 cuda = [
-    "bitsandbytes==0.46.1",
-    "deepspeed==0.17.4",
-    "mpi4py==4.1.0",
+    "bitsandbytes==0.49.2",
+    "deepspeed==0.18.8",
+    "mpi4py==4.1.1",
 ]
 dev = [
     "pytest>=7.0.0",

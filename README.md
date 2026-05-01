@@ -36,16 +36,19 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
 
 ### Install the Package
 
+We assume the user environment already has the necessary ML libraries
+installed (notably `torch`, with a CUDA build matching the host).
+
 **For Linux/Windows with NVIDIA GPUs (CUDA):**
 
-```bash 
-pip install FAI-RL[cuda] --extra-index-url https://download.pytorch.org/whl/cu130
+```bash
+pip install FAI-RL[cuda]
 ```
 
 **For macOS (Apple Silicon or Intel):**
 
 ```bash
-pip install FAI-RL==0.1.18
+pip install FAI-RL==0.1.19
 ```
 
 ### Clone the Repository for Configuration Recipes
@@ -55,8 +58,7 @@ git clone https://github.com/Roblox/FAI-RL.git
 cd FAI-RL
 ```
 
-> **Package**: [https://pypi.org/project/FAI-RL/](https://pypi.org/project/FAI-RL/)  
-> **Note**: The `--extra-index-url` flag ensures PyTorch is installed with CUDA 11.8 support (Linux/Windows only).
+> **Package**: [https://pypi.org/project/FAI-RL/](https://pypi.org/project/FAI-RL/)
 
 ## 🔑 Authentication & Setup
 

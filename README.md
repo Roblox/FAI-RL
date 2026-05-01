@@ -36,24 +36,19 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
 
 ### Install the Package
 
-FAI-RL does not pin `torch` itself, so the CUDA build of PyTorch you
-install must match your host driver and the rest of your runtime
-(notably `torchvision`). Install `torch` first, then FAI-RL.
+We assume the user environment already has the necessary ML libraries
+installed (notably `torch` and `torchvision`, with a CUDA build matching
+the host).
 
 **For Linux/Windows with NVIDIA GPUs (CUDA):**
 
 ```bash
-# 1. Install PyTorch matching your runtime CUDA version (example: 13.0)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
-
-# 2. Install FAI-RL with the CUDA-tied training extras
 pip install FAI-RL[cuda]
 ```
 
 **For macOS (Apple Silicon or Intel):**
 
 ```bash
-pip install torch torchvision
 pip install FAI-RL
 ```
 
@@ -65,10 +60,6 @@ cd FAI-RL
 ```
 
 > **Package**: [https://pypi.org/project/FAI-RL/](https://pypi.org/project/FAI-RL/)
-> **Note**: We deliberately don't pin `torch` so users can pick the CUDA
-> build that matches their runtime. The `[cuda]` extra installs CUDA-tied
-> training peers (`bitsandbytes`, `deepspeed`, `mpi4py`); these are not
-> available on macOS.
 
 ## 🔑 Authentication & Setup
 

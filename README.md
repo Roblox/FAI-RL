@@ -37,8 +37,7 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
 ### Install the Package
 
 We assume the user environment already has the necessary ML libraries
-installed (notably `torch` and `torchvision`, with a CUDA build matching
-the host).
+installed (notably `torch`, with a CUDA build matching the host).
 
 **For Linux/Windows with NVIDIA GPUs (CUDA):**
 

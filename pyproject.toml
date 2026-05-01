@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "FAI-RL"
-version = "0.1.18"
+version = "0.1.19"
 description = "Foundation of AI - Reinforcement learning Library"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -30,7 +30,6 @@ classifiers = [
 
 # Core dependencies that work across all platforms (Mac, Linux, Windows)
 dependencies = [
-    "torch==2.10.0",
     "datasets==4.8.4",
     "transformers==5.6.2",
     "trl==1.2.0",

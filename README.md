@@ -48,7 +48,7 @@ pip install FAI-RL[cuda]
 **For macOS (Apple Silicon or Intel):**
 
 ```bash
-pip install FAI-RL
+pip install FAI-RL==0.1.19
 ```
 
 ### Clone the Repository for Configuration Recipes

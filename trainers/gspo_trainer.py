@@ -17,7 +17,7 @@ if project_root not in sys.path:
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
-from utils.dataset_utils import is_math_dataset, get_template_for_dataset
+from utils.dataset_utils import is_math_dataset, get_template_for_dataset, load_training_dataset
 from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
 from .rewards.format_rewards import structured_xml_reward_func
 from .rewards.custom_rewards import custom_reward_func
@@ -69,11 +69,7 @@ class GSPOTrainer(BaseTrainer):
             subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
             self.logger.info(f"Loading dataset: {dataset_info.name}{subset_info} (split: {dataset_info.split})")
 
-            # Load the dataset
-            if dataset_info.subset:
-                dataset = load_dataset(dataset_info.name, dataset_info.subset, split=dataset_info.split)
-            else:
-                dataset = load_dataset(dataset_info.name, split=dataset_info.split)
+            dataset = load_training_dataset(dataset_info)
 
             original_size = len(dataset)
 

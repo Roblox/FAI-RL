@@ -70,6 +70,10 @@ class DatasetInfo:
     rejected_column: str = "rejected"
     answer_column: str = "answer"
     dataset_columns: Optional[List[str]] = None
+    # S3 connection overrides (only used when name starts with s3://).
+    # When unset, boto3 uses its default credential/region resolution chain.
+    s3_region: Optional[str] = None
+    s3_endpoint_url: Optional[str] = None
 
 
 @dataclass
@@ -96,6 +100,8 @@ class DataConfig:
                     "rejected_column": ds.rejected_column,
                     "answer_column": ds.answer_column,
                     "dataset_columns": ds.dataset_columns,
+                    "s3_region": ds.s3_region,
+                    "s3_endpoint_url": ds.s3_endpoint_url,
                 }
                 for ds in self.datasets
             ],

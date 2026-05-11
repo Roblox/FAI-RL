@@ -217,6 +217,45 @@ class S3UploadCallback(TrainerCallback):
         logger.info("All S3 uploads finished.")
 
 
+def download_file_from_s3(
+    s3_uri: str,
+    region: Optional[str] = None,
+    endpoint_url: Optional[str] = None,
+) -> str:
+    """Download a single file from S3 to a temporary local path.
+
+    Returns the path to the downloaded temp file. The caller is responsible
+    for deleting it when done (e.g. after the dataset has been loaded into
+    memory / Arrow cache).
+    """
+    import tempfile
+    from urllib.parse import urlparse
+
+    parsed = urlparse(s3_uri)
+    if parsed.scheme != "s3":
+        raise ValueError(f"Expected s3:// URI, got: {s3_uri!r}")
+
+    bucket = parsed.netloc
+    key = parsed.path.lstrip("/")
+
+    _, ext = os.path.splitext(key)
+    fd, tmp_path = tempfile.mkstemp(suffix=ext)
+    os.close(fd)
+
+    logger.info("Downloading s3://%s/%s -> %s", bucket, key, tmp_path)
+    try:
+        client = _get_s3_client(region, endpoint_url)
+        client.download_file(bucket, key, tmp_path)
+    except Exception:
+        os.unlink(tmp_path)
+        raise
+
+    logger.info(
+        "Downloaded s3://%s/%s (%d bytes)", bucket, key, os.path.getsize(tmp_path)
+    )
+    return tmp_path
+
+
 def build_s3_callback(s3_config) -> Optional[S3UploadCallback]:
     """Create an S3UploadCallback from an S3Config, or None if disabled."""
     if not s3_config.enabled:

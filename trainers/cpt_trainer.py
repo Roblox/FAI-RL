@@ -11,6 +11,7 @@ if project_root not in sys.path:
 
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
+from utils.dataset_utils import load_training_dataset
 
 
 class CPTTrainer(BaseTrainer):
@@ -59,10 +60,7 @@ class CPTTrainer(BaseTrainer):
             subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
             self.logger.info(f"Loading dataset: {dataset_info.name}{subset_info} (split: {dataset_info.split})")
 
-            if dataset_info.subset:
-                dataset = load_dataset(dataset_info.name, dataset_info.subset, split=dataset_info.split)
-            else:
-                dataset = load_dataset(dataset_info.name, split=dataset_info.split)
+            dataset = load_training_dataset(dataset_info)
 
             original_size = len(dataset)
 

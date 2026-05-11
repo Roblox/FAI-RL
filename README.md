@@ -39,16 +39,8 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
 We assume the user environment already has the necessary ML libraries
 installed (notably `torch`, with a CUDA build matching the host).
 
-**For Linux/Windows with NVIDIA GPUs (CUDA):**
-
 ```bash
-pip install FAI-RL[cuda]
-```
-
-**For macOS (Apple Silicon or Intel):**
-
-```bash
-pip install FAI-RL==0.1.19
+uv pip install FAI-RL
 ```
 
 ### Clone the Repository for Configuration Recipes

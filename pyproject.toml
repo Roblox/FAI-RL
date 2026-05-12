@@ -75,6 +75,15 @@ packages.find = {}
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.json", "*.sh", "*.md"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# `--confcutdir=tests` keeps collection contained to `tests/` so pytest
+# does not walk into the top-level `__init__.py`, which would otherwise
+# trigger a broken transitive import chain (wandb, trl, ...) during
+# collection. `--import-mode=importlib` lets each test module import
+# cleanly without being treated as part of a parent package.
+addopts = "--import-mode=importlib --confcutdir=tests"
+
 [tool.black]
 line-length = 100
 target-version = ['py38', 'py39', 'py310', 'py311']

@@ -1,40 +1,68 @@
-"""Compatibility shims so PEFT/LoRA can wrap custom Linear-like modules.
+"""Compatibility helpers so PEFT/LoRA can target Gemma 4 (dense + MoE).
 
-Background
-----------
-PEFT 0.19's LoRA dispatcher only accepts targets that are an exact instance
-(or subclass) of ``torch.nn.Linear`` (plus a handful of other known types
-like ``Conv1D``, ``Embedding``, bitsandbytes 4/8-bit linears, etc.). Some
+This module bundles two independent fixes that together make
+``transformers.models.gemma4`` LoRA-tunable in both dense and MoE flavors.
+Each helper is opt-in and a no-op on models that don't need it, so it's
+safe to call them unconditionally from the training pipeline.
+
+1. ``patch_custom_linears_for_lora`` — custom-Linear wrapper shim
+----------------------------------------------------------------
+PEFT's LoRA dispatcher only accepts targets that are an exact instance
+(or subclass) of ``torch.nn.Linear`` plus a handful of other known types
+(``Conv1D``, ``Embedding``, bitsandbytes 4/8-bit linears, ...). Some
 upstream architectures wrap an internal ``nn.Linear`` inside an
 ``nn.Module`` subclass that adds extra behavior — most notably
-``transformers.models.gemma4.modeling_gemma4.Gemma4ClippableLinear``, which
-clamps its output for training stability. PEFT does not recognize that
-class and raises ``ValueError: Target module Gemma4ClippableLinear(...) is
-not supported``.
+``Gemma4ClippableLinear``, which clamps its output for training
+stability. PEFT does not recognize that class and raises
+``ValueError: Target module Gemma4ClippableLinear(...) is not supported``.
 
-Strategy
---------
-For each custom-linear instance, swap it out for ``_LinearShim`` — a thin
-``nn.Linear`` subclass that
+Fix: swap each instance for ``_LinearShim`` — a thin ``nn.Linear``
+subclass that (a) shares ``weight``/``bias`` with the wrapped module's
+inner ``nn.Linear`` so PEFT sees real tensors with the correct
+``in_features``/``out_features``/dtype, and (b) delegates ``forward``
+back to the original module so the clamp (or any other custom logic)
+survives LoRA injection — PEFT calls ``base_layer.forward`` each step.
 
-1. shares parameters (``weight``/``bias``) with the wrapped module's inner
-   ``nn.Linear`` so PEFT sees real tensors with the correct
-   ``in_features``/``out_features``/dtype, and
-2. delegates ``forward`` back to the original module, so any extra
-   behavior (output clipping for Gemma 4, etc.) is preserved end-to-end.
-   After PEFT wraps the shim as ``lora.Linear.base_layer``, ``base_layer
-   .forward`` is still invoked on every step, so the clamping survives
-   LoRA injection.
+Caveat: ``lora.Linear.merge_and_unload`` reads ``base_layer.weight``
+directly (not ``base_layer.forward``), so a *merged* checkpoint loses
+the clamp. That only matters at export time; training/eval through the
+adapter preserves the original behavior.
 
-Caveats
--------
-- ``lora.Linear.merge_and_unload`` uses ``base_layer.weight`` directly
-  (not ``base_layer.forward``), so a merged checkpoint loses the clamp.
-  That only matters at export time; training/eval through the adapter
-  preserves the original behavior.
-- If a wrapper class doesn't expose an inner ``nn.Linear`` we can locate,
-  we leave it alone and let PEFT raise its standard error. We don't try
-  to silently no-op the LoRA path.
+2. ``extend_lora_config_for_moe_experts`` — MoE expert target injection
+-----------------------------------------------------------------------
+Modern MoE layers (Gemma 4, Qwen3-MoE, Mixtral, ...) store experts as
+stacked 3D ``nn.Parameter`` tensors instead of per-expert ``nn.Linear``
+modules. PEFT ships a dedicated ``ParamWrapper`` LoRA layer for this,
+but it's only dispatched when ``LoraConfig.target_parameters`` includes
+the expert parameter path — either set explicitly or auto-injected by
+PEFT's ``_MOE_TARGET_MODULE_MAPPING`` registry.
+
+That registry (in ``peft.utils.transformers_weight_conversion``) covers
+Mixtral / Qwen2-MoE / Qwen3-MoE but, as of PEFT 0.19, **not** Gemma 4.
+Without this helper, running the standard ``target_modules=[gate_proj,
+up_proj, down_proj]`` recipe against a Gemma 4 MoE model silently
+skips the experts — training "succeeds" but most of the model's
+capacity is never updated.
+
+Fix: walk the model, find every ``Gemma4TextExperts``-shaped module,
+and append its raw expert parameters (``experts.gate_up_proj``,
+``experts.down_proj``) to ``LoraConfig.target_parameters`` so PEFT's
+``ParamWrapper`` kicks in. Also force ``lora_dropout=0.0`` because
+``ParamWrapper`` cannot implement dropout — the math
+``lora_B(lora_A(dropout(x)))`` does not factor out ``x``.
+
+Scope notes
+-----------
+- These helpers target ``Gemma4ClippableLinear`` (Linear-shaped wrapper)
+  and ``Gemma4TextExperts`` (Linear-shaped raw-parameter MoE) by default.
+  Both class names are extensible via parameters on each helper.
+- Models that are already in PEFT's MoE registry (Qwen3-MoE, Mixtral)
+  are unaffected: ``patch_custom_linears_for_lora`` is a no-op when
+  there are no custom wrappers, and the MoE helper's default class
+  allow-list does not include ``Qwen3MoeExperts`` so we don't duplicate
+  work PEFT is already doing.
+- Genuinely non-Linear ops (fused QKV kernels, FP8 quant linears,
+  etc.) are out of scope and need PEFT's own custom-modules API.
 """
 
 from __future__ import annotations
@@ -159,3 +187,107 @@ def patch_custom_linears_for_lora(
         f" (skipped {skipped} without inner Linear)" if skipped else "",
     )
     return patched
+
+
+_DEFAULT_MOE_EXPERT_CLASSES: tuple[str, ...] = ("Gemma4TextExperts",)
+
+
+def extend_lora_config_for_moe_experts(
+    model: nn.Module,
+    lora_config: object,
+    module_class_names: Iterable[str] = _DEFAULT_MOE_EXPERT_CLASSES,
+    logger: Optional[logging.Logger] = None,
+) -> int:
+    """Append MoE expert parameter paths to ``lora_config.target_parameters``.
+
+    PEFT's ``ParamWrapper`` LoRA layer is what makes raw-``nn.Parameter``
+    MoE experts trainable, but it only fires when the expert parameter
+    path appears in ``LoraConfig.target_parameters``. PEFT auto-injects
+    those paths for some architectures (Mixtral, Qwen2-MoE, Qwen3-MoE)
+    via an internal registry — but **not** for Gemma 4 in PEFT 0.19.
+    Without this call, Gemma 4 MoE LoRA training silently leaves the
+    experts frozen.
+
+    This function walks ``model``, finds every submodule whose class
+    name is in ``module_class_names``, and registers each of its
+    directly-owned ``nn.Parameter`` attributes (e.g. ``gate_up_proj``,
+    ``down_proj``) onto ``lora_config.target_parameters`` using a
+    "leaf-attribute.parameter" pattern (e.g. ``experts.gate_up_proj``),
+    which matches every layer's experts at once.
+
+    Side effect: if any expert paths are added and
+    ``lora_config.lora_dropout > 0``, the dropout is forced to ``0.0``
+    with a warning, because PEFT's ``ParamWrapper`` raises if
+    ``lora_dropout != 0`` (the LoRA math ``lora_B(lora_A(dropout(x)))``
+    cannot factor out ``x``).
+
+    Args:
+        model: The model to inspect (not mutated).
+        lora_config: A ``peft.LoraConfig`` instance to update in place.
+        module_class_names: Module class names (by
+            ``type(m).__name__``) considered MoE-expert modules to
+            register. Defaults to ``Gemma4TextExperts`` only —
+            Qwen3-MoE / Mixtral are handled by PEFT's built-in
+            registry, so listing them here would duplicate work.
+        logger: Optional logger; falls back to the module-level logger.
+
+    Returns:
+        Number of new ``target_parameters`` entries appended.
+    """
+    log = logger or logging.getLogger(__name__)
+    targets = tuple(module_class_names)
+    if not targets:
+        return 0
+
+    # Discover patterns like "experts.gate_up_proj" once per (leaf-attr,
+    # param-name) pair. We use the leaf attribute name (last component
+    # of the module's qualified path) so the pattern matches every
+    # layer's experts simultaneously, regardless of layer count.
+    new_patterns: set[str] = set()
+    for qualified_name, sub in model.named_modules():
+        if type(sub).__name__ not in targets:
+            continue
+        if not qualified_name:
+            # An MoE-experts class sitting at the model root would be
+            # extremely unusual; skip rather than guess at a pattern.
+            continue
+        leaf = qualified_name.rsplit(".", 1)[-1]
+        for pname, _ in sub.named_parameters(recurse=False):
+            new_patterns.add(f"{leaf}.{pname}")
+
+    if not new_patterns:
+        return 0
+
+    existing_raw = getattr(lora_config, "target_parameters", None)
+    if existing_raw is None:
+        existing: list[str] = []
+    elif isinstance(existing_raw, str):
+        existing = [existing_raw]
+    else:
+        existing = list(existing_raw)
+
+    added = sorted(new_patterns - set(existing))
+    if not added:
+        return 0
+
+    lora_config.target_parameters = existing + added
+
+    # ParamWrapper does not support lora_dropout != 0.
+    dropout = getattr(lora_config, "lora_dropout", 0.0) or 0.0
+    if dropout > 0.0:
+        log.warning(
+            "peft_compat: forcing lora_dropout %.4f -> 0.0 because PEFT's "
+            "ParamWrapper (used for MoE experts: %s) does not support "
+            "dropout.",
+            dropout,
+            ", ".join(added),
+        )
+        lora_config.lora_dropout = 0.0
+
+    log.info(
+        "peft_compat: registered %d MoE expert parameter pattern(s) "
+        "for LoRA via target_parameters: %s",
+        len(added),
+        ", ".join(added),
+    )
+    return len(added)

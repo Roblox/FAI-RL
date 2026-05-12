@@ -13,7 +13,10 @@ from transformers import AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 
 from .config import ExperimentConfig
-from .peft_compat import patch_custom_linears_for_lora
+from .peft_compat import (
+    extend_lora_config_for_moe_experts,
+    patch_custom_linears_for_lora,
+)
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
@@ -284,7 +287,17 @@ class BaseTrainer(ABC):
             bias=self.config.model.lora_bias,
             task_type=task_type,
         )
-        
+
+        # Register raw-nn.Parameter MoE experts (e.g. Gemma 4's
+        # Gemma4TextExperts.gate_up_proj/down_proj) onto
+        # `lora_config.target_parameters` so PEFT's ParamWrapper actually
+        # LoRA-tunes them. No-op for dense models and for MoE
+        # architectures already covered by PEFT's built-in registry
+        # (Mixtral, Qwen3-MoE, etc.). Forces lora_dropout=0.0 if any
+        # patterns are added, because ParamWrapper can't implement
+        # dropout.
+        extend_lora_config_for_moe_experts(model, lora_config, logger=self.logger)
+
         # Apply LoRA to model
         model = get_peft_model(model, lora_config)
         

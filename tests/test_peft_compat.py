@@ -1,14 +1,28 @@
 """Tests for ``core.peft_compat``.
 
-Validates that :func:`patch_custom_linears_for_lora`:
+Covers both fixes:
 
-1. Reproduces the production bug: PEFT/LoRA refuses
-   ``Gemma4ClippableLinear`` as a target module.
-2. After patching, PEFT can wrap it, the wrapped module preserves the
-   original (clamping) forward behavior, and only LoRA adapter params
-   become trainable.
-3. Is a no-op on models that already use stock ``nn.Linear``.
-4. Safely skips wrappers without a discoverable inner ``nn.Linear``.
+A. :func:`patch_custom_linears_for_lora`
+
+   1. Reproduces the production bug: PEFT/LoRA refuses
+      ``Gemma4ClippableLinear`` as a target module.
+   2. After patching, PEFT can wrap it, the wrapped module preserves
+      the original (clamping) forward behavior, and only LoRA adapter
+      params become trainable.
+   3. Is a no-op on models that already use stock ``nn.Linear``.
+   4. Safely skips wrappers without a discoverable inner ``nn.Linear``.
+
+B. :func:`extend_lora_config_for_moe_experts`
+
+   5. Reproduces the latent Gemma 4 MoE bug: with the standard
+      ``target_modules`` recipe and no ``target_parameters``, PEFT
+      silently skips the experts (zero ``ParamWrapper`` instances).
+   6. After the helper runs, PEFT creates one ``ParamWrapper`` per
+      expert parameter per layer, and trainable param count grows
+      meaningfully because the experts now have adapters.
+   7. The helper forces ``lora_dropout`` to ``0.0`` (with a warning)
+      because ``ParamWrapper`` cannot implement dropout.
+   8. Is a no-op on models without MoE experts.
 
 No GPU, no real model weights, no HF Hub access required.
 """
@@ -34,6 +48,14 @@ except Exception:  # pragma: no cover - environment-dependent
     Gemma4ClippableLinear = None  # type: ignore[assignment]
     _HAS_GEMMA4 = False
 
+try:
+    from transformers import Gemma4ForCausalLM, Gemma4TextConfig
+    _HAS_GEMMA4_MODEL = True
+except Exception:  # pragma: no cover - environment-dependent
+    Gemma4ForCausalLM = None  # type: ignore[assignment]
+    Gemma4TextConfig = None  # type: ignore[assignment]
+    _HAS_GEMMA4_MODEL = False
+
 # Load core/peft_compat.py directly so we don't pull in the rest of
 # ``core`` (its ``__init__`` eagerly imports the full trainer stack,
 # including wandb, which we don't need or want for unit tests).
@@ -43,6 +65,7 @@ assert _spec is not None and _spec.loader is not None
 _pc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_pc)
 patch_custom_linears_for_lora = _pc.patch_custom_linears_for_lora
+extend_lora_config_for_moe_experts = _pc.extend_lora_config_for_moe_experts
 _LinearShim = _pc._LinearShim
 
 
@@ -177,3 +200,135 @@ def test_patch_skips_when_no_inner_linear(caplog: pytest.LogCaptureFixture) -> N
     # Original module untouched.
     assert type(model.proj).__name__ == "Gemma4ClippableLinear"
     assert any("no nn.Linear descendant" in rec.message for rec in caplog.records)
+
+
+# --------------------------------------------------------------------- #
+# MoE expert target injection (extend_lora_config_for_moe_experts)
+# --------------------------------------------------------------------- #
+
+
+def _tiny_gemma4_moe_model() -> nn.Module:
+    """A tiny but real Gemma 4 ``ForCausalLM`` with the MoE block enabled."""
+    cfg = Gemma4TextConfig(
+        vocab_size=128,
+        hidden_size=32,
+        intermediate_size=64,
+        moe_intermediate_size=32,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=8,
+        global_head_dim=8,
+        hidden_size_per_layer_input=8,
+        layer_types=["sliding_attention", "full_attention"],
+        enable_moe_block=True,
+        num_experts=2,
+        num_experts_per_tok=1,
+        num_local_experts=2,
+    )
+    torch.manual_seed(0)
+    return Gemma4ForCausalLM(cfg)
+
+
+def _count_lora_layer_types(peft_model: nn.Module) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for _, mod in peft_model.named_modules():
+        name = type(mod).__name__
+        if "lora" in name.lower() or "Param" in name:
+            counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+@pytest.mark.skipif(
+    not _HAS_GEMMA4_MODEL, reason="Gemma4ForCausalLM requires transformers>=5.8.0"
+)
+def test_get_peft_model_silently_skips_gemma4_experts_without_helper() -> None:
+    """Pins the latent bug — without the helper, Gemma 4 experts are not LoRA'd."""
+    model = _tiny_gemma4_moe_model()
+    lora = LoraConfig(
+        r=4,
+        lora_alpha=8,
+        lora_dropout=0.0,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj"],
+    )
+    from peft import get_peft_model as _gpm
+    peft_model = _gpm(model, lora)
+    counts = _count_lora_layer_types(peft_model)
+    # PEFT 0.19 does not register Gemma 4 in `_MOE_TARGET_MODULE_MAPPING`,
+    # so zero `ParamWrapper`s should be created.
+    assert counts.get("ParamWrapper", 0) == 0
+
+
+@pytest.mark.skipif(
+    not _HAS_GEMMA4_MODEL, reason="Gemma4ForCausalLM requires transformers>=5.8.0"
+)
+def test_extend_lora_config_registers_gemma4_experts() -> None:
+    """After the helper runs, PEFT creates a ParamWrapper per expert param per layer."""
+    model = _tiny_gemma4_moe_model()
+    lora = LoraConfig(
+        r=4,
+        lora_alpha=8,
+        lora_dropout=0.0,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj"],
+    )
+
+    added = extend_lora_config_for_moe_experts(model, lora)
+
+    # 2 expert params (gate_up_proj, down_proj) collapse to 2 patterns
+    # via the leaf-attribute-name aggregation: "experts.gate_up_proj"
+    # and "experts.down_proj".
+    assert added == 2
+    assert set(lora.target_parameters) == {"experts.gate_up_proj", "experts.down_proj"}
+
+    peft_model = get_peft_model(model, lora)
+    counts = _count_lora_layer_types(peft_model)
+    # 2 expert params x 2 layers = 4 ParamWrappers.
+    assert counts.get("ParamWrapper", 0) == 4
+
+    # Trainable params should now meaningfully exceed what we'd get
+    # without the helper. We don't pin an exact number, only the
+    # qualitative property: there must be LoRA on the experts.
+    trainable = sum(p.numel() for p in peft_model.parameters() if p.requires_grad)
+    assert trainable > 0
+
+
+@pytest.mark.skipif(
+    not _HAS_GEMMA4_MODEL, reason="Gemma4ForCausalLM requires transformers>=5.8.0"
+)
+def test_extend_lora_config_forces_dropout_to_zero(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ParamWrapper rejects lora_dropout > 0; the helper must clamp to 0 with a warning."""
+    model = _tiny_gemma4_moe_model()
+    lora = LoraConfig(r=4, lora_alpha=8, lora_dropout=0.1)
+
+    with caplog.at_level("WARNING"):
+        added = extend_lora_config_for_moe_experts(model, lora)
+
+    assert added > 0
+    assert lora.lora_dropout == 0.0
+    assert any("lora_dropout" in rec.message for rec in caplog.records)
+
+
+def test_extend_lora_config_is_noop_when_no_moe_experts() -> None:
+    """A model with no MoE-expert modules should not get any target_parameters appended."""
+
+    class Plain(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.proj = nn.Linear(8, 4)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.proj(x)
+
+    model = Plain()
+    lora = LoraConfig(r=4, lora_alpha=8, target_modules=["proj"], lora_dropout=0.1)
+
+    added = extend_lora_config_for_moe_experts(model, lora)
+
+    assert added == 0
+    # No experts found, so dropout must be left untouched.
+    assert lora.lora_dropout == 0.1
+    assert not lora.target_parameters

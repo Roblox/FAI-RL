@@ -13,6 +13,7 @@ from transformers import AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 
 from .config import ExperimentConfig
+from .peft_compat import patch_custom_linears_for_lora
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
@@ -269,6 +270,11 @@ class BaseTrainer(ABC):
             except Exception:
                 pass
         
+        # Replace custom Linear wrappers (e.g. Gemma 4's Gemma4ClippableLinear)
+        # with nn.Linear-typed shims so PEFT's LoRA dispatcher accepts them.
+        # No-op for models that use only stock nn.Linear (Qwen3, Llama-3, ...).
+        patch_custom_linears_for_lora(model, logger=self.logger)
+
         # Create LoRA config
         lora_config = LoraConfig(
             r=self.config.model.lora_r,

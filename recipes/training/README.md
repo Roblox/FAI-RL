@@ -19,13 +19,14 @@ YAML configuration files for all supported training algorithms. Each recipe is a
 
 ### SFT (Supervised Fine-Tuning)
 
-| Recipe | Dataset source | Notes |
-|--------|---------------|-------|
-| `sft/llama3_3B_lora.yaml` | HuggingFace Hub | LoRA, Llama-3.2-3B |
-| `sft/llama3_3B_qlora.yaml` | HuggingFace Hub | QLoRA (4-bit), Llama-3.2-3B |
-| `sft/llama3_3B_full.yaml` | HuggingFace Hub | Full fine-tune, Llama-3.2-3B |
-| `sft/llama3_3B_local_file.yaml` | Local file | `.jsonl/.json/.csv/.parquet` |
-| `sft/llama3_3B_s3_file.yaml` | S3 | `s3://bucket/key.jsonl` |
+| Recipe | Dataset source | Model source | Notes |
+|--------|---------------|--------------|-------|
+| `sft/llama3_3B_lora.yaml` | HuggingFace Hub | HuggingFace Hub | LoRA, Llama-3.2-3B |
+| `sft/llama3_3B_qlora.yaml` | HuggingFace Hub | HuggingFace Hub | QLoRA (4-bit), Llama-3.2-3B |
+| `sft/llama3_3B_full.yaml` | HuggingFace Hub | HuggingFace Hub | Full fine-tune, Llama-3.2-3B |
+| `sft/llama3_3B_local_file.yaml` | Local file | HuggingFace Hub | `.jsonl/.json/.csv/.parquet` |
+| `sft/llama3_3B_s3_file.yaml` | S3 | HuggingFace Hub | `s3://bucket/key.jsonl` |
+| `sft/llama3_3B_s3_model.yaml` | S3 | S3 | Continue training from fine-tuned model in S3 |
 
 ### DPO (Direct Preference Optimization)
 
@@ -62,6 +63,18 @@ YAML configuration files for all supported training algorithms. Each recipe is a
 | `gspo/llama3_3B_full.yaml` | HuggingFace Hub | Full fine-tune, Llama-3.2-3B |
 | `gspo/llama3_3B_local_file.yaml` | Local file | `.jsonl/.json/.csv/.parquet` |
 | `gspo/llama3_3B_s3_file.yaml` | S3 | `s3://bucket/key.jsonl` |
+
+## Model Sources
+
+`model.base_model_name` accepts three formats. The source is selected automatically by its prefix:
+
+| Source | `base_model_name` value | Example |
+|--------|------------------------|---------|
+| HuggingFace Hub | Hub model ID | `"meta-llama/Llama-3.2-3B-Instruct"` |
+| Local directory | Absolute or relative path | `"/checkpoints/my-model"` |
+| S3 | `s3://` URI pointing to a model directory | `"s3://my-bucket/checkpoints/run-v1/final"` |
+
+When an `s3://` URI is given, the trainer downloads the model directory to a local cache before calling `from_pretrained()`. The cache is keyed on the URI so repeated runs on the same node skip the download.
 
 ## Dataset Sources
 
@@ -104,9 +117,35 @@ fai-rl-train --recipe recipes/training/sft/llama3_3B_local_file.yaml --num-gpus 
 # Use an S3 file
 fai-rl-train --recipe recipes/training/sft/llama3_3B_s3_file.yaml --num-gpus 1 \
   data.datasets[0].name=s3://my-bucket/datasets/train.jsonl
+
+# Continue training from a fine-tuned model stored in S3
+fai-rl-train --recipe recipes/training/sft/llama3_3B_s3_model.yaml --num-gpus 4 \
+  model.base_model_name=s3://my-bucket/checkpoints/run-v1/final \
+  data.datasets[0].name=s3://my-bucket/datasets/train-v2.jsonl \
+  training.output_dir=models/my_model_v2
 ```
 
 > Running from the repo directly: replace `fai-rl-train` with `python trainers/train.py`.
+
+## S3 Model Loading
+
+Set `base_model_name` to an `s3://` URI that points to a model directory — typically the `final/` prefix written by the S3 upload callback after a previous training run. AWS credentials are resolved from the standard boto3 chain (IAM role, `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars, `~/.aws/credentials`).
+
+```yaml
+model:
+  base_model_name: "s3://my-bucket/checkpoints/run-v1/final"
+  s3_region: null        # override AWS region if needed
+  s3_endpoint_url: null  # set for MinIO or other S3-compatible stores
+```
+
+**Download behavior:**
+- On each node, local rank 0 downloads the model directory to `/tmp/fai-rl-model-<hash>/` and writes a sentinel file when done. Non-zero local ranks wait on the sentinel, then all ranks load from the shared local path.
+- The cache is keyed on the S3 URI, so subsequent runs on the same node skip the download.
+- Both s5cmd (fast, ~1.25 GiB/s) and boto3 (fallback) are supported — s5cmd is used automatically if it is on `$PATH`.
+
+**Continuing from a LoRA checkpoint:**
+
+The S3 callback saves LoRA adapter files (`adapter_config.json`, `adapter_model.safetensors`) when `save_only_model: true`. These can be loaded as `base_model_name` for the next training round — HuggingFace PEFT merges the adapter automatically on load.
 
 ## S3 Dataset Loading
 
@@ -135,4 +174,5 @@ Variants:
   full          Full parameter fine-tuning
   local_file    Local dataset file (.jsonl / .json / .csv / .parquet)
   s3_file       S3 dataset file (s3://bucket/key.ext)
+  s3_model      S3 base model + S3 dataset (continue from fine-tuned checkpoint)
 ```

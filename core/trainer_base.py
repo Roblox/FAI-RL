@@ -19,7 +19,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from utils.logging_utils import setup_logging, SafeLogger
-from utils.s3_utils import build_s3_callback
+from utils.s3_utils import build_s3_callback, download_directory_from_s3
 from utils.device_utils import (
     get_device_type,
     is_cuda_available,
@@ -51,9 +51,14 @@ class BaseTrainer(ABC):
         
         # Adapt config for the current device (handles MPS/CPU limitations)
         self.config = adapt_config_for_device(self.config)
-        
+
         self.local_rank = int(os.environ.get("LOCAL_RANK", -1))
         self.is_main_process = self.local_rank == -1 or self.local_rank == 0
+
+        # Download model from S3 if base_model_name is an s3:// URI. This must
+        # happen before setup_model() so all trainers transparently get a local
+        # path. Rank 0 (per-node) downloads; other ranks wait on a sentinel file.
+        self._maybe_download_s3_model()
 
         # Set device for distributed training
         if self.local_rank != -1:
@@ -75,6 +80,64 @@ class BaseTrainer(ABC):
         # Set memory optimization for CUDA
         if is_cuda_available():
             os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+    def _maybe_download_s3_model(self) -> None:
+        """Download the base model from S3 if base_model_name is an s3:// URI.
+
+        On each node, local rank 0 performs the download into a deterministic
+        cache directory under the system temp dir.  Other local ranks busy-wait
+        on a sentinel file written by rank 0 once the download completes.
+        Subsequent runs on the same node reuse the cached directory, so the
+        download only happens once per node per unique S3 URI.
+
+        After this method returns, self.config.model.base_model_name points to
+        a local directory that AutoModelForCausalLM.from_pretrained() can load.
+        """
+        import hashlib
+        import tempfile
+        import time
+
+        model_name = self.config.model.base_model_name
+        if not model_name.startswith("s3://"):
+            return
+
+        uri_hash = hashlib.md5(model_name.encode()).hexdigest()[:12]
+        cache_dir = os.path.join(tempfile.gettempdir(), f"fai-rl-model-{uri_hash}")
+        sentinel = os.path.join(cache_dir, ".download_complete")
+
+        region = getattr(self.config.model, "s3_region", None)
+        endpoint_url = getattr(self.config.model, "s3_endpoint_url", None)
+
+        if self.local_rank <= 0:
+            # local_rank=-1 (single GPU) or local_rank=0 (first GPU per node)
+            if not os.path.exists(sentinel):
+                self.logger.info("Downloading model from %s -> %s", model_name, cache_dir)
+                download_directory_from_s3(
+                    model_name,
+                    cache_dir,
+                    region=region,
+                    endpoint_url=endpoint_url,
+                )
+                open(sentinel, "w").close()
+                self.logger.info("Model download complete, cached at %s", cache_dir)
+            else:
+                self.logger.info("Reusing cached model at %s", cache_dir)
+        else:
+            # Non-zero local ranks wait for rank 0 to finish downloading.
+            self.logger.info(
+                "Local rank %d waiting for model download by rank 0...", self.local_rank
+            )
+            timeout = 3600
+            elapsed = 0
+            while not os.path.exists(sentinel):
+                time.sleep(5)
+                elapsed += 5
+                if elapsed >= timeout:
+                    raise TimeoutError(
+                        f"Timed out after {timeout}s waiting for S3 model download at {cache_dir}"
+                    )
+
+        self.config.model.base_model_name = cache_dir
 
     def setup_wandb(self):
         """Initialize Weights & Biases logging."""

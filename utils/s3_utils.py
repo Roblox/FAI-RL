@@ -217,6 +217,67 @@ class S3UploadCallback(TrainerCallback):
         logger.info("All S3 uploads finished.")
 
 
+def download_directory_from_s3(
+    s3_uri: str,
+    local_dir: str,
+    region: Optional[str] = None,
+    endpoint_url: Optional[str] = None,
+    downloader: str = "auto",
+) -> None:
+    """Download all objects under an S3 prefix to *local_dir*.
+
+    The directory structure under the prefix is preserved. *downloader* selects
+    the backend ("auto" picks s5cmd if installed, else boto3).
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(s3_uri)
+    if parsed.scheme != "s3":
+        raise ValueError(f"Expected s3:// URI, got: {s3_uri!r}")
+
+    bucket = parsed.netloc
+    prefix = parsed.path.lstrip("/").rstrip("/")
+
+    os.makedirs(local_dir, exist_ok=True)
+
+    backend = _resolve_uploader(downloader)
+    logger.info(
+        "Downloading s3://%s/%s -> %s (backend=%s)", bucket, prefix, local_dir, backend
+    )
+
+    if backend == "s5cmd":
+        argv = ["s5cmd"]
+        if endpoint_url:
+            argv.extend(["--endpoint-url", endpoint_url])
+        # s5cmd sync handles recursive directory copies efficiently
+        argv.extend(["sync", f"s3://{bucket}/{prefix}/", f"{local_dir}/"])
+        env = os.environ.copy()
+        if region and "AWS_REGION" not in env and "AWS_DEFAULT_REGION" not in env:
+            env["AWS_REGION"] = region
+        result = subprocess.run(argv, env=env, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"s5cmd download failed (exit {result.returncode}): {result.stderr.strip()}"
+            )
+    else:
+        client = _get_s3_client(region, endpoint_url)
+        paginator = client.get_paginator("list_objects_v2")
+        total = 0
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix + "/"):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                relative = key[len(prefix):].lstrip("/")
+                if not relative:
+                    continue
+                local_file = os.path.join(local_dir, relative)
+                os.makedirs(os.path.dirname(local_file), exist_ok=True)
+                client.download_file(bucket, key, local_file)
+                total += 1
+        logger.info("Downloaded %d files from s3://%s/%s", total, bucket, prefix)
+
+    logger.info("Download complete: s3://%s/%s -> %s", bucket, prefix, local_dir)
+
+
 def download_file_from_s3(
     s3_uri: str,
     region: Optional[str] = None,

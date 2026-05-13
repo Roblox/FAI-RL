@@ -29,6 +29,11 @@ class ModelConfig:
     bnb_4bit_quant_type: str = "nf4"
     bnb_4bit_use_double_quant: bool = True
     
+    # S3 connection overrides (only used when base_model_name starts with s3://).
+    # When unset, boto3 uses its default credential/region resolution chain.
+    s3_region: Optional[str] = None
+    s3_endpoint_url: Optional[str] = None
+
     # LoRA configuration
     use_lora: bool = False
     lora_r: int = 8
@@ -49,6 +54,8 @@ class ModelConfig:
             "bnb_4bit_compute_dtype": self.bnb_4bit_compute_dtype,
             "bnb_4bit_quant_type": self.bnb_4bit_quant_type,
             "bnb_4bit_use_double_quant": self.bnb_4bit_use_double_quant,
+            "s3_region": self.s3_region,
+            "s3_endpoint_url": self.s3_endpoint_url,
             "use_lora": self.use_lora,
             "lora_r": self.lora_r,
             "lora_alpha": self.lora_alpha,

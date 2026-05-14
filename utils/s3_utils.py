@@ -250,7 +250,7 @@ def download_directory_from_s3(
         if endpoint_url:
             argv.extend(["--endpoint-url", endpoint_url])
         # s5cmd sync handles recursive directory copies efficiently
-        argv.extend(["sync", f"s3://{bucket}/{prefix}/", f"{local_dir}/"])
+        argv.extend(["sync", f"s3://{bucket}/{prefix}/*", f"{local_dir}/"])
         env = os.environ.copy()
         if region and "AWS_REGION" not in env and "AWS_DEFAULT_REGION" not in env:
             env["AWS_REGION"] = region

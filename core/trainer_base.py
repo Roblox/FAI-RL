@@ -243,6 +243,7 @@ class BaseTrainer(ABC):
         model_kwargs = {
             "torch_dtype": torch_dtype,
             "low_cpu_mem_usage": self.config.model.low_cpu_mem_usage,
+            "ignore_mismatched_sizes": self.config.model.ignore_mismatched_sizes,
         }
 
         attn_impl = resolve_transformers_attn_implementation(

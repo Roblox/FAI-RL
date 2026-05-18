@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from transformers import BitsAndBytesConfig
 import wandb
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 
 from .config import ExperimentConfig

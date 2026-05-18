@@ -95,10 +95,20 @@ def _patch_peft_moe_multi_adapter():
                         continue
                     if not any(param_name == t or module_path.endswith(f".{t}") for t in target_params):
                         continue
-                    r_key = get_pattern_key(peft_cfg.rank_pattern.keys(), module_path)
-                    alpha_key = get_pattern_key(peft_cfg.alpha_pattern.keys(), module_path)
-                    r = peft_cfg.rank_pattern.get(r_key, peft_cfg.r)
-                    alpha = peft_cfg.alpha_pattern.get(alpha_key, peft_cfg.lora_alpha)
+                    # Infer r from existing adapter weights rather than from peft_cfg.r,
+                    # because the checkpoint may have been trained with a different r than
+                    # what the current recipe specifies. For 3D MoE parameters,
+                    # lora_A.weight.shape[0] == r * num_experts, so we back-calculate r.
+                    existing = [k for k in module.lora_A if k != adapter_name]
+                    if existing:
+                        r_times_n = module.lora_A[existing[0]].weight.shape[0]
+                        r = r_times_n // max(1, module.num_experts)
+                        alpha = module.lora_alpha.get(existing[0], r)
+                    else:
+                        r_key = get_pattern_key(peft_cfg.rank_pattern.keys(), module_path)
+                        alpha_key = get_pattern_key(peft_cfg.alpha_pattern.keys(), module_path)
+                        r = peft_cfg.rank_pattern.get(r_key, peft_cfg.r)
+                        alpha = peft_cfg.alpha_pattern.get(alpha_key, peft_cfg.lora_alpha)
                     module.update_layer(adapter_name, r, lora_alpha=alpha, config=peft_cfg)
                     if not is_active:
                         module.lora_A[adapter_name].requires_grad_(False)

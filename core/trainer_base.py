@@ -5,11 +5,129 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, TYPE_CHECKING
 
+# Workaround for a bug in transformers where build_peft_weight_mapping passes
+# distributed_operation/quantization_operation as constructor kwargs to
+# WeightConverter, but WeightConverter.__init__ only accepts source_patterns,
+# target_patterns, and operations. This is triggered when loading a PEFT
+# checkpoint for a MoE model (e.g. Qwen3-30B-A3B).
+def _patch_weight_converter_init():
+    try:
+        from transformers.core_model_loading import WeightConverter
+        if getattr(WeightConverter, "_fai_rl_patched", False):
+            return
+        _orig_init = WeightConverter.__init__
+
+        def _patched_init(self, source_patterns, target_patterns, operations, **kwargs):
+            _orig_init(self, source_patterns, target_patterns, operations)
+            for k, v in kwargs.items():
+                try:
+                    setattr(self, k, v)
+                except (AttributeError, TypeError):
+                    pass
+
+        WeightConverter.__init__ = _patched_init
+        WeightConverter._fai_rl_patched = True
+    except (ImportError, AttributeError):
+        pass
+
+_patch_weight_converter_init()
+
+
+# Workaround for two bugs in PEFT 0.19.0 when using TRL 1.2+ DPO with MoE LoRA:
+#
+# Fix 1 — single-adapter restriction: PEFT 0.19.0 raises ValueError if any two
+# LoRA adapters on the same model both use target_parameters. TRL 1.2 adds a
+# second adapter ("ref") for reference logprob computation, triggering this
+# check. We bypass it by temporarily hiding other adapters' target_parameters
+# during _create_and_replace (which is called for every regular LoRA layer).
+#
+# Fix 2 — silent skip of existing ParamWrapper: _inject_parameters iterates
+# named_modules to find parameters to wrap. After the first adapter creates
+# ParamWrapper at "...experts.0.gate_up_proj", the second adapter's iteration
+# finds ParamWrapper and calls named_parameters(recurse=False) on it, yielding
+# ("base_layer", param). The key built is "...experts.0.gate_up_proj.base_layer",
+# which doesn't match target_names={"gate_up_proj"} via endswith, so the second
+# adapter is silently never injected into any MoE layer. We post-process
+# inject_adapter to find ParamWrapper modules that are still missing the new
+# adapter and call update_layer directly.
+def _patch_peft_moe_multi_adapter():
+    try:
+        from peft.tuners.lora.model import LoraModel
+        if getattr(LoraModel, "_fai_rl_multi_adapter_patched", False):
+            return
+
+        _orig_car = LoraModel._create_and_replace
+
+        def _patched_car(self, lora_config, adapter_name, *args, **kwargs):
+            saved = {}
+            if getattr(lora_config, "target_parameters", None):
+                for k, conf in self.peft_config.items():
+                    if k != adapter_name and getattr(conf, "target_parameters", None):
+                        saved[k] = conf.target_parameters
+                        conf.target_parameters = None
+            try:
+                return _orig_car(self, lora_config, adapter_name, *args, **kwargs)
+            finally:
+                for k, v in saved.items():
+                    self.peft_config[k].target_parameters = v
+
+        LoraModel._create_and_replace = _patched_car
+
+        _orig_inject = LoraModel.inject_adapter
+
+        def _patched_inject(self, model, adapter_name, *args, **kwargs):
+            _orig_inject(self, model, adapter_name, *args, **kwargs)
+            try:
+                from peft.tuners.lora.layer import ParamWrapper
+                from peft.utils.other import get_pattern_key
+                peft_cfg = self.peft_config.get(adapter_name)
+                if peft_cfg is None or not getattr(peft_cfg, "target_parameters", None):
+                    return
+                target_params = set(peft_cfg.target_parameters)
+                is_active = adapter_name in (getattr(self, "active_adapters", None) or [])
+                for module_path, module in model.named_modules():
+                    if not isinstance(module, ParamWrapper):
+                        continue
+                    if adapter_name in module.lora_A:
+                        continue
+                    param_name = getattr(module, "parameter_name", None)
+                    if param_name is None:
+                        continue
+                    if not any(param_name == t or module_path.endswith(f".{t}") for t in target_params):
+                        continue
+                    # Infer r from existing adapter weights rather than from peft_cfg.r,
+                    # because the checkpoint may have been trained with a different r than
+                    # what the current recipe specifies. For 3D MoE parameters,
+                    # lora_A.weight.shape[0] == r * num_experts, so we back-calculate r.
+                    existing = [k for k in module.lora_A if k != adapter_name]
+                    if existing:
+                        r_times_n = module.lora_A[existing[0]].weight.shape[0]
+                        r = r_times_n // max(1, module.num_experts)
+                        alpha = module.lora_alpha.get(existing[0], r)
+                    else:
+                        r_key = get_pattern_key(peft_cfg.rank_pattern.keys(), module_path)
+                        alpha_key = get_pattern_key(peft_cfg.alpha_pattern.keys(), module_path)
+                        r = peft_cfg.rank_pattern.get(r_key, peft_cfg.r)
+                        alpha = peft_cfg.alpha_pattern.get(alpha_key, peft_cfg.lora_alpha)
+                    module.update_layer(adapter_name, r, lora_alpha=alpha, config=peft_cfg)
+                    if not is_active:
+                        module.lora_A[adapter_name].requires_grad_(False)
+                        module.lora_B[adapter_name].requires_grad_(False)
+            except (ImportError, AttributeError):
+                pass
+
+        LoraModel.inject_adapter = _patched_inject
+        LoraModel._fai_rl_multi_adapter_patched = True
+    except (ImportError, AttributeError):
+        pass
+
+_patch_peft_moe_multi_adapter()
+
 if TYPE_CHECKING:
     from transformers import BitsAndBytesConfig
 import wandb
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 
 from .config import ExperimentConfig
@@ -303,19 +421,68 @@ class BaseTrainer(ABC):
         
         return tokenizer
 
-    def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM, 
-                           quantization_config: Optional[BitsAndBytesConfig] = None):
+    def load_base_model_for_training(self, model_kwargs: Dict[str, Any]):
+        """Load the base model, transparently handling PEFT/LoRA checkpoints.
+
+        When base_model_name is a local directory containing adapter_config.json,
+        loads the original base model from adapter_config.base_model_name_or_path
+        (so the architecture exactly matches the saved adapter weights) and stores
+        the checkpoint path for apply_lora_to_model to resume from.
+
+        When base_model_name is a plain HuggingFace ID or a non-PEFT local dir,
+        behaves identically to AutoModelForCausalLM.from_pretrained.
+        """
+        from peft import PeftConfig
+
+        model_path = self.config.model.base_model_name
+        self._peft_adapter_path = None
+
+        adapter_config_path = os.path.join(model_path, "adapter_config.json")
+        if os.path.isdir(model_path) and os.path.exists(adapter_config_path):
+            peft_cfg = PeftConfig.from_pretrained(model_path)
+            base_model_path = peft_cfg.base_model_name_or_path
+            self.logger.info(
+                "Detected PEFT checkpoint; loading base model from %s", base_model_path
+            )
+            self._peft_adapter_path = model_path
+            # ignore_mismatched_sizes is not needed when loading the base model clean.
+            clean_kwargs = {k: v for k, v in model_kwargs.items() if k != "ignore_mismatched_sizes"}
+            return AutoModelForCausalLM.from_pretrained(base_model_path, **clean_kwargs)
+
+        return AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
+
+    def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM,
+                            quantization_config: Optional[BitsAndBytesConfig] = None):
         """Apply LoRA/QLoRA to a model.
-        
+
+        When a PEFT checkpoint was detected during load_base_model_for_training,
+        resumes from that adapter instead of creating a new one.
+
         Args:
             model: The model to apply LoRA to.
             task_type: The task type for LoRA (CAUSAL_LM or SEQ_CLS).
             quantization_config: Optional quantization configuration to determine if using QLoRA.
-            
+
         Returns:
             The model with LoRA applied.
         """
         if not getattr(self.config.model, 'use_lora', False):
+            return model
+
+        peft_adapter_path = getattr(self, '_peft_adapter_path', None)
+        if peft_adapter_path is not None:
+            from peft import PeftModel
+            self.logger.info("Loading existing PEFT adapter from %s", peft_adapter_path)
+            model = PeftModel.from_pretrained(model, peft_adapter_path, is_trainable=True)
+            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            total_params = sum(p.numel() for p in model.parameters())
+            self.logger.info(
+                "PEFT adapter loaded - Trainable params: %s / %s (%.2f%%)",
+                f"{trainable_params:,}", f"{total_params:,}",
+                100 * trainable_params / total_params,
+            )
+            if trainable_params == 0:
+                raise ValueError("No trainable parameters after loading PEFT adapter.")
             return model
 
         self.logger.info("Applying LoRA configuration...")

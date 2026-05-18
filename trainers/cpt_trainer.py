@@ -34,10 +34,7 @@ class CPTTrainer(BaseTrainer):
         quantization_config = self.create_quantization_config()
         model_kwargs = self.prepare_model_kwargs(quantization_config)
 
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.config.model.base_model_name,
-            **model_kwargs
-        )
+        self.model = self.load_base_model_for_training(model_kwargs)
 
         self.tokenizer = self.setup_tokenizer_with_model(self.model)
         self.model = self.apply_lora_to_model(self.model, TaskType.CAUSAL_LM, quantization_config)

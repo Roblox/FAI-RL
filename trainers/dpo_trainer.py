@@ -38,10 +38,7 @@ class DPOTrainer(BaseTrainer):
         model_kwargs = self.prepare_model_kwargs(quantization_config)
 
         # Load main model
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.config.model.base_model_name,
-            **model_kwargs
-        )
+        self.model = self.load_base_model_for_training(model_kwargs)
 
         # When using LoRA, skip loading a separate reference model.
         # TRL's DPOTrainer supports ref_model=None with LoRA — it computes
@@ -157,13 +154,13 @@ class DPOTrainer(BaseTrainer):
         """Create DPO training configuration."""
         # Set report_to based on wandb configuration to prevent automatic wandb initialization
         report_to = ["wandb"] if self.config.wandb.enabled else []
-        
+
         # Set gradient checkpointing kwargs to use non-reentrant mode for DDP compatibility
         # This fixes the "Expected to mark a variable ready only once" error with LoRA + DDP
         gradient_checkpointing_kwargs = None
         if self.config.training.gradient_checkpointing:
             gradient_checkpointing_kwargs = {"use_reentrant": False}
-        
+
         return DPOConfig(
             output_dir=self.config.training.output_dir,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,

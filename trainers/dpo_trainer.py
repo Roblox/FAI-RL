@@ -150,19 +150,6 @@ class DPOTrainer(BaseTrainer):
         
         self.logger.info(f"Total dataset loaded with {total_examples} valid examples from {len(datasets)} datasets")
 
-    def _has_moe_target_parameters(self) -> bool:
-        """Return True if the loaded PEFT model uses MoE-specific target_parameters.
-
-        PEFT uses target_parameters (rather than target_modules) for fused MoE
-        layers such as gate_up_proj / down_proj on Qwen3-MoE. TRL 1.2+ creates
-        a second "ref" PEFT adapter which PEFT forbids when target_parameters is
-        already in use, so we need to detect this and take an alternate path.
-        """
-        for adapter_cfg in getattr(self.model, "peft_config", {}).values():
-            if getattr(adapter_cfg, "target_parameters", None):
-                return True
-        return False
-
     def setup_training_args(self) -> DPOConfig:
         """Create DPO training configuration."""
         # Set report_to based on wandb configuration to prevent automatic wandb initialization
@@ -173,21 +160,6 @@ class DPOTrainer(BaseTrainer):
         gradient_checkpointing_kwargs = None
         if self.config.training.gradient_checkpointing:
             gradient_checkpointing_kwargs = {"use_reentrant": False}
-
-        # TRL 1.2+ adds a second "ref" PEFT adapter as its implicit reference model.
-        # PEFT forbids this when the existing adapter uses target_parameters (MoE models
-        # such as Qwen3-30B-A3B). precompute_ref_log_probs=True makes TRL disable adapters
-        # temporarily instead of creating a second one, bypassing the constraint.
-        precompute_ref_log_probs = (
-            getattr(self.config.model, "use_lora", False)
-            and self.model is not None
-            and self._has_moe_target_parameters()
-        )
-        if precompute_ref_log_probs:
-            self.logger.info(
-                "MoE model with target_parameters detected: setting precompute_ref_log_probs=True "
-                "to avoid PEFT's single-adapter-with-target_parameters constraint."
-            )
 
         return DPOConfig(
             output_dir=self.config.training.output_dir,
@@ -214,7 +186,6 @@ class DPOTrainer(BaseTrainer):
             prediction_loss_only=self.config.training.prediction_loss_only,
             report_to=report_to,
             ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
-            precompute_ref_log_probs=precompute_ref_log_probs,
         )
 
     def setup_trainer(self):

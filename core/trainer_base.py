@@ -32,6 +32,41 @@ def _patch_weight_converter_init():
 
 _patch_weight_converter_init()
 
+
+# Workaround for PEFT 0.19.0 adding a restriction that only one LoRA adapter
+# per model can use target_parameters (the MoE-specific fused-layer mechanism).
+# TRL 1.2+ needs two adapters ("default" + "ref") for DPO reference logprob
+# computation. The restriction was not present in PEFT <= 0.17.0 and is
+# overly conservative — the underlying MoE layer code handles multiple adapters
+# correctly. We bypass it by temporarily hiding other adapters' target_parameters
+# while the new adapter's layers are being registered.
+def _patch_peft_moe_multi_adapter():
+    try:
+        from peft.tuners.lora.model import LoraModel
+        if getattr(LoraModel, "_fai_rl_multi_adapter_patched", False):
+            return
+        _orig_car = LoraModel._create_and_replace
+
+        def _patched_car(self, lora_config, adapter_name, *args, **kwargs):
+            saved = {}
+            if getattr(lora_config, "target_parameters", None):
+                for k, conf in self.peft_config.items():
+                    if k != adapter_name and getattr(conf, "target_parameters", None):
+                        saved[k] = conf.target_parameters
+                        conf.target_parameters = None
+            try:
+                return _orig_car(self, lora_config, adapter_name, *args, **kwargs)
+            finally:
+                for k, v in saved.items():
+                    self.peft_config[k].target_parameters = v
+
+        LoraModel._create_and_replace = _patched_car
+        LoraModel._fai_rl_multi_adapter_patched = True
+    except (ImportError, AttributeError):
+        pass
+
+_patch_peft_moe_multi_adapter()
+
 if TYPE_CHECKING:
     from transformers import BitsAndBytesConfig
 import wandb

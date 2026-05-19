@@ -33,6 +33,32 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._intern
 warnings.filterwarnings("ignore", message=".*'repr' attribute.*has no effect.*")
 warnings.filterwarnings("ignore", message=".*'frozen' attribute.*has no effect.*")
 from pathlib import Path
+
+# Workaround: transformers' build_peft_weight_mapping passes distributed_operation
+# as a constructor kwarg to WeightConverter, but older WeightConverter.__init__ only
+# accepts source_patterns, target_patterns, and operations. Patch once at import time.
+def _patch_weight_converter_init():
+    try:
+        from transformers.core_model_loading import WeightConverter
+        if getattr(WeightConverter, "_fai_rl_patched", False):
+            return
+        _orig_init = WeightConverter.__init__
+
+        def _patched_init(self, source_patterns, target_patterns, operations, **kwargs):
+            _orig_init(self, source_patterns, target_patterns, operations)
+            for k, v in kwargs.items():
+                try:
+                    setattr(self, k, v)
+                except (AttributeError, TypeError):
+                    pass
+
+        WeightConverter.__init__ = _patched_init
+        WeightConverter._fai_rl_patched = True
+    except (ImportError, AttributeError):
+        pass
+
+_patch_weight_converter_init()
+
 from peft import PeftModel, PeftConfig
 
 from core.config import ExperimentConfig

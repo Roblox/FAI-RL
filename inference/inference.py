@@ -181,7 +181,11 @@ Examples:
 
 def load_model_and_tokenizer(config):
     """Load model and tokenizer based on config."""
-    # Support model_paths (local) and model (HuggingFace hub)
+    import shutil
+    import tempfile
+    from utils.s3_utils import download_directory_from_s3
+
+    # Support model_paths (local/S3) and model (HuggingFace hub)
     if hasattr(config, 'model_path') and config.model_path:
         model_identifier = config.model_path
         is_local = True
@@ -190,7 +194,24 @@ def load_model_and_tokenizer(config):
         is_local = False
     else:
         raise ValueError("Either model_paths or model must be specified in config")
-    
+
+    # Download from S3 to a temp directory if given an s3:// URI
+    _s3_tmp_dir = None
+    if is_local and model_identifier.startswith("s3://"):
+        _s3_tmp_dir = tempfile.mkdtemp(prefix="fai_rl_s3_model_")
+        print(f"Downloading model from S3: {model_identifier} -> {_s3_tmp_dir}")
+        try:
+            download_directory_from_s3(
+                s3_uri=model_identifier,
+                local_dir=_s3_tmp_dir,
+                region=getattr(config, "s3_region", None),
+                endpoint_url=getattr(config, "s3_endpoint_url", None),
+            )
+        except Exception:
+            shutil.rmtree(_s3_tmp_dir, ignore_errors=True)
+            raise
+        model_identifier = _s3_tmp_dir
+
     # Handle relative paths for local models
     if is_local and not os.path.isabs(model_identifier):
         model_identifier = os.path.join(os.getcwd(), model_identifier)
@@ -305,7 +326,11 @@ def load_model_and_tokenizer(config):
         )
     
     model.eval()  # Set the model to inference mode
-    
+
+    if _s3_tmp_dir:
+        shutil.rmtree(_s3_tmp_dir, ignore_errors=True)
+        print(f"Cleaned up S3 temp directory: {_s3_tmp_dir}")
+
     return model, tokenizer
 
 

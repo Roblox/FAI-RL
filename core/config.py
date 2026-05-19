@@ -271,12 +271,16 @@ class InferenceConfig:
     response_column: str = "response"
     checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint inference
     
+    # S3 connection settings (used when model_paths entries start with s3://)
+    s3_region: Optional[str] = None
+    s3_endpoint_url: Optional[str] = None
+
     # Generation parameters
     temperature: float = 1.0
     top_p: float = 0.9
     max_new_tokens: int = 200
     do_sample: bool = True
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
 
@@ -312,12 +316,16 @@ class EvaluationConfig:
     # Multiple choice configuration
     choice_labels: List[str] = field(default_factory=lambda: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
     
+    # S3 connection settings (used when model_paths entries start with s3://)
+    s3_region: Optional[str] = None
+    s3_endpoint_url: Optional[str] = None
+
     # Generation parameters
     temperature: float = 1.0
     top_p: float = 0.9
     max_new_tokens: int = 10
     do_sample: bool = False
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
 

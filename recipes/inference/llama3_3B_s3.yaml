@@ -1,0 +1,37 @@
+# Inference Configuration for S3-hosted Model
+# This config runs inference on a model checkpoint stored in S3.
+# Use s3:// URIs in model_paths; the model is downloaded to a temp directory
+# before loading and cleaned up automatically afterwards.
+
+inference:
+  # Model Configuration - S3 checkpoint paths
+  model_paths:
+    - "s3://your-bucket/models/llama3-3B-inst-sft-full-v1/checkpoint-100"
+
+  # Optional S3 connection settings
+  # s3_region: "us-east-1"
+  # s3_endpoint_url: "https://s3.amazonaws.com"
+
+  # Path to save inference results (CSV format with input columns + response column)
+  output_file: "outputs/llama3-3B-inst-sft-lora-v1-infer-s3.csv"
+
+  # Dataset Configuration
+  dataset_name: "your-org/your-inference-dataset"
+  dataset_split: "test"
+  dataset_columns: ["persona", "prompt"]
+  response_column: "response"
+
+  # System Prompt
+  system_prompt: |
+    You are a helpful AI assistant. Answer the user's questions accurately and safely.
+
+    --------------------------------
+    Your persona: {persona}
+    User: {prompt}
+    --------------------------------
+
+  # Generation Parameters
+  temperature: 1.0
+  top_p: 0.9
+  max_new_tokens: 1000
+  do_sample: true

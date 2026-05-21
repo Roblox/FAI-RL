@@ -317,6 +317,42 @@ def download_file_from_s3(
     return tmp_path
 
 
+def upload_file_to_s3(
+    local_path: str,
+    bucket: str,
+    s3_key: str,
+    region: Optional[str] = None,
+    endpoint_url: Optional[str] = None,
+    uploader: str = "auto",
+) -> None:
+    """Upload a single local file to s3://<bucket>/<s3_key>."""
+    if not os.path.isfile(local_path):
+        logger.warning("Local file %s does not exist - skipping upload", local_path)
+        return
+
+    backend = _resolve_uploader(uploader)
+    logger.info("Uploading %s -> s3://%s/%s (backend=%s)", local_path, bucket, s3_key, backend)
+
+    if backend == "s5cmd":
+        argv = ["s5cmd"]
+        if endpoint_url:
+            argv.extend(["--endpoint-url", endpoint_url])
+        argv.extend(["cp", local_path, f"s3://{bucket}/{s3_key}"])
+        env = os.environ.copy()
+        if region and "AWS_REGION" not in env and "AWS_DEFAULT_REGION" not in env:
+            env["AWS_REGION"] = region
+        result = subprocess.run(argv, env=env, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"s5cmd upload failed (exit {result.returncode}): {result.stderr.strip()}"
+            )
+    else:
+        client = _get_s3_client(region, endpoint_url)
+        client.upload_file(local_path, bucket, s3_key)
+
+    logger.info("Uploaded %s -> s3://%s/%s", local_path, bucket, s3_key)
+
+
 def build_s3_callback(s3_config) -> Optional[S3UploadCallback]:
     """Create an S3UploadCallback from an S3Config, or None if disabled."""
     if not s3_config.enabled:

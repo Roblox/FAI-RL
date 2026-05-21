@@ -8,9 +8,15 @@ inference:
   model_paths:
     - "s3://your-bucket/models/llama3-3B-inst-sft-full-v1/checkpoint-100"
 
-  # Optional S3 connection settings
+  # Optional S3 connection settings (for model download and result upload)
   # s3_region: "us-east-1"
   # s3_endpoint_url: "https://s3.amazonaws.com"
+
+  # S3 result upload (optional) - upload output files after inference completes
+  # s3_upload_results: true
+  # s3_bucket: "your-results-bucket"
+  # s3_prefix: "inference-results/my-experiment"  # files go to s3://bucket/prefix/<filename>
+  # s3_uploader: "auto"  # "auto" | "boto3" | "s5cmd"
 
   # Path to save inference results (CSV format with input columns + response column)
   output_file: "outputs/llama3-3B-inst-sft-lora-v1-infer-s3.csv"

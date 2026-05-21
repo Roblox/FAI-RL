@@ -275,6 +275,12 @@ class InferenceConfig:
     s3_region: Optional[str] = None
     s3_endpoint_url: Optional[str] = None
 
+    # S3 result upload settings
+    s3_upload_results: bool = False
+    s3_bucket: str = ""
+    s3_prefix: str = ""
+    s3_uploader: str = "auto"
+
     # Generation parameters
     temperature: float = 1.0
     top_p: float = 0.9
@@ -319,6 +325,12 @@ class EvaluationConfig:
     # S3 connection settings (used when model_paths entries start with s3://)
     s3_region: Optional[str] = None
     s3_endpoint_url: Optional[str] = None
+
+    # S3 result upload settings
+    s3_upload_results: bool = False
+    s3_bucket: str = ""
+    s3_prefix: str = ""
+    s3_uploader: str = "auto"
 
     # Generation parameters
     temperature: float = 1.0

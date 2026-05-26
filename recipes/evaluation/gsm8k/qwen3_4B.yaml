@@ -32,6 +32,13 @@ evaluation:
     }}
     Let's think step by step.
   
+  # S3 result upload (optional) - upload output files after evaluation completes
+  # s3_upload_results: true
+  # s3_bucket: "your-results-bucket"
+  # s3_prefix: "eval-results/my-experiment"  # files go to s3://bucket/prefix/<filename>
+  # s3_region: "us-east-1"
+  # s3_uploader: "auto"  # "auto" | "boto3" | "s5cmd"
+
   # Generation Parameters
   # Controls how the model generates responses during evaluation
   temperature: 0.0                           # Sampling temperature for response generation (0.0 = deterministic, 2.0 = very random)

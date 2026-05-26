@@ -583,8 +583,26 @@ def run_inference(config, debug=False):
     summary_file = config.output_file.replace('.csv', '_summary.json')
     with open(summary_file, 'w', encoding='utf-8') as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
-    
+
     print(f"Summary saved to: {summary_file}")
+
+    # Upload results to S3 if configured
+    if getattr(config, 's3_upload_results', False):
+        from utils.s3_utils import upload_file_to_s3
+        if not config.s3_bucket:
+            raise ValueError("s3_bucket is required when s3_upload_results is true")
+        prefix = config.s3_prefix.rstrip("/")
+        for local_file in [config.output_file, summary_file]:
+            s3_key = f"{prefix}/{os.path.basename(local_file)}" if prefix else os.path.basename(local_file)
+            upload_file_to_s3(
+                local_file,
+                config.s3_bucket,
+                s3_key,
+                region=getattr(config, 's3_region', None),
+                endpoint_url=getattr(config, 's3_endpoint_url', None),
+                uploader=getattr(config, 's3_uploader', 'auto'),
+            )
+        print(f"Results uploaded to s3://{config.s3_bucket}/{prefix}/")
 
 
 def load_inference_recipe_with_overrides(args):

@@ -179,7 +179,7 @@ Examples:
     return args
 
 
-def load_model_and_tokenizer(config):
+def load_model_and_tokenizer(config, local_rank: int = -1):
     """Load model and tokenizer based on config."""
     import shutil
     import tempfile
@@ -215,19 +215,24 @@ def load_model_and_tokenizer(config):
     # Handle relative paths for local models
     if is_local and not os.path.isabs(model_identifier):
         model_identifier = os.path.join(os.getcwd(), model_identifier)
-    
+
     # Get optimal dtype and device settings for current platform
     device_type = get_device_type()
     optimal_dtype = get_optimal_dtype()
-    
-    # Determine device_map based on platform
-    # MPS doesn't support device_map="auto" well, use explicit device placement
+
+    # Determine device_map based on platform.
+    # In distributed mode each process owns exactly one GPU (local_rank), so we pin
+    # to that device instead of using "auto" (which would try to claim all GPUs).
     if device_type == "mps":
         device_map = {"": "mps"}
         print(f"Running on Apple Silicon (MPS) with dtype: {optimal_dtype}")
     elif device_type == "cuda":
-        device_map = "auto"
-        print(f"Running on CUDA with dtype: {optimal_dtype}")
+        if local_rank >= 0:
+            device_map = {"": local_rank}
+            print(f"Running on CUDA GPU {local_rank} (distributed) with dtype: {optimal_dtype}")
+        else:
+            device_map = "auto"
+            print(f"Running on CUDA with dtype: {optimal_dtype}")
     else:
         device_map = {"": "cpu"}
         print(f"Running on CPU with dtype: {optimal_dtype}")
@@ -367,11 +372,27 @@ def generate_response(model, tokenizer, prompt: str, config):
 
 def run_inference(config, debug=False):
     """Run inference on the specified dataset."""
+    import torch.distributed as dist
+
+    # Detect distributed launch (torchrun / deepspeed sets LOCAL_RANK / WORLD_SIZE).
+    local_rank = int(os.environ.get("LOCAL_RANK", -1))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    is_distributed = local_rank >= 0 and world_size > 1
+
+    if is_distributed:
+        if not dist.is_initialized():
+            dist.init_process_group(backend="nccl")
+        rank = dist.get_rank()
+        torch.cuda.set_device(local_rank)
+        print(f"[Rank {rank}/{world_size}] Distributed inference initialised")
+    else:
+        rank = 0
+
     # Determine if we should use API or local model
     # API requires both model and api_key
     use_api = (hasattr(config, 'model') and config.model is not None) and \
               (hasattr(config, 'api_key') and config.api_key is not None)
-    
+
     # Determine checkpoint paths to process
     checkpoint_paths = []
     if hasattr(config, 'model_paths') and config.model_paths:
@@ -386,7 +407,7 @@ def run_inference(config, debug=False):
         checkpoint_paths = [None]  # Placeholder for HF model
     else:
         raise ValueError("Either model_paths or model must be specified in config")
-    
+
     # Track if we're running multi-checkpoint inference
     is_multi_checkpoint = len(checkpoint_paths) > 1
 
@@ -422,11 +443,21 @@ def run_inference(config, debug=False):
         # Get the appropriate split
         data_split = dataset[config.dataset_split] if config.dataset_split in dataset else dataset[list(dataset.keys())[0]]
     
-    print(f"Processing {len(data_split)} examples from the dataset...")
-    
+    total_examples = len(data_split)
+    print(f"Total dataset size: {total_examples} examples")
+
+    # Shard dataset across ranks so each process only handles its slice.
+    # Rank r processes indices r, r+world_size, r+2*world_size, ...
+    if is_distributed:
+        local_indices = list(range(rank, total_examples, world_size))
+        data_split = [data_split[i] for i in local_indices]
+        print(f"[Rank {rank}] Processing {len(data_split)} / {total_examples} examples")
+    else:
+        print(f"Processing {total_examples} examples from the dataset...")
+
     # Process all checkpoints
     all_results = []
-    
+
     for checkpoint_idx, checkpoint_path in enumerate(checkpoint_paths):
         # Load model for this checkpoint (if not using API)
         if use_api:
@@ -445,9 +476,9 @@ def run_inference(config, debug=False):
                 # Using HuggingFace model directly
                 print(f"Using vanilla HuggingFace model: {config.model}")
                 checkpoint_name = config.model
-            
+
             # Load model and tokenizer for this checkpoint
-            model, tokenizer = load_model_and_tokenizer(config)
+            model, tokenizer = load_model_and_tokenizer(config, local_rank=local_rank)
         
         # Process the dataset for this checkpoint
         checkpoint_results = []
@@ -521,7 +552,7 @@ def run_inference(config, debug=False):
         # Add results from this checkpoint to overall results
         all_results.extend(checkpoint_results)
         print(f"Completed checkpoint {checkpoint_idx + 1}/{len(checkpoint_paths)}: {len(checkpoint_results)} examples processed")
-        
+
         # Clean up model to free memory before loading next checkpoint
         if model is not None:
             del model
@@ -531,21 +562,46 @@ def run_inference(config, debug=False):
                 torch.cuda.empty_cache()
             elif hasattr(torch, 'mps') and hasattr(torch.mps, 'empty_cache'):
                 torch.mps.empty_cache()
-    
-    # Use all_results as the final results
-    results = all_results
-    
-    # Create output directory if it doesn't exist
-    output_dir = os.path.dirname(config.output_file)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-    
-    # Save results to CSV file
-    df = pd.DataFrame(results)
-    df.to_csv(config.output_file, index=False, encoding='utf-8', quoting=csv.QUOTE_ALL)
-    
-    print(f"\nResults saved to: {config.output_file}")
-    print(f"Processed {len(results)} examples successfully")
+
+    # Gather results from all ranks onto rank 0.
+    # Each rank holds every world_size-th example (indices rank, rank+world_size, ...).
+    # all_gathered[r] is the list from rank r.  Interleaving restores the original order.
+    if is_distributed:
+        all_gathered = [None] * world_size
+        dist.all_gather_object(all_gathered, all_results)
+        if rank == 0:
+            max_len = max(len(r) for r in all_gathered)
+            merged = []
+            for i in range(max_len):
+                for r in all_gathered:
+                    if i < len(r):
+                        merged.append(r[i])
+            results = merged
+        else:
+            results = []  # non-zero ranks don't write
+    else:
+        results = all_results
+
+    # Rank 0 writes output; other ranks wait at the barrier below before returning
+    # so callers that read config.output_file after run_inference() returns are safe.
+    if rank == 0:
+        # Create output directory if it doesn't exist
+        output_dir = os.path.dirname(config.output_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        # Save results to CSV file
+        df = pd.DataFrame(results)
+        df.to_csv(config.output_file, index=False, encoding='utf-8', quoting=csv.QUOTE_ALL)
+
+        print(f"\nResults saved to: {config.output_file}")
+        print(f"Processed {len(results)} examples successfully")
+
+    if is_distributed:
+        dist.barrier()  # all ranks wait until rank 0 has finished writing
+
+    if rank != 0:
+        return
     
     # Determine model info for summary
     if use_api:
@@ -562,11 +618,11 @@ def run_inference(config, debug=False):
         inference_type = 'huggingface_vanilla'
     
     # Calculate total expected examples (dataset size * number of checkpoints)
-    total_expected = len(data_split) * len(checkpoint_paths)
-    
+    total_expected = total_examples * len(checkpoint_paths)
+
     # Create summary
     summary = {
-        'total_examples': len(data_split),
+        'total_examples': total_examples,
         'num_checkpoints': len(checkpoint_paths),
         'total_expected_results': total_expected,
         'successful_examples': len(results),

@@ -23,6 +23,7 @@ from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
 from trainers.gspo_trainer import GSPOTrainer
 from trainers.sft_trainer import SFTTrainer
+from trainers.sft_vlm_trainer import SFTVLMTrainer
 from utils.logging_utils import TrainingLogger, log_system_info, setup_logging
 from utils.recipe_overrides import apply_overrides_to_recipe, parse_value, set_nested_value, load_recipe_from_yaml
 from utils.device_utils import get_device_type, supports_deepspeed, is_mps_available
@@ -38,7 +39,7 @@ logger = setup_logging("FAI-RL.launcher", file_output=False)
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Train CPT, DPO, GRPO, GSPO, or SFT model",
+        description="Train CPT, DPO, GRPO, GSPO, SFT, or SFT_VLM (multimodal) model",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -286,7 +287,7 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
     if not recipe_dict.get('training', {}).get('algorithm'):
         raise ValueError(
             "training.algorithm is required. "
-            "Provide it via recipe file or CLI: training.algorithm='sft' (options: cpt, sft, dpo, grpo, gspo)"
+            "Provide it via recipe file or CLI: training.algorithm='sft' (options: cpt, sft, sft_vlm, dpo, grpo, gspo)"
         )
     
     # Handle datasets configuration
@@ -412,6 +413,8 @@ def main():
             trainer_class = GSPOTrainer
         elif algorithm == "sft":
             trainer_class = SFTTrainer
+        elif algorithm == "sft_vlm":
+            trainer_class = SFTVLMTrainer
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
             

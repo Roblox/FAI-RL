@@ -152,6 +152,12 @@ from utils.device_utils import (
 class BaseTrainer(ABC):
     """Abstract base class for all trainers."""
 
+    # Auto class used to load the base model. Text trainers use
+    # AutoModelForCausalLM (the default); the multimodal trainer overrides this
+    # with AutoModelForImageTextToText so the same loading/PEFT-resume logic in
+    # load_base_model_for_training works unchanged for vision-language models.
+    _auto_model_class = AutoModelForCausalLM
+
     def __init__(self, config: ExperimentConfig, logger: Optional[logging.Logger] = None):
         self.config = config
         # Use provided logger or create a new one
@@ -447,9 +453,9 @@ class BaseTrainer(ABC):
             self._peft_adapter_path = model_path
             # ignore_mismatched_sizes is not needed when loading the base model clean.
             clean_kwargs = {k: v for k, v in model_kwargs.items() if k != "ignore_mismatched_sizes"}
-            return AutoModelForCausalLM.from_pretrained(base_model_path, **clean_kwargs)
+            return self._auto_model_class.from_pretrained(base_model_path, **clean_kwargs)
 
-        return AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
+        return self._auto_model_class.from_pretrained(model_path, **model_kwargs)
 
     def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM,
                             quantization_config: Optional[BitsAndBytesConfig] = None):

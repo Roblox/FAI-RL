@@ -39,6 +39,7 @@ from core.config import ExperimentConfig
 from utils.config_validation import validate_api_config
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 from utils.logging_utils import setup_logging, SafeLogger
+from utils.dataset_utils import format_multiple_choice_for_inference
 from utils.device_utils import (
     get_device_type,
     get_optimal_dtype,
@@ -49,44 +50,6 @@ from utils.device_utils import (
 # This prevents logging errors from crashing long-running inference jobs
 _base_logger = setup_logging("Inference")
 logger = SafeLogger(_base_logger)
-
-
-def format_multiple_choice_for_inference(choices, choice_labels=None):
-    """
-    Format a list of choices into A/B/C/D format for inference.
-    
-    Args:
-        choices: List of choice strings or string representation of list
-        choice_labels: List of labels to use (default: ["A", "B", "C", "D", ...])
-    
-    Returns:
-        Formatted string with labeled choices
-    """
-    if choice_labels is None:
-        choice_labels = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
-    
-    # Handle string representation of list
-    if isinstance(choices, str):
-        try:
-            # Try to evaluate as list if it looks like one
-            if choices.startswith('[') and choices.endswith(']'):
-                choices = eval(choices)
-            else:
-                # Split by comma if it's comma-separated
-                choices = [choice.strip() for choice in choices.split(',')]
-        except:
-            # If parsing fails, treat as single choice
-            choices = [choices]
-    
-    formatted_choices = []
-    for i, choice in enumerate(choices):
-        if i < len(choice_labels):
-            formatted_choices.append(f"{choice_labels[i]}. {choice}")
-        else:
-            # Fallback if we have more choices than labels
-            formatted_choices.append(f"{i+1}. {choice}")
-    
-    return "\n".join(formatted_choices)
 
 
 def has_template_placeholders(template):

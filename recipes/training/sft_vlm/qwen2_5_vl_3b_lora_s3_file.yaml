@@ -42,7 +42,13 @@ data:
   image_fetch_retries: 3
   max_image_pixels: 262144         # ~0.25MP keeps the vision-token count bounded
 
-  system_prompt: "You are a helpful multimodal assistant. Answer based on the image."
+  # system_prompt is a .format() template; {question} and {response} are filled per row
+  # from question_column / response_column. {response} is the target answer -- include it
+  # only for labeling/eval-style data (it leaks the answer for generative SFT).
+  system_prompt: |
+    You are a helpful multimodal assistant. Answer the user's question based on the image.
+    Question: {question}
+    Response: {response}
 
 training:
   algorithm: "sft_vlm"

@@ -48,7 +48,13 @@ data:
 
   # NOTE: max_length is forced to None internally for VLMs to avoid truncating
   # image placeholder tokens. The text knobs below are unused by sft_vlm.
-  system_prompt: "You are a helpful multimodal assistant. Answer based on the image."
+  # system_prompt is a .format() template; {question} and {response} are filled per row
+  # from question_column / response_column. {response} is the target answer -- include it
+  # only for labeling/eval-style data (it leaks the answer for generative SFT).
+  system_prompt: |
+    You are a helpful multimodal assistant. Answer the user's question based on the image.
+    Question: {question}
+    Response: {response}
 
 training:
   algorithm: "sft_vlm"

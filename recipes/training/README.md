@@ -134,9 +134,17 @@ data:
   image_fetch_timeout: 15
   image_fetch_retries: 3
   max_image_pixels: 1048576          # optional: downscale large images to bound vision tokens / memory
+  # system_prompt is a .format() template (like the text SFT recipes): {question} and
+  # {response} are filled per row. {response} leaks the target, so use it only for
+  # labeling/eval-style data. Double any literal braces as {{ }}.
+  system_prompt: |
+    You are a helpful multimodal assistant. Answer the user's question based on the image.
+    Question: {question}
+    Response: {response}
 ```
 
 Notes:
+- `system_prompt` is a `str.format()` template supporting `{question}` and `{response}` (the configured question/response columns), mirroring the text-SFT templating above. Unknown placeholders fall back to the literal text.
 - Images are fetched from their URLs at startup; rows whose images can't be fetched/decoded are dropped (with a logged count).
 - A small example dataset of public image URLs ships at `recipes/training/sft_vlm/example_data.jsonl`. Any HF/local/S3 dataset with an image-URL column works — just point `name` at it.
 - `data.max_length` is forced to `None` internally for VLMs so image placeholder tokens are never truncated.

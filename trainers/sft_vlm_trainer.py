@@ -163,9 +163,44 @@ class SFTVLMTrainer(BaseTrainer):
         new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
         return img.resize(new_size)
 
+    def _render_system_prompt(self, template: str, question: str, response: str) -> str:
+        """Fill the system_prompt template with the row's question/response values.
+
+        Mirrors the text SFT trainer, whose ``system_prompt`` is a ``str.format``
+        template keyed by the dataset's column names. The placeholder names here
+        are the recipe's configured ``question_column`` / ``response_column`` -- a
+        column name is just a variable, so renaming the column renames the
+        placeholder (e.g. ``question_column: "query"`` -> use ``{query}``). Falls
+        back to the literal text if the template references an unknown key or is
+        malformed; double any literal braces as ``{{`` / ``}}``.
+
+        Note: ``response`` is also the assistant (target) turn, so referencing it
+        here duplicates that turn and has no value to fill at inference -- it suits
+        only labeling/eval-style data, not generative VLM SFT.
+        """
+        if not template:
+            return template
+        fmt = {key: question for key in self._sysprompt_question_keys}
+        fmt.update({key: response for key in self._sysprompt_response_keys})
+        try:
+            return template.format(**fmt)
+        except (KeyError, IndexError, ValueError) as e:
+            if not getattr(self, "_system_prompt_warn_emitted", False):
+                available = sorted(self._sysprompt_question_keys | self._sysprompt_response_keys)
+                self.logger.warning(
+                    f"system_prompt template not rendered ({e}); using literal text. "
+                    f"Available placeholders: {available}. Double any literal braces as {{{{ }}}}."
+                )
+                self._system_prompt_warn_emitted = True
+            return template
+
     def _make_transform(self):
         """Build the lazy with_transform callable (batched columnar input)."""
         system_prompt = self.config.data.system_prompt
+        # Placeholder names come from the recipe's column config (a column name is
+        # just a variable); the union covers all datasets being concatenated.
+        self._sysprompt_question_keys = {di.question_column for di in self.config.data.datasets}
+        self._sysprompt_response_keys = {di.response_column for di in self.config.data.datasets}
 
         def transform(batch):
             out_messages, out_images = [], []
@@ -181,7 +216,10 @@ class SFTVLMTrainer(BaseTrainer):
                     # of image placeholders into the first user message.
                     messages = []
                     if system_prompt:
-                        messages.append({"role": "system", "content": system_prompt})
+                        content = self._render_system_prompt(
+                            system_prompt, batch["_question"][i], batch["_response"][i]
+                        )
+                        messages.append({"role": "system", "content": content})
                     messages.append({"role": "user", "content": batch["_question"][i]})
                     messages.append({"role": "assistant", "content": batch["_response"][i]})
 

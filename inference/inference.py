@@ -565,8 +565,25 @@ def run_inference(config, debug=False):
     # Load dataset once (shared across all checkpoints)
     print(f"Loading dataset: {config.dataset_name}")
     
+    # S3-hosted dataset file (csv): download to a temp path, load it, then delete it.
+    if config.dataset_name.startswith('s3://'):
+        from utils.s3_utils import download_file_from_s3
+        print(f"Detected S3 URI, downloading dataset: {config.dataset_name}")
+        _s3_dataset_tmp = download_file_from_s3(
+            config.dataset_name,
+            region=getattr(config, 's3_region', None),
+            endpoint_url=getattr(config, 's3_endpoint_url', None),
+        )
+        try:
+            df = pd.read_csv(_s3_dataset_tmp)
+        finally:
+            os.unlink(_s3_dataset_tmp)
+        print(f"Loaded {len(df)} rows from S3 dataset file")
+
+        # Convert DataFrame to list of dicts (similar to HuggingFace dataset format)
+        data_split = df.to_dict('records')
     # Check if dataset_name has CSV extension - if so, load from local file
-    if config.dataset_name.endswith('.csv'):
+    elif config.dataset_name.endswith('.csv'):
         print(f"Detected CSV file, loading from local path: {config.dataset_name}")
         
         # Handle relative and absolute paths

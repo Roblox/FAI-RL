@@ -34,6 +34,8 @@ YAML configuration files for all supported training algorithms. Each recipe is a
 |--------|---------------|--------------|-------|
 | `sft_vlm/qwen2_5_vl_3b_lora.yaml` | Local file (image URLs) | HuggingFace Hub | LoRA, Qwen2.5-VL-3B — small, for validating the pipeline |
 | `sft_vlm/qwen3_vl_30b_a3b_qlora.yaml` | Local file (image URLs) | HuggingFace Hub | QLoRA (4-bit), Qwen3-VL-30B-A3B MoE VLM |
+| `sft_vlm/qwen2_5_vl_3b_lora_s3_file.yaml` | S3 file (`s3://bucket/key.jsonl`, image URLs) | HuggingFace Hub | LoRA, Qwen2.5-VL-3B — dataset file loaded from S3 |
+| `sft_vlm/qwen3_vl_30b_a3b_lora_s3_file.yaml` | S3 file (`s3://bucket/key.jsonl`, image URLs) | HuggingFace Hub | LoRA, Qwen3-VL-30B-A3B MoE VLM — dataset file loaded from S3 |
 
 Fine-tunes a vision-language model on `(image, prompt) -> response` data. Images are supplied as **HTTP(S) URLs** (or local paths) and fetched into PIL images at data-loading time. See [Multimodal datasets](#multimodal-datasets-sft_vlm) below.
 

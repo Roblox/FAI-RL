@@ -20,7 +20,7 @@ inference:
   # path at startup). A local CSV path or a HuggingFace dataset id with an image-URL
   # column works too -- just point dataset_name at it. boto3 creds resolve from the
   # environment; s3_region / s3_endpoint_url (below) override when set.
-  dataset_name: "s3://your-bucket/datasets/vlm_example_data.csv"
+  dataset_name: "s3://your-bucket/datasets/example_inference_data.csv"
   s3_region: null          # AWS region override (null = use AWS_DEFAULT_REGION). Also applies to s3:// model_paths.
   s3_endpoint_url: null     # Custom S3-compatible endpoint (null = AWS S3)
   dataset_split: "test"

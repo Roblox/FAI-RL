@@ -1,0 +1,106 @@
+# Multimodal (image + text) LoRA SFT recipe for Qwen3-VL-30B-A3B-Instruct.
+#
+# Qwen3-VL-30B-A3B is a Mixture-of-Experts VLM (~30B total / ~3B active params).
+# At this scale the base weights (~60GB in bf16) do NOT fit replicated per-GPU,
+# so this recipe trains with DeepSpeed ZeRO-3 + CPU offload to shard parameters
+# and optimizer state across GPUs. Launch it multi-GPU through the trainer so it
+# routes to the DeepSpeed launcher:
+#
+#   python trainers/train.py --num-gpus 8 \
+#     --recipe recipes/training/sft_vlm/qwen3_vl_30b_a3b_lora.yaml
+#
+# (Single-GPU is not realistic for this model; use the qwen2_5_vl_3b recipe for
+# smoke tests.) Swap in your own dataset under `data.datasets`.
+model:
+  base_model_name: "Qwen/Qwen3-VL-30B-A3B-Instruct"
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_4bit: false
+  use_flash_attention: true        # falls back to SDPA automatically if flash_attn isn't installed
+
+  freeze_vision_tower: true
+
+  use_lora: true
+  lora_r: 16                       # a bit more capacity than the 3B recipe (r=8) for the larger LM
+  lora_alpha: 32                   # ~2x rank
+  lora_dropout: 0.05
+  # Attention projections only. The MoE expert MLPs (gate/up/down per expert)
+  # are intentionally left untouched -- adapting them explodes the adapter count
+  # and is not needed for standard VLM SFT.
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  lora_bias: "none"
+
+data:
+  datasets:
+    # Placeholder dataset (the 5-row smoke example). Replace with your real data;
+    # the schema is image_column (URL/path) + question/response columns, or a
+    # messages_column already in conversational format.
+    - name: "recipes/training/sft_vlm/example_training_image_url.csv"
+      image_column: "image_url"
+      question_column: "question"
+      response_column: "response"
+
+  image_cache_dir: "data/vlm_image_cache"
+  image_fetch_timeout: 15
+  image_fetch_retries: 3
+  max_image_pixels: 1048576        # ~1MP; raise/lower to trade quality vs. memory
+
+  # system_prompt is a .format() template; {question} and {response} are filled per row
+  # from question_column / response_column. {response} is the target answer -- include it
+  # only for labeling/eval-style data (it leaks the answer for generative SFT).
+  system_prompt: |
+    You are a helpful multimodal assistant. Answer the user's question based on the image.
+    Question: {question}
+    Response: {response}
+
+training:
+  algorithm: "sft_vlm"
+  output_dir: "models/qwen3-vl-30b-a3b-sft-lora-v1"
+
+  # ZeRO-3 + CPU offload shards/offloads the 30B base weights and optimizer state
+  # so LoRA SFT fits across multiple GPUs. Requires DeepSpeed to be installed.
+  deepspeed_config: "configs/deepspeed/zero3_config.json"
+
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8   # effective batch = 1 x 8 x num_gpus
+  learning_rate: 1.0e-4
+  num_train_epochs: 1
+  max_steps: -1                    # -1 = train for num_train_epochs
+  warmup_steps: 20
+
+  logging_steps: 5
+  save_steps: 50
+  eval_steps: 50
+
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true     # essential at this scale
+
+  dataloader_num_workers: 4
+  dataloader_pin_memory: false
+  dataloader_drop_last: true
+
+wandb:
+  enabled: false                                          # Enable W&B logging
+  project: "your-project"                                 # W&B project name
+  entity: "your-wandb-entity"                             # W&B username or team name
+  name: "Qwen3-VL-30B-A3B-Inst-LoRA-SFT"                  # Experiment name in W&B
+  tags: ["SFT", "sft_vlm", "qwen3-vl", "30B-A3B", "LoRA"] # Tags for organizing experiments
+  api_key: null                                           # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)
+
+# S3 Checkpoint Upload
+# Automatically uploads checkpoints and the final model to S3
+s3:
+  enabled: false                                         # Enable S3 checkpoint upload
+  bucket: "your-s3-bucket"                               # S3 bucket name
+  prefix: "checkpoints/qwen3-vl-30b-a3b-sft-lora-v1"     # S3 key prefix (folder path inside bucket)
+  region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
+  endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
+  upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)
+  upload_final_model: true                               # Upload the final model at end of training
+  delete_local_after_upload: false                       # Delete local checkpoint files after successful upload

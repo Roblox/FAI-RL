@@ -15,6 +15,7 @@ from utils.device_utils import (
     is_cuda_available,
     is_mps_available,
     supports_quantization,
+    resolve_transformers_attn_implementation,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,8 +111,9 @@ def load_model_and_tokenizer(
     if quantization_config is not None:
         model_kwargs["quantization_config"] = quantization_config
 
-    if use_flash_attention:
-        model_kwargs["attn_implementation"] = "flash_attention_2"
+    attn_impl = resolve_transformers_attn_implementation(use_flash_attention)
+    if attn_impl is not None:
+        model_kwargs["attn_implementation"] = attn_impl
 
     # Load model
     model = AutoModelForCausalLM.from_pretrained(**model_kwargs)

@@ -1,0 +1,51 @@
+# Inference for a fine-tuned Qwen2.5-VL (multimodal) checkpoint.
+#
+# Setting `image_column` switches inference into VLM mode: for each row the image
+# URL/path in that column is fetched into a PIL image and fed to the model
+# alongside the templated text prompt. Use this after training with the sft_vlm
+# algorithm (recipes/training/sft_vlm/qwen2_5_vl_3b_lora.yaml).
+#
+# Run from the repo root:
+#   CUDA_VISIBLE_DEVICES=0 fai-rl-inference --recipe recipes/inference/qwen2_5_vl_3b.yaml
+#   # or: python inference/inference.py --recipe recipes/inference/qwen2_5_vl_3b.yaml
+inference:
+  # Local fine-tuned checkpoint (LoRA adapter + processor) or a vanilla VLM hub id.
+  # Multiple paths run multi-checkpoint inference into one CSV (see README).
+  model_paths:
+    - "models/qwen2.5-vl-3b-sft-lora-smoke"
+
+  output_file: "outputs/qwen2.5-vl-3b-sft-lora-smoke-infer.csv"
+
+  # Dataset: an S3-hosted CSV with image_url + question columns (downloaded to a temp
+  # path at startup). A local CSV path or a HuggingFace dataset id with an image-URL
+  # column works too -- just point dataset_name at it. boto3 creds resolve from the
+  # environment; s3_region / s3_endpoint_url (below) override when set.
+  dataset_name: "s3://your-bucket/datasets/example_inference_data.csv"
+  s3_region: null          # AWS region override (null = use AWS_DEFAULT_REGION). Also applies to s3:// model_paths.
+  s3_endpoint_url: null     # Custom S3-compatible endpoint (null = AWS S3)
+  dataset_split: "test"
+  dataset_columns: ["image_url", "question"]
+  response_column: "response"
+
+  # Multimodal config: image_column names the column holding the image URL/path
+  # (or a list of them). Its presence is what enables VLM inference.
+  image_column: "image_url"
+  image_cache_dir: "data/vlm_image_cache"
+  image_fetch_timeout: 15
+  image_fetch_retries: 3
+  max_image_pixels: 262144          # ~0.25MP keeps inference light
+
+  # The prompt template is filled per row from dataset_columns and becomes the
+  # user text accompanying the image. It MUST contain at least one {placeholder}.
+  # Mirrors the sft_vlm training system_prompt; the training "Response: {response}"
+  # line becomes a bare "Response:" cue here ({response} is what the model generates).
+  system_prompt: |
+    You are a helpful multimodal assistant. Answer the user's question based on the image.
+    Question: {question}
+    Response:
+
+  # Generation parameters. Greedy decoding for reproducible captions.
+  temperature: 1.0
+  top_p: 0.9
+  max_new_tokens: 256
+  do_sample: false

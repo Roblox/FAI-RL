@@ -35,6 +35,7 @@ data:
 training:
   algorithm: "grpo"                                     # Training algorithm: sft, dpo, ppo, grpo, gspo
   output_dir: "models/llama3-3B-inst-grpo-full-v1"      # Directory to save trained model and checkpoints
+  deepspeed_config: "configs/deepspeed/zero1_config.json"  # ZeRO-1 (sharded optimizer states) for full fine-tuning
   
   # Core training hyperparameters
   per_device_train_batch_size: 1                        # Batch size per GPU (adjust based on GPU memory)
@@ -70,7 +71,21 @@ training:
 # Optional experiment tracking and monitoring
 wandb:
   enabled: false                                        # Enable W&B logging
-  project: "rl"                                         # W&B project name
-  entity: "fai-llmaas"                                  # W&B username or team name
+  project: "your-project"                                         # W&B project name
+  entity: "your-wandb-entity"                                  # W&B username or team name
   name: "Llama-3.1-3B-Inst-Full-GRPO"                   # Experiment name in W&B
   tags: ["GRPO", "llama3", "3B-Inst", "GSM8K", "OpenMathInstruct-2"]  # Tags for organizing experiments
+  api_key: null                                         # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)
+
+# S3 Checkpoint Upload
+# Automatically uploads checkpoints and the final model to S3
+s3:
+  enabled: false                                         # Enable S3 checkpoint upload
+  bucket: "your-s3-bucket"                               # S3 bucket name
+  prefix: "checkpoints/llama3-3B-inst-grpo-full-v1"      # S3 key prefix (folder path inside bucket)
+  region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
+  endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
+  upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)
+  upload_final_model: true                               # Upload the final model at end of training
+  delete_local_after_upload: false                       # Delete local checkpoint files after successful upload

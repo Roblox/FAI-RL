@@ -8,6 +8,7 @@ across different platforms including:
 - CPU (fallback for all platforms)
 """
 
+import importlib.util
 import logging
 import platform
 import sys
@@ -132,6 +133,44 @@ def supports_quantization() -> bool:
         return True
     except ImportError:
         return False
+
+
+def flash_attn_installed() -> bool:
+    """Return True if the optional flash_attn (Flash Attention 2) package is importable."""
+    try:
+        return importlib.util.find_spec("flash_attn") is not None
+    except Exception:
+        return False
+
+
+def resolve_transformers_attn_implementation(use_flash_attention: bool) -> Optional[str]:
+    """Choose ``attn_implementation`` for ``transformers`` model loading.
+
+    When ``use_flash_attention`` is True but ``flash_attn`` is not installed, falls back
+    to ``sdpa`` on CUDA (or ``eager`` otherwise) instead of raising ImportError.
+
+    When ``use_flash_attention`` is False on CUDA, returns ``sdpa`` so a model or hub
+    config cannot implicitly require ``flash_attn``.
+
+    Returns:
+        ``\"flash_attention_2\"``, ``\"sdpa\"``, ``\"eager\"``, or ``None`` (omit kwarg).
+    """
+    if use_flash_attention:
+        if flash_attn_installed():
+            return "flash_attention_2"
+        logger.warning(
+            "model.use_flash_attention is True but flash_attn is not installed. "
+            "Using PyTorch SDPA instead. For Flash Attention 2 on NVIDIA GPUs see: "
+            "https://github.com/Dao-AILab/flash-attention"
+        )
+        if is_cuda_available():
+            return "sdpa"
+        return "eager"
+
+    if is_cuda_available():
+        return "sdpa"
+
+    return None
 
 
 def supports_deepspeed() -> bool:

@@ -1,0 +1,99 @@
+# Model Configuration
+# Defines the base model and its loading parameters
+model:
+  base_model_name: "meta-llama/Llama-3.2-3B-Instruct"   # HuggingFace model name or local path
+  torch_dtype: "bfloat16"                               # Data type for model weights (bfloat16/float16/float32)
+  low_cpu_mem_usage: true                               # Reduce CPU memory usage during model loading
+  load_in_8bit: false                                   # Enable 8-bit quantization
+  load_in_4bit: false                                   # Enable 4-bit quantization (for QLoRA)
+  use_flash_attention: false                            # Use Flash Attention for faster training (if supported)
+
+  # LoRA configuration (for parameter-efficient fine-tuning)
+  use_lora: true                                        # Enable LoRA
+  lora_r: 8                                             # LoRA rank (8 for LoRA, 16 for QLoRA)
+  lora_alpha: 16                                        # LoRA alpha scaling factor (typically 2x rank)
+  lora_dropout: 0.05                                    # LoRA dropout rate
+  lora_target_modules:                                  # Target modules for LoRA
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_bias: "none"                                     # Bias handling: "none", "all", or "lora_only"
+
+# Data Configuration
+# Specifies datasets and preprocessing settings
+data:
+  datasets:
+    # S3 dataset loading: set name to an s3:// URI ending in .jsonl, .json, .csv, or .parquet.
+    # boto3 credentials are resolved from the environment (IAM role, AWS_ACCESS_KEY_ID, etc.).
+    # Expected JSONL schema: {"prompt": "...", "chosen": "...", "rejected": "..."}
+    - name: "s3://your-bucket/datasets/preferences.jsonl" # S3 URI to the dataset file (required)
+      prompt_column: "prompt"                            # Column containing the input prompt (default: "prompt")
+      chosen_column: "chosen"                            # Column containing the preferred response (default: "chosen")
+      rejected_column: "rejected"                        # Column containing the rejected response (default: "rejected")
+      s3_region: null                                    # AWS region override (null = use AWS_DEFAULT_REGION)
+      s3_endpoint_url: null                              # Custom S3-compatible endpoint (null = AWS S3)
+
+  # Text processing settings
+  max_length: 2048                                      # Maximum sequence length for model input
+  max_prompt_length: 1024                               # Maximum length for prompts (rest reserved for responses)
+  remove_unused_columns: false                          # Keep all dataset columns (set true to save memory)
+
+# Training Configuration
+# Controls the training process and optimization settings
+training:
+  algorithm: "dpo"                                      # Training algorithm: sft, dpo, ppo, grpo, gspo
+  output_dir: "models/llama3-3B-inst-dpo-s3-lora-v1"   # Directory to save trained model and checkpoints
+
+  # Core training hyperparameters
+  per_device_train_batch_size: 1                        # Batch size per GPU (adjust based on GPU memory)
+  gradient_accumulation_steps: 16                       # Steps to accumulate gradients (effective batch = batch_size × accum_steps × num_gpus)
+  learning_rate: 1.0e-4                                 # Learning rate (1e-5 for full/LoRA, 1e-4 to 2e-4 for QLoRA)
+  num_train_epochs: 1                                   # Number of complete passes through the dataset
+  max_steps: -1                                         # Maximum number of training steps (-1 = train for num_train_epochs)
+  warmup_steps: 50                                      # Linear warmup steps for learning rate scheduler
+
+  # Logging and checkpointing
+  logging_steps: 5                                      # Log training metrics every N steps
+  save_steps: 100                                       # Save model checkpoint every N steps
+  eval_steps: 100                                       # Evaluate model every N steps
+
+  # Memory and precision optimization
+  bf16: true                                            # Use bfloat16 precision (recommended for modern GPUs)
+  fp16: false                                           # Use float16 precision (alternative to bf16)
+  gradient_checkpointing: true                          # Trade compute for memory (enables larger models/batch sizes)
+
+  # Data loading optimization
+  dataloader_num_workers: 0                             # Number of CPU workers for data loading (0 = main process only)
+  dataloader_pin_memory: false                          # Pin memory for faster GPU transfer (set true if sufficient RAM)
+  dataloader_drop_last: true                            # Drop last incomplete batch to ensure consistent batch sizes
+
+  # Output and evaluation settings
+  save_only_model: true                                 # Save only model weights (not optimizer states) to reduce disk usage
+  prediction_loss_only: true                            # Only compute prediction loss during evaluation
+
+# Weights & Biases Integration
+# Optional experiment tracking and monitoring
+wandb:
+  enabled: false                                        # Enable W&B logging
+  project: "your-project"                               # W&B project name
+  entity: "your-wandb-entity"                           # W&B username or team name
+  name: "Llama-3.2-3B-Inst-LoRA-DPO-s3"                # Experiment name in W&B
+  tags: ["DPO", "llama3", "3B-Inst", "LoRA", "s3"]     # Tags for organizing experiments
+  api_key: null                                         # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                      # W&B base URL (null = use WANDB_BASE_URL env var)
+
+# S3 Checkpoint Upload
+# Automatically uploads checkpoints and the final model to S3
+s3:
+  enabled: false                                        # Enable S3 checkpoint upload
+  bucket: "your-s3-bucket"                              # S3 bucket name
+  prefix: "checkpoints/llama3-3B-inst-dpo-s3-lora-v1"  # S3 key prefix (folder path inside bucket)
+  region: null                                          # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
+  endpoint_url: null                                    # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
+  upload_checkpoints: true                              # Upload intermediate checkpoints (at every save_steps)
+  upload_final_model: true                              # Upload the final model at end of training
+  delete_local_after_upload: false                      # Delete local checkpoint files after successful upload

@@ -428,7 +428,25 @@ def run_comprehensive_evaluation(recipe_path: str,
         csv_eval_output_file = config.output_file.replace('.csv', '-eval.csv')
         detailed_df.to_csv(csv_eval_output_file, index=False, encoding='utf-8', quoting=csv.QUOTE_ALL)
         print(f"Detailed results CSV saved to: {csv_eval_output_file}")
-        
+
+        # Upload results to S3 if configured
+        if getattr(config, 's3_upload_results', False):
+            from utils.s3_utils import upload_file_to_s3
+            if not config.s3_bucket:
+                raise ValueError("s3_bucket is required when s3_upload_results is true")
+            prefix = config.s3_prefix.rstrip("/")
+            for local_file in [config.output_file, eval_summary_file, csv_eval_output_file]:
+                s3_key = f"{prefix}/{os.path.basename(local_file)}" if prefix else os.path.basename(local_file)
+                upload_file_to_s3(
+                    local_file,
+                    config.s3_bucket,
+                    s3_key,
+                    region=getattr(config, 's3_region', None),
+                    endpoint_url=getattr(config, 's3_endpoint_url', None),
+                    uploader=getattr(config, 's3_uploader', 'auto'),
+                )
+            print(f"Results uploaded to s3://{config.s3_bucket}/{prefix}/")
+
         print("\n" + "="*50)
         print("EVALUATION COMPLETED SUCCESSFULLY")
         print("="*50)

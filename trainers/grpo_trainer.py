@@ -15,7 +15,7 @@ if project_root not in sys.path:
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
-from utils.dataset_utils import is_math_dataset, get_template_for_dataset
+from utils.dataset_utils import is_math_dataset, get_template_for_dataset, load_training_dataset
 from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
 from .rewards.format_rewards import structured_xml_reward_func
 from .rewards.custom_rewards import custom_reward_func
@@ -41,10 +41,7 @@ class GRPOTrainer(BaseTrainer):
         model_kwargs = self.prepare_model_kwargs(quantization_config)
 
         # Load main model
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.config.model.base_model_name,
-            **model_kwargs
-        )
+        self.model = self.load_base_model_for_training(model_kwargs)
 
         # Setup tokenizer and resize embeddings using base class method
         self.tokenizer = self.setup_tokenizer_with_model(self.model)
@@ -67,11 +64,7 @@ class GRPOTrainer(BaseTrainer):
             subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
             self.logger.info(f"Loading dataset: {dataset_info.name}{subset_info} (split: {dataset_info.split})")
 
-            # Load the dataset
-            if dataset_info.subset:
-                dataset = load_dataset(dataset_info.name, dataset_info.subset, split=dataset_info.split)
-            else:
-                dataset = load_dataset(dataset_info.name, split=dataset_info.split)
+            dataset = load_training_dataset(dataset_info)
 
             original_size = len(dataset)
 
@@ -178,10 +171,9 @@ class GRPOTrainer(BaseTrainer):
             dataloader_drop_last=self.config.training.dataloader_drop_last,
             prediction_loss_only=self.config.training.prediction_loss_only,
             report_to=report_to,
-            ddp_find_unused_parameters=False,  # Critical for LoRA + DDP stability
+            ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
             # GRPO specific parameters
             num_generations=self.config.training.num_generations,
-            max_prompt_length=self.config.data.max_prompt_length,
             max_completion_length=self.config.data.max_length - self.config.data.max_prompt_length,
         )
 

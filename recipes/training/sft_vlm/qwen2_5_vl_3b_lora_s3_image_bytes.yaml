@@ -1,0 +1,97 @@
+# Multimodal (image + text) SFT recipe whose dataset and images both live in S3.
+#
+# The dataset CSV is read from an s3:// URI, and each row's image_bytes value is
+# an s3:// URI to a binary file holding the image's bytes in the escaped-bytes
+# text form (e.g. `\x89PNG\r\n...`). fetch_image() downloads each object and
+# detects/decodes that form transparently, whether it comes from S3 or disk.
+model:
+  base_model_name: "Qwen/Qwen2.5-VL-3B-Instruct"
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_4bit: false
+  use_flash_attention: false
+
+  freeze_vision_tower: true
+
+  use_lora: true
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  lora_bias: "none"
+
+data:
+  datasets:
+    # Dataset CSV in S3; its image_bytes column holds s3:// URIs to per-image
+    # binary files (escaped-bytes text form). s3_region / s3_endpoint_url govern
+    # the dataset file; image_s3_region / image_s3_endpoint_url (below) govern
+    # the s3:// image objects.
+    - name: "s3://your-bucket/datasets/example_training_s3_data_bytes.csv"
+      image_column: "image_bytes"
+      question_column: "question"
+      response_column: "response"
+      s3_region: null          # AWS region override for the dataset file (null = use AWS_DEFAULT_REGION)
+      s3_endpoint_url: null     # Custom S3-compatible endpoint for the dataset file (null = AWS S3)
+
+  image_cache_dir: "data/vlm_image_cache"   # cache downloaded image objects on disk
+  max_image_pixels: 262144         # ~0.25MP keeps the smoke test light
+  # S3 overrides applied to the s3:// image_bytes objects (independent of the
+  # per-dataset s3_region / s3_endpoint_url above, which govern the dataset file).
+  image_s3_region: null            # AWS region for s3:// images (null = use AWS_DEFAULT_REGION)
+  image_s3_endpoint_url: null      # Custom S3-compatible endpoint for s3:// images (null = AWS S3)
+
+  # system_prompt is a .format() template; {question} and {response} are filled per row
+  # from question_column / response_column. {response} is the target answer -- include it
+  # only for labeling/eval-style data (it leaks the answer for generative SFT).
+  system_prompt: |
+    You are a helpful multimodal assistant. Answer the user's question based on the image.
+    Question: {question}
+    Response: {response}
+
+training:
+  algorithm: "sft_vlm"
+  output_dir: "models/qwen2.5-vl-3b-sft-lora-s3-image-bytes-smoke"
+
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 2
+  learning_rate: 1.0e-4
+  num_train_epochs: 1
+  max_steps: 2                 # smoke test: a couple of steps is enough
+  warmup_steps: 0
+
+  logging_steps: 1
+  save_steps: 2
+  eval_steps: 2
+
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+
+  dataloader_num_workers: 0
+  dataloader_pin_memory: false
+  dataloader_drop_last: false
+
+wandb:
+  enabled: false                                          # Enable W&B logging
+  project: "your-project"                                 # W&B project name
+  entity: "your-wandb-entity"                             # W&B username or team name
+  name: "Qwen2.5-VL-3B-Inst-LoRA-SFT-s3-image-bytes"         # Experiment name in W&B
+  tags: ["SFT", "sft_vlm", "qwen2.5-vl", "3B", "LoRA", "s3", "image-bytes"]   # Tags for organizing experiments
+  api_key: null                                           # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)
+
+# S3 Checkpoint Upload
+# Automatically uploads checkpoints and the final model to S3
+s3:
+  enabled: false                                         # Enable S3 checkpoint upload
+  bucket: "your-s3-bucket"                               # S3 bucket name
+  prefix: "checkpoints/qwen2.5-vl-3b-sft-lora-s3-image-bytes-smoke"  # S3 key prefix (folder path inside bucket)
+  region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
+  endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
+  upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)
+  upload_final_model: true                               # Upload the final model at end of training
+  delete_local_after_upload: false                       # Delete local checkpoint files after successful upload

@@ -357,3 +357,6 @@ ENV/
 
 # PyPI
 .pypirc
+
+# Multimodal (sft_vlm) downloaded image cache
+data/vlm_image_cache/

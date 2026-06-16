@@ -14,6 +14,7 @@ if project_root not in sys.path:
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
+from utils.dataset_utils import load_training_dataset
 
 
 class SFTTrainer(BaseTrainer):
@@ -36,10 +37,7 @@ class SFTTrainer(BaseTrainer):
         model_kwargs = self.prepare_model_kwargs(quantization_config)
         
         # Load main model
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.config.model.base_model_name,
-            **model_kwargs
-        )
+        self.model = self.load_base_model_for_training(model_kwargs)
 
         # Setup tokenizer and resize embeddings using base class method
         self.tokenizer = self.setup_tokenizer_with_model(self.model)
@@ -62,11 +60,7 @@ class SFTTrainer(BaseTrainer):
             subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
             self.logger.info(f"Loading dataset: {dataset_info.name}{subset_info} (split: {dataset_info.split})")
 
-            # Load the dataset
-            if dataset_info.subset:
-                dataset = load_dataset(dataset_info.name, dataset_info.subset, split=dataset_info.split)
-            else:
-                dataset = load_dataset(dataset_info.name, split=dataset_info.split)
+            dataset = load_training_dataset(dataset_info)
 
             original_size = len(dataset)
 
@@ -161,7 +155,9 @@ class SFTTrainer(BaseTrainer):
             dataloader_pin_memory=self.config.training.dataloader_pin_memory,
             dataloader_drop_last=self.config.training.dataloader_drop_last,
             report_to=report_to,
-            ddp_find_unused_parameters=False,  # Critical for LoRA + DDP stability
+            ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
+            max_length=self.config.data.max_length,
+            dataset_num_proc=self.config.data.dataset_num_proc,
         )
 
     def setup_trainer(self):

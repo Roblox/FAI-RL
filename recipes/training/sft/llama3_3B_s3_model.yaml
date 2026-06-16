@@ -1,0 +1,97 @@
+# SFT recipe that continues training from a fine-tuned model stored in S3.
+#
+# Set base_model_name to an s3:// URI pointing to a previously uploaded model
+# directory (e.g. the "final/" prefix written by the S3UploadCallback).  The
+# trainer downloads it to a local cache on each node before loading, so
+# AutoModelForCausalLM.from_pretrained() receives a plain local path.
+#
+# Usage:
+#   python trainers/train.py --recipe recipes/training/sft/llama3_3B_s3_model.yaml
+
+# Model Configuration
+model:
+  base_model_name: "s3://your-bucket/checkpoints/run-v1/final"  # S3 URI to fine-tuned model dir
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_8bit: false
+  load_in_4bit: false
+  use_flash_attention: false
+  # S3 connection overrides for the model download (null = use AWS default chain)
+  s3_region: null
+  s3_endpoint_url: null
+
+  # LoRA configuration
+  use_lora: true
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  lora_target_modules:
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_bias: "none"
+
+# Data Configuration
+data:
+  datasets:
+    - name: "s3://your-bucket/datasets/train.jsonl"
+      prompt_column: "prompt"
+      dataset_columns: ["prompt", "response"]
+      s3_region: null
+      s3_endpoint_url: null
+
+  max_length: 2048
+  max_prompt_length: 1024
+  remove_unused_columns: false
+
+  system_prompt: |
+    {prompt}
+
+# Training Configuration
+training:
+  algorithm: "sft"
+  output_dir: "models/llama3-3B-inst-sft-s3-model-v2"
+
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 5.0e-5
+  num_train_epochs: 1
+  max_steps: -1
+  warmup_steps: 50
+
+  logging_steps: 5
+  save_steps: 50
+  eval_steps: 50
+
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+
+  dataloader_num_workers: 0
+  dataloader_pin_memory: false
+  dataloader_drop_last: true
+
+# Weights & Biases Integration
+wandb:
+  enabled: false
+  project: "your-project"
+  entity: "your-wandb-entity"
+  name: "Llama-3.2-3B-Inst-LoRA-SFT-from-s3-model"
+  tags: ["SFT", "llama3", "3B-Inst", "LoRA", "s3-model"]
+  api_key: null
+  base_url: "https://api.wandb.ai"
+
+# S3 Checkpoint Upload
+s3:
+  enabled: false
+  bucket: "your-s3-bucket"
+  prefix: "checkpoints/llama3-3B-inst-sft-s3-model-v2"
+  region: null
+  endpoint_url: null
+  upload_checkpoints: true
+  upload_final_model: true
+  delete_local_after_upload: false

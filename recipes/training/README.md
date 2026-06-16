@@ -125,7 +125,7 @@ Configure the columns in the dataset entry, and the image-fetch behavior under `
 ```yaml
 data:
   datasets:
-    - name: "recipes/training/sft_vlm/example_data.csv"   # HF Hub / local / S3
+    - name: "recipes/training/sft_vlm/example_training_image_url.csv"   # HF Hub / local / S3
       image_column: "image_url"      # holds an HTTP(S) URL, a local path, or a list of them (multi-image)
       question_column: "question"
       response_column: "response"
@@ -146,7 +146,7 @@ data:
 Notes:
 - `system_prompt` is a `str.format()` template supporting `{question}` and `{response}` (the configured question/response columns), mirroring the text-SFT templating above. Unknown placeholders fall back to the literal text.
 - Images are fetched from their URLs at startup; rows whose images can't be fetched/decoded are dropped (with a logged count).
-- A small example dataset of public image URLs ships at `recipes/training/sft_vlm/example_data.csv`. Any HF/local/S3 dataset with an image-URL column works — just point `name` at it.
+- A small example dataset of public image URLs ships at `recipes/training/sft_vlm/example_training_image_url.csv`. Any HF/local/S3 dataset with an image-URL column works — just point `name` at it.
 - `data.max_length` is forced to `None` internally for VLMs so image placeholder tokens are never truncated.
 - **Network:** the training environment must be able to reach the image hosts **and** the HuggingFace Hub (for the model). If image hosts are blocked, pre-download images and use local paths in `image_column`.
 

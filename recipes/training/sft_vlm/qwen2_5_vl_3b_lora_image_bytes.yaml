@@ -26,10 +26,10 @@ model:
 
 data:
   datasets:
-    # image_url points at a local binary file (escaped-bytes text form) under
+    # image_bytes points at a local binary file (escaped-bytes text form) under
     # image_bytes/. Paths resolve relative to the repo root (the run's CWD).
-    - name: "recipes/training/sft_vlm/example_data_bytes.csv"
-      image_column: "image_url"
+    - name: "recipes/training/sft_vlm/example_training_data_bytes.csv"
+      image_column: "image_bytes"
       question_column: "question"
       response_column: "response"
 

@@ -35,7 +35,7 @@ data:
     # Example dataset shipped with the repo: stable public image URLs + Q/A.
     # Swap `name` for any HF/local/S3 dataset that has an image-URL column and
     # question/response columns (or set messages_column for conversational data).
-    - name: "recipes/training/sft_vlm/example_data.csv"
+    - name: "recipes/training/sft_vlm/example_training_image_url.csv"
       image_column: "image_url"      # column holding an HTTP(S) URL (or a list of URLs)
       question_column: "question"    # user prompt column
       response_column: "response"    # target answer column

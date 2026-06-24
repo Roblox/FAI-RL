@@ -435,6 +435,9 @@ def main():
         training_logger.log_experiment_end(duration)
 
 
+    return None
+
+
 if __name__ == "__main__":
     main()
 

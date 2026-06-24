@@ -317,6 +317,31 @@ def download_file_from_s3(
     return tmp_path
 
 
+def download_s3_bytes(
+    s3_uri: str,
+    region: Optional[str] = None,
+    endpoint_url: Optional[str] = None,
+) -> bytes:
+    """Download a single S3 object fully into memory and return its bytes.
+
+    Unlike :func:`download_file_from_s3` this never touches disk, which suits
+    small objects fetched one at a time (e.g. images referenced by a dataset
+    row). The caller decides whether/where to cache the result.
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(s3_uri)
+    if parsed.scheme != "s3":
+        raise ValueError(f"Expected s3:// URI, got: {s3_uri!r}")
+
+    bucket = parsed.netloc
+    key = parsed.path.lstrip("/")
+
+    client = _get_s3_client(region, endpoint_url)
+    resp = client.get_object(Bucket=bucket, Key=key)
+    return resp["Body"].read()
+
+
 def upload_file_to_s3(
     local_path: str,
     bucket: str,

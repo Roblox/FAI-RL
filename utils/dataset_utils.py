@@ -1,7 +1,8 @@
 """Dataset utilities for handling different dataset types and templates."""
 
+import ast
 import os
-from typing import Type, Any
+from typing import Any, Iterable, Optional, Sequence
 
 
 _LOCAL_FILE_FORMATS = {
@@ -10,6 +11,48 @@ _LOCAL_FILE_FORMATS = {
     ".csv": "csv",
     ".parquet": "parquet",
 }
+
+DEFAULT_CHOICE_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+
+
+def _coerce_choices(choices: Any) -> Iterable[Any]:
+    """Normalize choice values from datasets without executing arbitrary code."""
+    if not isinstance(choices, str):
+        return choices
+
+    stripped = choices.strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        try:
+            parsed = ast.literal_eval(stripped)
+        except (ValueError, SyntaxError):
+            return [choices]
+        if isinstance(parsed, (list, tuple)):
+            return parsed
+        return [choices]
+
+    return [choice.strip() for choice in choices.split(",")]
+
+
+def format_multiple_choice_for_inference(
+    choices: Any,
+    choice_labels: Optional[Sequence[str]] = None,
+) -> str:
+    """
+    Format choices into A/B/C/D-style lines for inference prompts.
+
+    Stringified Python lists are parsed with ast.literal_eval rather than eval
+    so dataset values cannot execute code during prompt formatting.
+    """
+    labels = choice_labels or DEFAULT_CHOICE_LABELS
+
+    formatted_choices = []
+    for i, choice in enumerate(_coerce_choices(choices)):
+        if i < len(labels):
+            formatted_choices.append(f"{labels[i]}. {choice}")
+        else:
+            formatted_choices.append(f"{i + 1}. {choice}")
+
+    return "\n".join(formatted_choices)
 
 
 def _load_from_s3(s3_uri: str, dataset_info):

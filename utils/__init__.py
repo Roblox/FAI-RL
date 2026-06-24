@@ -11,6 +11,7 @@ from .logging_utils import (
 from .config_validation import validate_api_endpoint, validate_api_key, validate_api_config
 from .api_utils import generate_response_by_api
 from .dataset_utils import (
+    format_multiple_choice_for_inference,
     is_math_dataset,
     get_template_for_dataset,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "validate_api_key",
     "validate_api_config",
     "generate_response_by_api",
+    "format_multiple_choice_for_inference",
     "is_math_dataset",
     "get_template_for_dataset",
     # Device utilities

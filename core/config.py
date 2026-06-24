@@ -43,7 +43,13 @@ class ModelConfig:
     lora_dropout: float = 0.05
     lora_target_modules: Optional[List[str]] = None
     lora_bias: str = "none"
-    
+
+    # Multimodal (vision-language) configuration. Only used by the sft_vlm
+    # algorithm. When True, the vision encoder is frozen and only the language
+    # model / projector (and LoRA adapters, if enabled) are trained -- the
+    # standard recipe for VLM SFT.
+    freeze_vision_tower: bool = True
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "base_model_name": self.base_model_name,
@@ -65,6 +71,7 @@ class ModelConfig:
             "lora_dropout": self.lora_dropout,
             "lora_target_modules": self.lora_target_modules,
             "lora_bias": self.lora_bias,
+            "freeze_vision_tower": self.freeze_vision_tower,
         }
 
 
@@ -80,6 +87,17 @@ class DatasetInfo:
     rejected_column: str = "rejected"
     answer_column: str = "answer"
     dataset_columns: Optional[List[str]] = None
+
+    # Multimodal (sft_vlm) columns. image_column holds an HTTP(S) URL, a local
+    # path, raw bytes, a PIL image, or a list thereof (multiple images per row).
+    # question_column / response_column hold the user prompt and target answer.
+    # Alternatively, messages_column points at a column already in conversational
+    # format (a list of {role, content} dicts) -- when set it takes precedence.
+    image_column: Optional[str] = None
+    question_column: str = "question"
+    response_column: str = "response"
+    messages_column: Optional[str] = None
+
     # S3 connection overrides (only used when name starts with s3://).
     # When unset, boto3 uses its default credential/region resolution chain.
     s3_region: Optional[str] = None
@@ -96,7 +114,23 @@ class DataConfig:
     system_prompt: Optional[str] = None
     prompt_column: str = "prompt"
     dataset_num_proc: int = 1
-    
+
+    # Multimodal (sft_vlm) image-fetch settings. image_cache_dir, when set,
+    # caches downloaded images on disk so they are not re-fetched every epoch.
+    image_cache_dir: Optional[str] = None
+    image_fetch_timeout: int = 10
+    image_fetch_retries: int = 3
+    # If set, downscale any fetched image whose width*height exceeds this many
+    # pixels (preserving aspect ratio). Bounds the number of vision tokens /
+    # sequence length so high-resolution images don't blow up memory.
+    max_image_pixels: Optional[int] = None
+    # S3 connection overrides used when an image value is an s3:// URI (e.g.
+    # PNGs stored in a bucket). Independent of each dataset's s3_region /
+    # s3_endpoint_url (which govern the dataset file). When unset, boto3 uses
+    # its default credential/region resolution chain.
+    image_s3_region: Optional[str] = None
+    image_s3_endpoint_url: Optional[str] = None
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "datasets": [
@@ -110,6 +144,10 @@ class DataConfig:
                     "rejected_column": ds.rejected_column,
                     "answer_column": ds.answer_column,
                     "dataset_columns": ds.dataset_columns,
+                    "image_column": ds.image_column,
+                    "question_column": ds.question_column,
+                    "response_column": ds.response_column,
+                    "messages_column": ds.messages_column,
                     "s3_region": ds.s3_region,
                     "s3_endpoint_url": ds.s3_endpoint_url,
                 }
@@ -121,6 +159,12 @@ class DataConfig:
             "system_prompt": self.system_prompt,
             "prompt_column": self.prompt_column,
             "dataset_num_proc": self.dataset_num_proc,
+            "image_cache_dir": self.image_cache_dir,
+            "image_fetch_timeout": self.image_fetch_timeout,
+            "image_fetch_retries": self.image_fetch_retries,
+            "max_image_pixels": self.max_image_pixels,
+            "image_s3_region": self.image_s3_region,
+            "image_s3_endpoint_url": self.image_s3_endpoint_url,
         }
 
 
@@ -270,7 +314,22 @@ class InferenceConfig:
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     response_column: str = "response"
     checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint inference
-    
+
+    # Multimodal (VLM) inference. Setting image_column enables VLM mode: it names
+    # the dataset column holding an image URL / local path (or a list of them) for
+    # each row. The image(s) are fetched into PIL and fed to the processor
+    # alongside the templated text prompt. The fetch knobs mirror DataConfig's.
+    # When image_column is unset, inference runs text-only exactly as before.
+    image_column: Optional[str] = None
+    image_cache_dir: Optional[str] = None
+    image_fetch_timeout: int = 10
+    image_fetch_retries: int = 3
+    max_image_pixels: Optional[int] = None
+    # S3 overrides for image values that are s3:// URIs (e.g. PNGs in a bucket).
+    # When unset, boto3 uses its default credential/region resolution chain.
+    image_s3_region: Optional[str] = None
+    image_s3_endpoint_url: Optional[str] = None
+
     # S3 connection settings (used when model_paths entries start with s3://)
     s3_region: Optional[str] = None
     s3_endpoint_url: Optional[str] = None

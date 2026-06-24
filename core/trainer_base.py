@@ -152,6 +152,12 @@ from utils.device_utils import (
 class BaseTrainer(ABC):
     """Abstract base class for all trainers."""
 
+    # Auto class used to load the base model. Text trainers use
+    # AutoModelForCausalLM (the default); the multimodal trainer overrides this
+    # with AutoModelForImageTextToText so the same loading/PEFT-resume logic in
+    # load_base_model_for_training works unchanged for vision-language models.
+    _auto_model_class = AutoModelForCausalLM
+
     def __init__(self, config: ExperimentConfig, logger: Optional[logging.Logger] = None):
         self.config = config
         # Use provided logger or create a new one
@@ -183,6 +189,12 @@ class BaseTrainer(ABC):
         # happen before setup_model() so all trainers transparently get a local
         # path. Rank 0 (per-node) downloads; other ranks wait on a sentinel file.
         self._maybe_download_s3_model()
+
+        # For HuggingFace Hub models, pre-download on rank 0 before the other
+        # ranks call from_pretrained, so concurrent cold-cache Hub resolves don't
+        # race (which returns None for files like preprocessor_config.json and
+        # crashes non-zero ranks). No-op single-process / local dir / s3 path.
+        self._warm_hub_cache_rank0_first()
 
         # Set device for distributed training
         if self.local_rank != -1:
@@ -262,6 +274,67 @@ class BaseTrainer(ABC):
                     )
 
         self.config.model.base_model_name = cache_dir
+
+    def _warm_hub_cache_rank0_first(self) -> None:
+        """Pre-download a HuggingFace Hub model on local rank 0 before peers load it.
+
+        Multi-rank jobs (torchrun/deepspeed) call from_pretrained on every rank at
+        once. On a cold cache those concurrent Hub resolves race / get throttled
+        and can return None for a file like preprocessor_config.json, crashing the
+        losing ranks with "Can't load image processor ...". Here local rank 0
+        fetches the full snapshot, signals peers via a sentinel file, then every
+        rank switches to offline mode so the subsequent from_pretrained calls are
+        pure cache reads (no Hub access left to race on).
+
+        No-op for single-process runs (local_rank == -1) and for local model
+        directories -- including an s3:// model already resolved to a temp dir by
+        _maybe_download_s3_model() -- where no Hub access happens.
+        """
+        model_name = self.config.model.base_model_name
+
+        # Single process: no peer ranks, nothing to coordinate.
+        if self.local_rank == -1:
+            return
+        # Local directory (incl. an already-downloaded S3 model): no Hub access.
+        if os.path.isdir(model_name):
+            return
+
+        import hashlib
+        import tempfile
+        import time
+
+        uri_hash = hashlib.md5(model_name.encode()).hexdigest()[:12]
+        sentinel_dir = os.path.join(tempfile.gettempdir(), f"fai-rl-hub-{uri_hash}")
+        sentinel = os.path.join(sentinel_dir, ".download_complete")
+
+        if self.local_rank == 0:
+            if not os.path.exists(sentinel):
+                from huggingface_hub import snapshot_download
+                self.logger.info("Warming HF cache for %s on rank 0...", model_name)
+                snapshot_download(model_name)
+                os.makedirs(sentinel_dir, exist_ok=True)
+                open(sentinel, "w").close()
+                self.logger.info("HF cache warm; released peer ranks.")
+            else:
+                self.logger.info("Reusing warm HF cache (sentinel present).")
+        else:
+            self.logger.info(
+                "Local rank %d waiting for HF cache warm by rank 0...", self.local_rank
+            )
+            timeout = 3600
+            elapsed = 0
+            while not os.path.exists(sentinel):
+                time.sleep(5)
+                elapsed += 5
+                if elapsed >= timeout:
+                    raise TimeoutError(
+                        f"Timed out after {timeout}s waiting for HF cache warm at {sentinel_dir}"
+                    )
+
+        # Cache is warm on every rank now; read purely from disk so concurrent
+        # from_pretrained calls don't re-hit (and race on) the Hub.
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
     def setup_wandb(self):
         """Initialize Weights & Biases logging."""
@@ -527,9 +600,9 @@ class BaseTrainer(ABC):
             self._peft_adapter_path = model_path
             # ignore_mismatched_sizes is not needed when loading the base model clean.
             clean_kwargs = {k: v for k, v in model_kwargs.items() if k != "ignore_mismatched_sizes"}
-            return AutoModelForCausalLM.from_pretrained(base_model_path, **clean_kwargs)
+            return self._auto_model_class.from_pretrained(base_model_path, **clean_kwargs)
 
-        return AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
+        return self._auto_model_class.from_pretrained(model_path, **model_kwargs)
 
     def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM,
                             quantization_config: Optional[BitsAndBytesConfig] = None):

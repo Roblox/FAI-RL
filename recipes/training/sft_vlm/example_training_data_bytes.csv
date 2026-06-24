@@ -1,0 +1,6 @@
+image_bytes,question,response
+recipes/training/sft_vlm/image_bytes/cat_chonk.bin,Describe the animal in this image.,"A large, fluffy cat is sitting and looking toward the camera with an alert expression."
+recipes/training/sft_vlm/image_bytes/bee.bin,What is shown in this photo?,A close-up macro photograph of a bee resting on a pink flower.
+recipes/training/sft_vlm/image_bytes/cat.bin,What animal is in this image?,"There is a cat in the image, shown in close-up."
+recipes/training/sft_vlm/image_bytes/cats.bin,How many animals are in this image and what are they?,There are two cats lying down and resting next to each other.
+recipes/training/sft_vlm/image_bytes/beignets.bin,What food is shown in this image?,"A plate of beignets (square French doughnuts) dusted with powdered sugar, served alongside a cup of coffee."

@@ -1,0 +1,4 @@
+image_url,question
+https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/pipeline-cat-chonk.jpeg,Describe the animal in this image.
+https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/bee.jpg,What is shown in this photo?
+https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/cat.png,What animal is in this image?

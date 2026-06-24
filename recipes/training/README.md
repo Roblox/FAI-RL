@@ -28,6 +28,17 @@ YAML configuration files for all supported training algorithms. Each recipe is a
 | `sft/llama3_3B_s3_file.yaml` | S3 | HuggingFace Hub | `s3://bucket/key.jsonl` |
 | `sft/llama3_3B_s3_model.yaml` | S3 | S3 | Continue training from fine-tuned model in S3 |
 
+### SFT_VLM (Multimodal Supervised Fine-Tuning — image + text)
+
+| Recipe | Dataset source | Model source | Notes |
+|--------|---------------|--------------|-------|
+| `sft_vlm/qwen2_5_vl_3b_lora.yaml` | Local file (image URLs) | HuggingFace Hub | LoRA, Qwen2.5-VL-3B — small, for validating the pipeline |
+| `sft_vlm/qwen3_vl_30b_a3b_qlora.yaml` | Local file (image URLs) | HuggingFace Hub | QLoRA (4-bit), Qwen3-VL-30B-A3B MoE VLM |
+| `sft_vlm/qwen2_5_vl_3b_lora_s3_file.yaml` | S3 file (`s3://bucket/key.jsonl`, image URLs) | HuggingFace Hub | LoRA, Qwen2.5-VL-3B — dataset file loaded from S3 |
+| `sft_vlm/qwen3_vl_30b_a3b_lora_s3_file.yaml` | S3 file (`s3://bucket/key.jsonl`, image URLs) | HuggingFace Hub | LoRA, Qwen3-VL-30B-A3B MoE VLM — dataset file loaded from S3 |
+
+Fine-tunes a vision-language model on `(image, prompt) -> response` data. Images are supplied as **HTTP(S) URLs** (or local paths) and fetched into PIL images at data-loading time. See [Multimodal datasets](#multimodal-datasets-sft_vlm) below.
+
 ### DPO (Direct Preference Optimization)
 
 | Recipe | Dataset source | Notes |
@@ -96,8 +107,48 @@ All algorithms support three dataset sources. The source is selected by the valu
 | PPO | `prompt`, `chosen`, `rejected` |
 | GRPO | `prompt`, `answer` |
 | GSPO | `prompt`, `answer` |
+| SFT_VLM | `image_url`, `question`, `response` (see below) |
 
 Column names are configurable — use `text_column`, `prompt_column`, `answer_column`, `chosen_column`, `rejected_column` in the dataset entry to remap them.
+
+### Multimodal datasets (SFT_VLM)
+
+The `sft_vlm` algorithm trains vision-language models on image + text. Each dataset row needs an image column plus a prompt/response pair. The shipped example is a CSV (any of `.csv` / `.jsonl` / `.json` / `.parquet`, HF Hub, or S3 works):
+
+```csv
+image_url,question,response
+https://example.com/cat.jpg,What is in this image?,A cat sitting on a couch.
+```
+
+Configure the columns in the dataset entry, and the image-fetch behavior under `data`:
+
+```yaml
+data:
+  datasets:
+    - name: "recipes/training/sft_vlm/example_training_image_url.csv"   # HF Hub / local / S3
+      image_column: "image_url"      # holds an HTTP(S) URL, a local path, or a list of them (multi-image)
+      question_column: "question"
+      response_column: "response"
+      # messages_column: "messages"  # alternative: a column already in conversational format
+  image_cache_dir: "data/vlm_image_cache"   # cache downloads so they aren't re-fetched each epoch
+  image_fetch_timeout: 15
+  image_fetch_retries: 3
+  max_image_pixels: 1048576          # optional: downscale large images to bound vision tokens / memory
+  # system_prompt is a .format() template (like the text SFT recipes): {question} and
+  # {response} are filled per row. {response} leaks the target, so use it only for
+  # labeling/eval-style data. Double any literal braces as {{ }}.
+  system_prompt: |
+    You are a helpful multimodal assistant. Answer the user's question based on the image.
+    Question: {question}
+    Response: {response}
+```
+
+Notes:
+- `system_prompt` is a `str.format()` template supporting `{question}` and `{response}` (the configured question/response columns), mirroring the text-SFT templating above. Unknown placeholders fall back to the literal text.
+- Images are fetched from their URLs at startup; rows whose images can't be fetched/decoded are dropped (with a logged count).
+- A small example dataset of public image URLs ships at `recipes/training/sft_vlm/example_training_image_url.csv`. Any HF/local/S3 dataset with an image-URL column works — just point `name` at it.
+- `data.max_length` is forced to `None` internally for VLMs so image placeholder tokens are never truncated.
+- **Network:** the training environment must be able to reach the image hosts **and** the HuggingFace Hub (for the model). If image hosts are blocked, pre-download images and use local paths in `image_column`.
 
 ## Quick Start
 

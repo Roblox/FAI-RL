@@ -24,9 +24,15 @@ import warnings
 import subprocess
 import datetime
 from typing import Dict, Any, Union
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    AutoProcessor,
+    AutoModelForImageTextToText,
+)
 from datasets import load_dataset
 from utils.api_utils import generate_response_by_api
+from utils.image_utils import fetch_image
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
@@ -39,6 +45,7 @@ from core.config import ExperimentConfig
 from utils.config_validation import validate_api_config
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 from utils.logging_utils import setup_logging, SafeLogger
+from utils.dataset_utils import format_multiple_choice_for_inference
 from utils.device_utils import (
     get_device_type,
     get_optimal_dtype,
@@ -49,44 +56,6 @@ from utils.device_utils import (
 # This prevents logging errors from crashing long-running inference jobs
 _base_logger = setup_logging("Inference")
 logger = SafeLogger(_base_logger)
-
-
-def format_multiple_choice_for_inference(choices, choice_labels=None):
-    """
-    Format a list of choices into A/B/C/D format for inference.
-    
-    Args:
-        choices: List of choice strings or string representation of list
-        choice_labels: List of labels to use (default: ["A", "B", "C", "D", ...])
-    
-    Returns:
-        Formatted string with labeled choices
-    """
-    if choice_labels is None:
-        choice_labels = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
-    
-    # Handle string representation of list
-    if isinstance(choices, str):
-        try:
-            # Try to evaluate as list if it looks like one
-            if choices.startswith('[') and choices.endswith(']'):
-                choices = eval(choices)
-            else:
-                # Split by comma if it's comma-separated
-                choices = [choice.strip() for choice in choices.split(',')]
-        except:
-            # If parsing fails, treat as single choice
-            choices = [choices]
-    
-    formatted_choices = []
-    for i, choice in enumerate(choices):
-        if i < len(choice_labels):
-            formatted_choices.append(f"{choice_labels[i]}. {choice}")
-        else:
-            # Fallback if we have more choices than labels
-            formatted_choices.append(f"{i+1}. {choice}")
-    
-    return "\n".join(formatted_choices)
 
 
 def has_template_placeholders(template):
@@ -179,8 +148,14 @@ Examples:
     return args
 
 
-def load_model_and_tokenizer(config):
-    """Load model and tokenizer based on config."""
+def _resolve_model_identifier(config):
+    """Resolve config -> (model_identifier, is_local, s3_tmp_dir).
+
+    Picks model_path (local/S3) over model (HuggingFace hub), downloads s3://
+    URIs into a temp dir, normalizes relative local paths, and verifies local
+    paths exist. s3_tmp_dir (or None) is returned so the caller can clean it up
+    after loading. Shared by the text and VLM loaders.
+    """
     import shutil
     import tempfile
     from utils.s3_utils import download_directory_from_s3
@@ -196,41 +171,46 @@ def load_model_and_tokenizer(config):
         raise ValueError("Either model_paths or model must be specified in config")
 
     # Download from S3 to a temp directory if given an s3:// URI
-    _s3_tmp_dir = None
+    s3_tmp_dir = None
     if is_local and model_identifier.startswith("s3://"):
-        _s3_tmp_dir = tempfile.mkdtemp(prefix="fai_rl_s3_model_")
-        print(f"Downloading model from S3: {model_identifier} -> {_s3_tmp_dir}")
+        s3_tmp_dir = tempfile.mkdtemp(prefix="fai_rl_s3_model_")
+        print(f"Downloading model from S3: {model_identifier} -> {s3_tmp_dir}")
         try:
             download_directory_from_s3(
                 s3_uri=model_identifier,
-                local_dir=_s3_tmp_dir,
+                local_dir=s3_tmp_dir,
                 region=getattr(config, "s3_region", None),
                 endpoint_url=getattr(config, "s3_endpoint_url", None),
             )
         except Exception:
-            shutil.rmtree(_s3_tmp_dir, ignore_errors=True)
+            shutil.rmtree(s3_tmp_dir, ignore_errors=True)
             raise
-        model_identifier = _s3_tmp_dir
+        model_identifier = s3_tmp_dir
 
     # Handle relative paths for local models
     if is_local and not os.path.isabs(model_identifier):
         model_identifier = os.path.join(os.getcwd(), model_identifier)
-    
-    # Get optimal dtype and device settings for current platform
+
+    # Check if path exists for local models
+    if is_local and not os.path.exists(model_identifier):
+        raise FileNotFoundError(f"Model path does not exist: {model_identifier}")
+
+    return model_identifier, is_local, s3_tmp_dir
+
+
+def _build_model_load_kwargs():
+    """Build from_pretrained kwargs (dtype, device_map, attn) for this platform."""
     device_type = get_device_type()
     optimal_dtype = get_optimal_dtype()
-    
-    # Determine device_map based on platform
+
     # MPS doesn't support device_map="auto" well, use explicit device placement
     if device_type == "mps":
         device_map = {"": "mps"}
-        print(f"Running on Apple Silicon (MPS) with dtype: {optimal_dtype}")
     elif device_type == "cuda":
         device_map = "auto"
-        print(f"Running on CUDA with dtype: {optimal_dtype}")
     else:
         device_map = {"": "cpu"}
-        print(f"Running on CPU with dtype: {optimal_dtype}")
+    print(f"Running on {device_type.upper()} with dtype: {optimal_dtype}")
 
     model_load_kwargs: Dict[str, Any] = {
         "torch_dtype": optimal_dtype,
@@ -239,13 +219,19 @@ def load_model_and_tokenizer(config):
     attn_impl = resolve_transformers_attn_implementation(False)
     if attn_impl is not None:
         model_load_kwargs["attn_implementation"] = attn_impl
-    
+    return model_load_kwargs
+
+
+def load_model_and_tokenizer(config):
+    """Load model and tokenizer based on config."""
+    import shutil
+
+    model_identifier, is_local, _s3_tmp_dir = _resolve_model_identifier(config)
+
+    model_load_kwargs = _build_model_load_kwargs()
+
     print(f"Loading model from: {model_identifier}")
-    
-    # Check if path exists for local models
-    if is_local and not os.path.exists(model_identifier):
-        raise FileNotFoundError(f"Model path does not exist: {model_identifier}")
-    
+
     # Check if this is a PEFT checkpoint (only for local models)
     is_peft_checkpoint = False
     if is_local:
@@ -361,8 +347,151 @@ def generate_response(model, tokenizer, prompt: str, config):
     
     # Decode only the new tokens
     response_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-    
+
     return response_text
+
+
+def is_vlm_inference(config) -> bool:
+    """VLM mode is enabled when the recipe sets a non-empty image_column."""
+    return bool(getattr(config, "image_column", None))
+
+
+def load_vlm_model_and_processor(config):
+    """Load a vision-language model + processor, handling PEFT/LoRA checkpoints.
+
+    Mirrors load_model_and_tokenizer but uses AutoModelForImageTextToText +
+    AutoProcessor (matching the sft_vlm trainer) so images can be fed at generate
+    time. PEFT checkpoints load the base VLM, attach the adapter, and merge it for
+    faster inference. Unlike the text path we do NOT resize token embeddings --
+    that corrupts a VLM's vision/token embedding alignment. Returns (model,
+    processor).
+    """
+    import shutil
+
+    model_identifier, is_local, _s3_tmp_dir = _resolve_model_identifier(config)
+
+    model_load_kwargs = _build_model_load_kwargs()
+
+    print(f"Loading VLM from: {model_identifier}")
+
+    is_peft_checkpoint = False
+    if is_local:
+        adapter_config_path = os.path.join(model_identifier, "adapter_config.json")
+        is_peft_checkpoint = os.path.exists(adapter_config_path)
+
+    if is_peft_checkpoint:
+        print("Detected PEFT/LoRA checkpoint, loading base VLM first...")
+        peft_config = PeftConfig.from_pretrained(model_identifier)
+        base_model_name = peft_config.base_model_name_or_path
+        print(f"Base model: {base_model_name}")
+
+        # The trainer saves the processor alongside the adapter; prefer that so
+        # any processor tweaks are preserved, falling back to the base model.
+        try:
+            processor = AutoProcessor.from_pretrained(model_identifier)
+        except Exception:
+            processor = AutoProcessor.from_pretrained(base_model_name)
+
+        print("Loading base VLM...")
+        model = AutoModelForImageTextToText.from_pretrained(base_model_name, **model_load_kwargs)
+
+        print("Loading PEFT adapter...")
+        model = PeftModel.from_pretrained(model, model_identifier)
+
+        print("Merging adapter weights...")
+        model = model.merge_and_unload()
+    else:
+        # Regular VLM (local dir or HuggingFace hub), no adapter.
+        print(f"Loading regular VLM from {'local path' if is_local else 'HuggingFace hub'}...")
+        processor = AutoProcessor.from_pretrained(model_identifier)
+        model = AutoModelForImageTextToText.from_pretrained(model_identifier, **model_load_kwargs)
+
+    # VLM tokenizers usually define a pad token; fall back to eos only if missing.
+    tokenizer = getattr(processor, "tokenizer", processor)
+    if getattr(tokenizer, "pad_token", None) is None and getattr(tokenizer, "eos_token", None):
+        tokenizer.pad_token = tokenizer.eos_token
+
+    model.eval()  # Set the model to inference mode
+
+    if _s3_tmp_dir:
+        shutil.rmtree(_s3_tmp_dir, ignore_errors=True)
+        print(f"Cleaned up S3 temp directory: {_s3_tmp_dir}")
+
+    return model, processor
+
+
+def _maybe_downscale_image(img, max_pixels):
+    """Downscale a PIL image (preserving aspect ratio) if it exceeds max_pixels."""
+    if not max_pixels:
+        return img
+    w, h = img.size
+    if w * h <= max_pixels:
+        return img
+    scale = (max_pixels / float(w * h)) ** 0.5
+    return img.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+
+
+def fetch_example_images(config, example):
+    """Fetch the image(s) referenced by config.image_column for one dataset row.
+
+    The column may hold a single URL/path or a list of them. Returns a list of
+    RGB PIL images (possibly empty), each optionally downscaled to max_image_pixels.
+    """
+    raw = example.get(config.image_column)
+    if raw is None:
+        sources = []
+    elif isinstance(raw, (list, tuple)):
+        sources = [str(s) for s in raw if s is not None]
+    else:
+        sources = [str(raw)]
+
+    images = []
+    for s in sources:
+        img = fetch_image(
+            s,
+            cache_dir=getattr(config, "image_cache_dir", None),
+            timeout=getattr(config, "image_fetch_timeout", 10),
+            retries=getattr(config, "image_fetch_retries", 3),
+            s3_region=getattr(config, "image_s3_region", None),
+            s3_endpoint_url=getattr(config, "image_s3_endpoint_url", None),
+        )
+        images.append(_maybe_downscale_image(img, getattr(config, "max_image_pixels", None)))
+    return images
+
+
+def generate_vlm_response(model, processor, prompt_text: str, images, config):
+    """Generate a response from a VLM given a text prompt and PIL image(s).
+
+    Builds a single user turn containing one image placeholder per image followed
+    by the text, applies the processor's chat template, and decodes only the newly
+    generated tokens (matching the text path's behavior).
+    """
+    content = [{"type": "image"} for _ in images]
+    content.append({"type": "text", "text": prompt_text})
+    messages = [{"role": "user", "content": content}]
+
+    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    inputs = processor(
+        text=[text],
+        images=images if images else None,
+        return_tensors="pt",
+    ).to(model.device)
+
+    input_token_length = inputs.input_ids.shape[1]
+    tokenizer = getattr(processor, "tokenizer", processor)
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=config.max_new_tokens,
+            do_sample=config.do_sample,
+            temperature=config.temperature,
+            top_p=config.top_p,
+            pad_token_id=tokenizer.pad_token_id,
+        )
+
+    generated_tokens = outputs[0][input_token_length:]
+    return tokenizer.decode(generated_tokens, skip_special_tokens=True)
 
 
 def run_inference(config, debug=False):
@@ -371,7 +500,15 @@ def run_inference(config, debug=False):
     # API requires both model and api_key
     use_api = (hasattr(config, 'model') and config.model is not None) and \
               (hasattr(config, 'api_key') and config.api_key is not None)
-    
+
+    # Multimodal (VLM) mode is enabled by setting image_column in the recipe.
+    is_vlm = is_vlm_inference(config)
+    if is_vlm and use_api:
+        raise ValueError(
+            "VLM inference (image_column set) is only supported for local models, "
+            "not API endpoints. Remove image_column or use model_paths."
+        )
+
     # Determine checkpoint paths to process
     checkpoint_paths = []
     if hasattr(config, 'model_paths') and config.model_paths:
@@ -393,8 +530,25 @@ def run_inference(config, debug=False):
     # Load dataset once (shared across all checkpoints)
     print(f"Loading dataset: {config.dataset_name}")
     
+    # S3-hosted dataset file (csv): download to a temp path, load it, then delete it.
+    if config.dataset_name.startswith('s3://'):
+        from utils.s3_utils import download_file_from_s3
+        print(f"Detected S3 URI, downloading dataset: {config.dataset_name}")
+        _s3_dataset_tmp = download_file_from_s3(
+            config.dataset_name,
+            region=getattr(config, 's3_region', None),
+            endpoint_url=getattr(config, 's3_endpoint_url', None),
+        )
+        try:
+            df = pd.read_csv(_s3_dataset_tmp)
+        finally:
+            os.unlink(_s3_dataset_tmp)
+        print(f"Loaded {len(df)} rows from S3 dataset file")
+
+        # Convert DataFrame to list of dicts (similar to HuggingFace dataset format)
+        data_split = df.to_dict('records')
     # Check if dataset_name has CSV extension - if so, load from local file
-    if config.dataset_name.endswith('.csv'):
+    elif config.dataset_name.endswith('.csv'):
         print(f"Detected CSV file, loading from local path: {config.dataset_name}")
         
         # Handle relative and absolute paths
@@ -446,8 +600,12 @@ def run_inference(config, debug=False):
                 print(f"Using vanilla HuggingFace model: {config.model}")
                 checkpoint_name = config.model
             
-            # Load model and tokenizer for this checkpoint
-            model, tokenizer = load_model_and_tokenizer(config)
+            # Load model + (tokenizer | processor) for this checkpoint. In VLM
+            # mode `tokenizer` holds the AutoProcessor.
+            if is_vlm:
+                model, tokenizer = load_vlm_model_and_processor(config)
+            else:
+                model, tokenizer = load_model_and_tokenizer(config)
         
         # Process the dataset for this checkpoint
         checkpoint_results = []
@@ -479,6 +637,10 @@ def run_inference(config, debug=False):
                         prompt=full_prompt,
                         config=config
                     )
+                elif is_vlm:
+                    # `tokenizer` holds the processor in VLM mode.
+                    images = fetch_example_images(config, example)
+                    response = generate_vlm_response(model, tokenizer, full_prompt, images, config)
                 else:
                     response = generate_response(model, tokenizer, full_prompt, config)
                 

@@ -1,0 +1,6 @@
+image_url,question,response
+https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/pipeline-cat-chonk.jpeg,Describe the animal in this image.,"A large, fluffy cat is sitting and looking toward the camera with an alert expression."
+https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/bee.jpg,What is shown in this photo?,A close-up macro photograph of a bee resting on a pink flower.
+https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/cat.png,What animal is in this image?,"There is a cat in the image, shown in close-up."
+https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/cats.png,How many animals are in this image and what are they?,There are two cats lying down and resting next to each other.
+https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/beignets-task-guide.png,What food is shown in this image?,"A plate of beignets (square French doughnuts) dusted with powdered sugar, served alongside a cup of coffee."

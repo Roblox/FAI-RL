@@ -8,8 +8,21 @@ logic that gates it: ``BaseTrainer._deepspeed_zero_stage``.
 """
 
 import json
+from types import SimpleNamespace
 
 from core.trainer_base import BaseTrainer
+
+
+def _fake_trainer(micro, accum):
+    """Minimal stand-in carrying just the recipe fields _resolve_ds_auto_batch reads."""
+    return SimpleNamespace(
+        config=SimpleNamespace(
+            training=SimpleNamespace(
+                per_device_train_batch_size=micro,
+                gradient_accumulation_steps=accum,
+            )
+        )
+    )
 
 
 def test_stage_from_zero3_path(tmp_path):
@@ -54,3 +67,48 @@ def test_real_repo_zero3_config_is_stage_3():
     repo_root = Path(__file__).resolve().parents[1]
     cfg = repo_root / "configs" / "deepspeed" / "zero3_config.json"
     assert BaseTrainer._deepspeed_zero_stage(str(cfg)) == 3
+
+
+def test_resolve_auto_batch_from_dict(monkeypatch):
+    """'auto' micro/accum become ints; train_batch_size is left for DeepSpeed."""
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    trainer = _fake_trainer(micro=1, accum=8)
+    cfg = BaseTrainer._resolve_ds_auto_batch(
+        trainer,
+        {
+            "train_batch_size": "auto",
+            "train_micro_batch_size_per_gpu": "auto",
+            "gradient_accumulation_steps": "auto",
+        },
+    )
+    assert cfg["train_micro_batch_size_per_gpu"] == 1
+    assert cfg["gradient_accumulation_steps"] == 8
+    # train_batch_size must NOT be pinned to a world-size-scaled value: at zero.Init
+    # DeepSpeed sees world_size==1 and would reject 16 != 1*8*1. Leaving it None lets
+    # DeepSpeed derive a self-consistent value from whatever world size it sees.
+    assert cfg["train_batch_size"] is None
+
+
+def test_resolve_auto_batch_leaves_train_batch_unset_regardless_of_world_size(monkeypatch):
+    monkeypatch.delenv("WORLD_SIZE", raising=False)
+    trainer = _fake_trainer(micro=2, accum=4)
+    cfg = BaseTrainer._resolve_ds_auto_batch(trainer, {"train_batch_size": "auto"})
+    assert cfg["train_micro_batch_size_per_gpu"] == 2
+    assert cfg["gradient_accumulation_steps"] == 4
+    assert cfg["train_batch_size"] is None
+
+
+def test_resolve_auto_batch_reads_path_and_does_not_mutate_input(tmp_path, monkeypatch):
+    monkeypatch.setenv("WORLD_SIZE", "4")
+    src = {"zero_optimization": {"stage": 3}, "train_batch_size": "auto"}
+    cfg_path = tmp_path / "zero3.json"
+    cfg_path.write_text(json.dumps(src))
+    trainer = _fake_trainer(micro=1, accum=8)
+
+    cfg = BaseTrainer._resolve_ds_auto_batch(trainer, str(cfg_path))
+    assert cfg["train_batch_size"] is None
+    assert cfg["train_micro_batch_size_per_gpu"] == 1
+    assert cfg["gradient_accumulation_steps"] == 8
+    assert cfg["zero_optimization"]["stage"] == 3
+    # The original file on disk is untouched.
+    assert json.loads(cfg_path.read_text())["train_batch_size"] == "auto"

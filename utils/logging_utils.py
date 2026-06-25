@@ -5,6 +5,23 @@ from datetime import datetime
 from pathlib import Path
 
 
+def get_package_version() -> str:
+    """Return the installed FAI-RL package version.
+
+    Reads the version from the installed distribution metadata, which reflects
+    the actual wheel that was installed (the real source of truth for "which
+    build is running") rather than any hardcoded module constant. Falls back to
+    "unknown" if the package isn't installed as a distribution (e.g. running
+    from a source checkout that was never `pip install`-ed).
+    """
+    try:
+        from importlib.metadata import version
+
+        return version("FAI-RL")
+    except Exception:
+        return "unknown"
+
+
 def _current_rank() -> int:
     """Best-effort global rank lookup. Reads env vars lazily so this works
     regardless of when the logger is configured relative to dist init.
@@ -286,6 +303,7 @@ class TrainingLogger:
         """Log experiment configuration at start."""
         self.logger.info("="*50)
         self.logger.info("EXPERIMENT START")
+        self.logger.info(f"FAI-RL version: {get_package_version()}")
         self.logger.info("="*50)
 
         for section, values in config.items():

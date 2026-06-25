@@ -56,7 +56,6 @@ class ModelConfig:
             "load_in_8bit": self.load_in_8bit,
             "load_in_4bit": self.load_in_4bit,
             "use_flash_attention": self.use_flash_attention,
-            "value_model_name": self.value_model_name,
             "bnb_4bit_compute_dtype": self.bnb_4bit_compute_dtype,
             "bnb_4bit_quant_type": self.bnb_4bit_quant_type,
             "bnb_4bit_use_double_quant": self.bnb_4bit_use_double_quant,

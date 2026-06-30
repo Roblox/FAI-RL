@@ -25,13 +25,13 @@ model:
 
 data:
   datasets:
-    # image_column values may be HTTP(S) URLs, local paths, or s3:// URIs
-    # (e.g. s3://your-bucket/images/cat.png). s3:// images use the
-    # image_s3_region / image_s3_endpoint_url settings below.
+    # image_columns lists one or more image columns; each value may be an HTTP(S)
+    # URL, a local path, or an s3:// URI (e.g. s3://your-bucket/images/cat.png).
+    # s3:// images use the image_s3_region / image_s3_endpoint_url settings below.
+    # dataset_columns lists the text columns that fill the system_prompt template.
     - name: "data/sft_vlm/example_training_image_url.csv"
-      image_column: "image"
-      question_column: "question"
-      response_column: "response"
+      image_columns: ["image"]
+      dataset_columns: ["question", "response"]
 
   image_cache_dir: "data/vlm_image_cache"
   image_fetch_timeout: 15
@@ -42,9 +42,10 @@ data:
   image_s3_region: null
   image_s3_endpoint_url: null
 
-  # system_prompt is a .format() template; {question} and {response} are filled per row
-  # from question_column / response_column. {response} is the target answer -- include it
-  # only for labeling/eval-style data (it leaks the answer for generative SFT).
+  # system_prompt is a .format() template keyed by the dataset_columns names;
+  # {question} and {response} are filled per row from those columns. The whole
+  # rendered text is one training turn (no prompt/completion masking), so it
+  # includes the {response} target.
   system_prompt: |
     You are a helpful multimodal assistant. Answer the user's question based on the image.
     Question: {question}

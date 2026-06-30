@@ -28,21 +28,22 @@ model:
 
 data:
   datasets:
-    # image_bytes points at a local binary file (escaped-bytes text form) under
-    # image_bytes/. Paths resolve relative to the repo root (the run's CWD).
+    # Each image_columns value points at a local binary file (escaped-bytes text
+    # form) under image_bytes/. Paths resolve relative to the repo root (the run's
+    # CWD). dataset_columns lists the text columns that fill the system_prompt.
     - name: "data/sft_vlm/example_training_data_bytes.csv"
-      image_column: "image"
-      question_column: "question"
-      response_column: "response"
+      image_columns: ["image"]
+      dataset_columns: ["question", "response"]
 
   # Local files are decoded in place -- no fetch -- so image_cache_dir /
   # image_fetch_* / image_s3_* don't apply here. Only max_image_pixels still
   # runs (post-decode) to bound the vision-token count.
   max_image_pixels: 262144         # ~0.25MP keeps the smoke test light
 
-  # system_prompt is a .format() template; {question} and {response} are filled per row
-  # from question_column / response_column. {response} is the target answer -- include it
-  # only for labeling/eval-style data (it leaks the answer for generative SFT).
+  # system_prompt is a .format() template keyed by the dataset_columns names;
+  # {question} and {response} are filled per row from those columns. The whole
+  # rendered text is one training turn (no prompt/completion masking), so it
+  # includes the {response} target.
   system_prompt: |
     You are a helpful multimodal assistant. Answer the user's question based on the image.
     Question: {question}

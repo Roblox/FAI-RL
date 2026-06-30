@@ -1,5 +1,4 @@
 import os, sys
-import json
 from typing import Optional, List, Any
 
 from datasets import concatenate_datasets
@@ -26,12 +25,15 @@ _VISION_TOWER_ATTRS = ("visual", "vision_tower", "vision_model")
 class SFTVLMTrainer(BaseTrainer):
     """Multimodal SFT trainer for vision-language models (image + text).
 
-    Loads a VLM via AutoModelForImageTextToText + AutoProcessor, fetches images
-    referenced by HTTP(S) URLs (or local paths) into PIL images, and delegates
-    to TRL's SFTTrainer. Because the processing class is a `ProcessorMixin`, TRL
-    treats this as a VLM run: it skips its own tokenization/preprocessing and
-    auto-selects `DataCollatorForVisionLanguageModeling`, which reads each row's
-    `messages` + `images` and builds `pixel_values`/`labels` on the fly.
+    Loads a VLM via AutoModelForImageTextToText + AutoProcessor, gathers the
+    images referenced across each dataset's `image_columns` (HTTP(S) URLs, s3://
+    URIs, local paths, or raw bytes -- one or many per row) into PIL images,
+    builds the text for each row from its `dataset_columns` via the
+    `system_prompt` template, and delegates to TRL's SFTTrainer. Because the
+    processing class is a `ProcessorMixin`, TRL treats this as a VLM run: it skips
+    its own tokenization/preprocessing and auto-selects
+    `DataCollatorForVisionLanguageModeling`, which reads each row's `messages` +
+    `images` and builds `pixel_values`/`labels` on the fly.
 
     Dataset rows are produced lazily via `Dataset.with_transform`, so images are
     decoded to PIL only at access time and the heterogeneous multimodal
@@ -105,37 +107,34 @@ class SFTVLMTrainer(BaseTrainer):
     def _normalize_dataset(self, dataset, dataset_info):
         """Map a raw dataset to a uniform, Arrow-friendly schema.
 
-        Output columns (all simple types so multiple datasets can be
-        concatenated and serialized safely):
-          _image_sources : list[str]  -- image URLs / local paths for the row
-          _question      : str        -- user prompt   (image_column path)
-          _response      : str        -- target answer (image_column path)
-          _messages_json : str        -- JSON of pre-built conversational
-                                          messages, or "" when not provided
+        Output columns (simple types so multiple datasets can be concatenated
+        and serialized safely):
+          _image_sources : list[str]  -- image sources gathered, in order, from
+                                          every image_columns column for the row
+          _text          : str        -- the full text built from dataset_columns
+                                          (via the system_prompt template, or by
+                                          concatenation when no template is set)
         """
-        image_column = dataset_info.image_column
-        messages_column = dataset_info.messages_column
-        q_col = dataset_info.question_column
-        r_col = dataset_info.response_column
+        image_columns = dataset_info.image_columns or []
+        dataset_columns = dataset_info.dataset_columns or []
+        system_prompt = self.config.data.system_prompt
 
         def fn(example):
-            raw = example.get(image_column) if image_column else None
-            if raw is None:
-                sources = []
-            elif isinstance(raw, (list, tuple)):
-                sources = [str(s) for s in raw if s is not None]
-            else:
-                sources = [str(raw)]
-
-            messages_json = ""
-            if messages_column and example.get(messages_column) is not None:
-                messages_json = json.dumps(example[messages_column])
+            # Gather image sources across every configured image column. Each
+            # column may hold a single source or a list of them.
+            sources = []
+            for col in image_columns:
+                raw = example.get(col)
+                if raw is None:
+                    continue
+                if isinstance(raw, (list, tuple)):
+                    sources.extend(str(s) for s in raw if s is not None)
+                else:
+                    sources.append(str(raw))
 
             return {
                 "_image_sources": sources,
-                "_question": str(example.get(q_col, "")),
-                "_response": str(example.get(r_col, "")),
-                "_messages_json": messages_json,
+                "_text": self._build_text(system_prompt, dataset_columns, example),
             }
 
         return dataset.map(fn, remove_columns=dataset.column_names)
@@ -172,66 +171,45 @@ class SFTVLMTrainer(BaseTrainer):
         new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
         return img.resize(new_size)
 
-    def _render_system_prompt(self, template: str, question: str, response: str) -> str:
-        """Fill the system_prompt template with the row's question/response values.
+    def _build_text(self, template: Optional[str], dataset_columns: List[str], example) -> str:
+        """Build one text block for a row from its configured text columns.
 
-        Mirrors the text SFT trainer, whose ``system_prompt`` is a ``str.format``
-        template keyed by the dataset's column names. The placeholder names here
-        are the recipe's configured ``question_column`` / ``response_column`` -- a
-        column name is just a variable, so renaming the column renames the
-        placeholder (e.g. ``question_column: "query"`` -> use ``{query}``). Falls
-        back to the literal text if the template references an unknown key or is
-        malformed; double any literal braces as ``{{`` / ``}}``.
-
-        Note: ``response`` is also the assistant (target) turn, so referencing it
-        here duplicates that turn and has no value to fill at inference -- it suits
-        only labeling/eval-style data, not generative VLM SFT.
+        Mirrors the text SFT trainer: when ``system_prompt`` is set it is a
+        ``str.format`` template keyed by the dataset's column names -- a column
+        name is just a variable, so ``dataset_columns: [question, response]``
+        renders ``"...{question}...{response}"`` (double any literal braces as
+        ``{{`` / ``}}``). When no template is set, the column values are
+        concatenated in order. The whole text becomes a single training turn with
+        no prompt/completion masking, so include only what the model should learn
+        to produce. Falls back to the literal template if it references an unknown
+        key or is malformed.
         """
-        if not template:
-            return template
-        fmt = {key: question for key in self._sysprompt_question_keys}
-        fmt.update({key: response for key in self._sysprompt_response_keys})
-        try:
-            return template.format(**fmt)
-        except (KeyError, IndexError, ValueError) as e:
-            if not getattr(self, "_system_prompt_warn_emitted", False):
-                available = sorted(self._sysprompt_question_keys | self._sysprompt_response_keys)
-                self.logger.warning(
-                    f"system_prompt template not rendered ({e}); using literal text. "
-                    f"Available placeholders: {available}. Double any literal braces as {{{{ }}}}."
-                )
-                self._system_prompt_warn_emitted = True
-            return template
+        fmt = {col: example.get(col, "") for col in dataset_columns}
+        if template:
+            try:
+                return template.format(**fmt)
+            except (KeyError, IndexError, ValueError) as e:
+                if not getattr(self, "_text_warn_emitted", False):
+                    self.logger.warning(
+                        f"system_prompt template not rendered ({e}); using literal "
+                        f"text. Available placeholders: {sorted(fmt)}. Double any "
+                        f"literal braces as {{{{ }}}}."
+                    )
+                    self._text_warn_emitted = True
+                return template
+        return "\n".join(str(fmt[col]) for col in dataset_columns)
 
     def _make_transform(self):
         """Build the lazy with_transform callable (batched columnar input)."""
-        system_prompt = self.config.data.system_prompt
-        # Placeholder names come from the recipe's column config (a column name is
-        # just a variable); the union covers all datasets being concatenated.
-        self._sysprompt_question_keys = {di.question_column for di in self.config.data.datasets}
-        self._sysprompt_response_keys = {di.response_column for di in self.config.data.datasets}
-
         def transform(batch):
             out_messages, out_images = [], []
-            n = len(batch["_image_sources"])
-            for i in range(n):
-                images = self._fetch_images(batch["_image_sources"][i])
-
-                messages_json = batch["_messages_json"][i]
-                if messages_json:
-                    messages = json.loads(messages_json)
-                else:
-                    # Raw-string content; TRL's collator inserts the right number
-                    # of image placeholders into the first user message.
-                    messages = []
-                    if system_prompt:
-                        content = self._render_system_prompt(
-                            system_prompt, batch["_question"][i], batch["_response"][i]
-                        )
-                        messages.append({"role": "system", "content": content})
-                    messages.append({"role": "user", "content": batch["_question"][i]})
-                    messages.append({"role": "assistant", "content": batch["_response"][i]})
-
+            for text, sources in zip(batch["_text"], batch["_image_sources"]):
+                images = self._fetch_images(sources)
+                # A single turn carrying the full templated text. Raw-string
+                # content lets TRL's vision collator insert one image placeholder
+                # per image into the message. Labels cover the whole sequence (no
+                # prompt/completion masking), mirroring the text SFT trainer.
+                messages = [{"role": "user", "content": text}]
                 out_messages.append(messages)
                 out_images.append(images)
             return {"messages": out_messages, "images": out_images}
@@ -259,6 +237,8 @@ class SFTVLMTrainer(BaseTrainer):
             def is_valid(example):
                 if not example["_image_sources"]:
                     return False
+                if not example["_text"].strip():
+                    return False
                 try:
                     self._fetch_images(example["_image_sources"])
                     return True
@@ -273,7 +253,7 @@ class SFTVLMTrainer(BaseTrainer):
             if skipped > 0:
                 self.logger.warning(
                     f"Skipped {skipped} examples from {dataset_info.name} "
-                    f"(missing image column or unfetchable images)"
+                    f"(no images, empty text, or unfetchable images)"
                 )
 
             normalized.append(ds)

@@ -1,7 +1,7 @@
 # Multimodal (image + text) SFT recipe that reads images from local binary files.
 #
 # Identical to qwen2_5_vl_3b_lora.yaml except each row's image is a path to a file
-# under recipes/training/sft_vlm/image_bytes/ that holds the image's bytes in the
+# under data/sft_vlm/image_bytes/ that holds the image's bytes in the
 # escaped-bytes text form (e.g. `\x89PNG\r\n...`). fetch_image() detects that form
 # and decodes it transparently, so no network/URL fetch happens at train time.
 # (See qwen2_5_vl_3b_lora_s3_image_bytes.yaml for the variant that reads the same
@@ -30,8 +30,8 @@ data:
   datasets:
     # image_bytes points at a local binary file (escaped-bytes text form) under
     # image_bytes/. Paths resolve relative to the repo root (the run's CWD).
-    - name: "recipes/training/sft_vlm/example_training_data_bytes.csv"
-      image_column: "image_bytes"
+    - name: "data/sft_vlm/example_training_data_bytes.csv"
+      image_column: "image"
       question_column: "question"
       response_column: "response"
 

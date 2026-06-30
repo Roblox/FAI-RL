@@ -39,8 +39,8 @@ data:
     # Placeholder dataset (the 5-row smoke example). Replace with your real data;
     # the schema is image_column (URL/path) + question/response columns, or a
     # messages_column already in conversational format.
-    - name: "recipes/training/sft_vlm/example_training_image_url.csv"
-      image_column: "image_url"
+    - name: "data/sft_vlm/example_training_image_url.csv"
+      image_column: "image"
       question_column: "question"
       response_column: "response"
 

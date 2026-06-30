@@ -28,8 +28,8 @@ data:
     # image_column values may be HTTP(S) URLs, local paths, or s3:// URIs
     # (e.g. s3://your-bucket/images/cat.png). s3:// images use the
     # image_s3_region / image_s3_endpoint_url settings below.
-    - name: "recipes/training/sft_vlm/example_training_image_url.csv"
-      image_column: "image_url"
+    - name: "data/sft_vlm/example_training_image_url.csv"
+      image_column: "image"
       question_column: "question"
       response_column: "response"
 

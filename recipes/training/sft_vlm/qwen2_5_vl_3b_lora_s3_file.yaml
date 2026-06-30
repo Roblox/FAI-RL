@@ -31,10 +31,10 @@ data:
     # S3 dataset loading: set name to an s3:// URI ending in .jsonl/.json/.csv/.parquet.
     # boto3 credentials resolve from the environment (IAM role, AWS_ACCESS_KEY_ID, etc.).
     # Expected schema: {"image_url": "...", "question": "...", "response": "..."}
-    # (the same schema as recipes/training/sft_vlm/example_training_image_url.csv). The image_url
+    # (the same schema as data/sft_vlm/example_training_image_url.csv). The image_url
     # column may hold an HTTP(S) URL, a local path, or an s3:// URI (e.g. s3://your-bucket/images/cat.png).
     - name: "s3://your-bucket/datasets/example_training_s3_data.csv"  # S3 URI to the dataset file (required)
-      image_column: "image_url"
+      image_column: "image"
       question_column: "question"
       response_column: "response"
       s3_region: null          # AWS region override for the dataset file (null = use AWS_DEFAULT_REGION)

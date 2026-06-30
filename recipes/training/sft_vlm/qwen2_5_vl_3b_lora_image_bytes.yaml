@@ -31,7 +31,7 @@ data:
     # image_bytes points at a local binary file (escaped-bytes text form) under
     # image_bytes/. Paths resolve relative to the repo root (the run's CWD).
     - name: "data/sft_vlm/example_training_data_bytes.csv"
-      image_column: "image_bytes"
+      image_column: "image"
       question_column: "question"
       response_column: "response"
 

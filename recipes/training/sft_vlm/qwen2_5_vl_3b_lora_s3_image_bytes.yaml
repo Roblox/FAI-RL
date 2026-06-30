@@ -31,7 +31,7 @@ data:
     # the dataset file; image_s3_region / image_s3_endpoint_url (below) govern
     # the s3:// image objects.
     - name: "s3://your-bucket/datasets/example_training_s3_data_bytes.csv"
-      image_column: "image_bytes"
+      image_column: "image"
       question_column: "question"
       response_column: "response"
       s3_region: null          # AWS region override for the dataset file (null = use AWS_DEFAULT_REGION)

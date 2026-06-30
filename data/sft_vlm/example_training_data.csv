@@ -1,0 +1,21 @@
+image,question,response
+images/cat_chonk.png,Describe the animal in this image.,"A large, fluffy cat is sitting and looking toward the camera with an alert expression."
+images/cat_chonk.png,What is the cat doing?,The cat is sitting upright and gazing directly toward the viewer.
+images/cat_chonk.png,Is this a cat or a dog?,It is a cat.
+images/cat_chonk.png,Write a short caption for this image.,"A big, fluffy cat posing for the camera."
+image_bytes/bee.png,What is shown in this photo?,A close-up macro photograph of a bee resting on a pink flower.
+images/bee.png,What insect is in the image?,A bee.
+images/bee.png,What is the bee resting on?,It is resting on a pink flower.
+image_bytes/bee.png,Describe this image in one sentence.,"A bee perched on a pink bloom, captured in sharp macro detail."
+images/cat.png,What animal is in this image?,"There is a cat in the image, shown in close-up."
+images/cat.png,How many animals are in the image?,"There is one animal, a single cat."
+images/cat.png,Is the image a close-up or a wide shot?,It is a close-up shot of the cat.
+images/cat.png,Provide a brief caption.,A close-up portrait of a cat.
+images/cats.png,How many animals are in this image and what are they?,There are two cats lying down and resting next to each other.
+images/cats.png,What are the cats doing?,The two cats are lying down and resting side by side.
+images/cats.png,Are there more than one animal in the image?,"Yes, there are two cats."
+images/cats.png,Caption this image.,Two cats relaxing next to one another.
+images/beignets.png,What food is shown in this image?,"A plate of beignets (square French doughnuts) dusted with powdered sugar, served alongside a cup of coffee."
+images/beignets.png,What is served alongside the pastries?,A cup of coffee is served alongside the beignets.
+images/beignets.png,Are these pastries sweet?,"Yes, they are dusted with powdered sugar."
+images/beignets.png,Describe the image briefly.,Powdered-sugar beignets on a plate with a cup of coffee.

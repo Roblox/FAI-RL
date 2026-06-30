@@ -29,7 +29,7 @@ data:
     # (e.g. s3://your-bucket/images/cat.png). s3:// images use the
     # image_s3_region / image_s3_endpoint_url settings below.
     - name: "data/sft_vlm/example_training_image_url.csv"
-      image_column: "image_url"
+      image_column: "image"
       question_column: "question"
       response_column: "response"
 

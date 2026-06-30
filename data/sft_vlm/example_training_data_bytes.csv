@@ -1,21 +1,21 @@
-image_bytes,question,response
-data/sft_vlm/image_bytes/cat_chonk.bin,Describe the animal in this image.,"A large, fluffy cat is sitting and looking toward the camera with an alert expression."
-data/sft_vlm/image_bytes/cat_chonk.bin,What is the cat doing?,The cat is sitting upright and gazing directly toward the viewer.
-data/sft_vlm/image_bytes/cat_chonk.bin,Is this a cat or a dog?,It is a cat.
-data/sft_vlm/image_bytes/cat_chonk.bin,Write a short caption for this image.,"A big, fluffy cat posing for the camera."
-data/sft_vlm/image_bytes/bee.bin,What is shown in this photo?,A close-up macro photograph of a bee resting on a pink flower.
-data/sft_vlm/image_bytes/bee.bin,What insect is in the image?,A bee.
-data/sft_vlm/image_bytes/bee.bin,What is the bee resting on?,It is resting on a pink flower.
-data/sft_vlm/image_bytes/bee.bin,Describe this image in one sentence.,"A bee perched on a pink bloom, captured in sharp macro detail."
-data/sft_vlm/image_bytes/cat.bin,What animal is in this image?,"There is a cat in the image, shown in close-up."
-data/sft_vlm/image_bytes/cat.bin,How many animals are in the image?,"There is one animal, a single cat."
-data/sft_vlm/image_bytes/cat.bin,Is the image a close-up or a wide shot?,It is a close-up shot of the cat.
-data/sft_vlm/image_bytes/cat.bin,Provide a brief caption.,A close-up portrait of a cat.
-data/sft_vlm/image_bytes/cats.bin,How many animals are in this image and what are they?,There are two cats lying down and resting next to each other.
-data/sft_vlm/image_bytes/cats.bin,What are the cats doing?,The two cats are lying down and resting side by side.
-data/sft_vlm/image_bytes/cats.bin,Are there more than one animal in the image?,"Yes, there are two cats."
-data/sft_vlm/image_bytes/cats.bin,Caption this image.,Two cats relaxing next to one another.
-data/sft_vlm/image_bytes/beignets.bin,What food is shown in this image?,"A plate of beignets (square French doughnuts) dusted with powdered sugar, served alongside a cup of coffee."
-data/sft_vlm/image_bytes/beignets.bin,What is served alongside the pastries?,A cup of coffee is served alongside the beignets.
-data/sft_vlm/image_bytes/beignets.bin,Are these pastries sweet?,"Yes, they are dusted with powdered sugar."
-data/sft_vlm/image_bytes/beignets.bin,Describe the image briefly.,Powdered-sugar beignets on a plate with a cup of coffee.
+image,question,response
+image_bytes/cat_chonk.bin,Describe the animal in this image.,"A large, fluffy cat is sitting and looking toward the camera with an alert expression."
+image_bytes/cat_chonk.bin,What is the cat doing?,The cat is sitting upright and gazing directly toward the viewer.
+image_bytes/cat_chonk.bin,Is this a cat or a dog?,It is a cat.
+image_bytes/cat_chonk.bin,Write a short caption for this image.,"A big, fluffy cat posing for the camera."
+image_bytes/bee.bin,What is shown in this photo?,A close-up macro photograph of a bee resting on a pink flower.
+image_bytes/bee.bin,What insect is in the image?,A bee.
+image_bytes/bee.bin,What is the bee resting on?,It is resting on a pink flower.
+image_bytes/bee.bin,Describe this image in one sentence.,"A bee perched on a pink bloom, captured in sharp macro detail."
+image_bytes/cat.bin,What animal is in this image?,"There is a cat in the image, shown in close-up."
+image_bytes/cat.bin,How many animals are in the image?,"There is one animal, a single cat."
+image_bytes/cat.bin,Is the image a close-up or a wide shot?,It is a close-up shot of the cat.
+image_bytes/cat.bin,Provide a brief caption.,A close-up portrait of a cat.
+image_bytes/cats.bin,How many animals are in this image and what are they?,There are two cats lying down and resting next to each other.
+image_bytes/cats.bin,What are the cats doing?,The two cats are lying down and resting side by side.
+image_bytes/cats.bin,Are there more than one animal in the image?,"Yes, there are two cats."
+image_bytes/cats.bin,Caption this image.,Two cats relaxing next to one another.
+image_bytes/beignets.bin,What food is shown in this image?,"A plate of beignets (square French doughnuts) dusted with powdered sugar, served alongside a cup of coffee."
+image_bytes/beignets.bin,What is served alongside the pastries?,A cup of coffee is served alongside the beignets.
+image_bytes/beignets.bin,Are these pastries sweet?,"Yes, they are dusted with powdered sugar."
+image_bytes/beignets.bin,Describe the image briefly.,Powdered-sugar beignets on a plate with a cup of coffee.

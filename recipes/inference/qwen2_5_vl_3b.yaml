@@ -1,9 +1,10 @@
 # Inference for a fine-tuned Qwen2.5-VL (multimodal) checkpoint.
 #
-# Setting `image_column` switches inference into VLM mode: for each row the image
-# URL/path in that column is fetched into a PIL image and fed to the model
+# Setting `image_columns` switches inference into VLM mode: for each row the image
+# URL/path in those columns is fetched into a PIL image and fed to the model
 # alongside the templated text prompt. Use this after training with the sft_vlm
-# algorithm (recipes/training/sft_vlm/qwen2_5_vl_3b_lora.yaml).
+# algorithm (recipes/training/sft_vlm/qwen2_5_vl_3b_lora.yaml). For a recipe that
+# feeds multiple images per row, see qwen2_5_vl_3b_multi_image.yaml.
 #
 # Run from the repo root:
 #   CUDA_VISIBLE_DEVICES=0 fai-rl-inference --recipe recipes/inference/qwen2_5_vl_3b.yaml
@@ -27,9 +28,10 @@ inference:
   dataset_columns: ["image_url", "question"]
   response_column: "response"
 
-  # Multimodal config: image_column names the column holding the image URL/path
-  # (or a list of them). Its presence is what enables VLM inference.
-  image_column: "image_url"
+  # Multimodal config: image_columns lists the column(s) holding the image URL/path
+  # (each cell may be a single value or a list). Its presence enables VLM inference;
+  # all images found across the listed columns are fed to the model per row.
+  image_columns: ["image_url"]
   image_cache_dir: "data/vlm_image_cache"
   image_fetch_timeout: 15
   image_fetch_retries: 3

@@ -402,23 +402,4 @@ limitations under the License.
 name = "FAI-RL"
 version = "X.Y.Z"  # Increment version
 ```
-
-2. **Build and publish**:
-```bash
-# Install build tools
-pip install --upgrade pip build twine
-
-# Clean previous builds
-rm -rf dist/ build/ *.egg-info
-
-# Build the package
-python -m build
-
-# Upload to PyPI (requires credentials)
-python -m twine upload dist/*
-
-# Or upload to test PyPi (requires credentials)
-python -m twine upload --repository testpypi dist/*
-```
-
 </details>

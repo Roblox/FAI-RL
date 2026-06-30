@@ -303,12 +303,14 @@ class InferenceConfig:
     response_column: str = "response"
     checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint inference
 
-    # Multimodal (VLM) inference. Setting image_column enables VLM mode: it names
-    # the dataset column holding an image URL / local path (or a list of them) for
-    # each row. The image(s) are fetched into PIL and fed to the processor
-    # alongside the templated text prompt. The fetch knobs mirror DataConfig's.
-    # When image_column is unset, inference runs text-only exactly as before.
-    image_column: Optional[str] = None
+    # Multimodal (VLM) inference. Setting image_columns enables VLM mode: it names
+    # one or more dataset columns, each holding an HTTP(S) URL, an s3:// URI, a
+    # local path, raw bytes, or a list thereof. Every image found across these
+    # columns (in order) is fetched into PIL and fed to the processor alongside the
+    # templated text prompt, so a single row may carry multiple images. The fetch
+    # knobs mirror DataConfig's. When image_columns is unset, inference runs
+    # text-only exactly as before. Mirrors the sft_vlm trainer's image_columns.
+    image_columns: Optional[List[str]] = None
     image_cache_dir: Optional[str] = None
     image_fetch_timeout: int = 10
     image_fetch_retries: int = 3

@@ -352,8 +352,8 @@ def generate_response(model, tokenizer, prompt: str, config):
 
 
 def is_vlm_inference(config) -> bool:
-    """VLM mode is enabled when the recipe sets a non-empty image_column."""
-    return bool(getattr(config, "image_column", None))
+    """VLM mode is enabled when the recipe sets a non-empty image_columns."""
+    return bool(getattr(config, "image_columns", None))
 
 
 def load_vlm_model_and_processor(config):
@@ -432,18 +432,22 @@ def _maybe_downscale_image(img, max_pixels):
 
 
 def fetch_example_images(config, example):
-    """Fetch the image(s) referenced by config.image_column for one dataset row.
+    """Fetch the image(s) referenced by config.image_columns for one dataset row.
 
-    The column may hold a single URL/path or a list of them. Returns a list of
-    RGB PIL images (possibly empty), each optionally downscaled to max_image_pixels.
+    image_columns lists one or more columns; each cell may hold a single URL/path
+    or a list of them. Every image found across the columns (in order) is gathered,
+    so a single row may carry multiple images. Returns a list of RGB PIL images
+    (possibly empty), each optionally downscaled to max_image_pixels.
     """
-    raw = example.get(config.image_column)
-    if raw is None:
-        sources = []
-    elif isinstance(raw, (list, tuple)):
-        sources = [str(s) for s in raw if s is not None]
-    else:
-        sources = [str(raw)]
+    sources = []
+    for col in (config.image_columns or []):
+        raw = example.get(col)
+        if raw is None:
+            continue
+        elif isinstance(raw, (list, tuple)):
+            sources.extend(str(s) for s in raw if s is not None)
+        else:
+            sources.append(str(raw))
 
     images = []
     for s in sources:
@@ -501,12 +505,12 @@ def run_inference(config, debug=False):
     use_api = (hasattr(config, 'model') and config.model is not None) and \
               (hasattr(config, 'api_key') and config.api_key is not None)
 
-    # Multimodal (VLM) mode is enabled by setting image_column in the recipe.
+    # Multimodal (VLM) mode is enabled by setting image_columns in the recipe.
     is_vlm = is_vlm_inference(config)
     if is_vlm and use_api:
         raise ValueError(
-            "VLM inference (image_column set) is only supported for local models, "
-            "not API endpoints. Remove image_column or use model_paths."
+            "VLM inference (image_columns set) is only supported for local models, "
+            "not API endpoints. Remove image_columns or use model_paths."
         )
 
     # Determine checkpoint paths to process

@@ -83,17 +83,18 @@ class DatasetInfo:
     chosen_column: str = "chosen"
     rejected_column: str = "rejected"
     answer_column: str = "answer"
+    # Text columns used to build each example. For sft_vlm, dataset_columns names
+    # the columns whose values fill the system_prompt .format() template (e.g.
+    # dataset_columns: [question, response] with a "...{question}...{response}"
+    # template). When no system_prompt is set, the column values are concatenated
+    # in order. The result is one training turn (no prompt/completion masking).
     dataset_columns: Optional[List[str]] = None
 
-    # Multimodal (sft_vlm) columns. image_column holds an HTTP(S) URL, a local
-    # path, raw bytes, a PIL image, or a list thereof (multiple images per row).
-    # question_column / response_column hold the user prompt and target answer.
-    # Alternatively, messages_column points at a column already in conversational
-    # format (a list of {role, content} dicts) -- when set it takes precedence.
-    image_column: Optional[str] = None
-    question_column: str = "question"
-    response_column: str = "response"
-    messages_column: Optional[str] = None
+    # Multimodal (sft_vlm) image columns. image_columns names one or more columns,
+    # each holding an HTTP(S) URL, an s3:// URI, a local path, raw bytes, a PIL
+    # image, or a list thereof. Every image found across these columns (in order)
+    # is attached to the row, so a single row may carry multiple images.
+    image_columns: Optional[List[str]] = None
 
     # S3 connection overrides (only used when name starts with s3://).
     # When unset, boto3 uses its default credential/region resolution chain.
@@ -141,10 +142,7 @@ class DataConfig:
                     "rejected_column": ds.rejected_column,
                     "answer_column": ds.answer_column,
                     "dataset_columns": ds.dataset_columns,
-                    "image_column": ds.image_column,
-                    "question_column": ds.question_column,
-                    "response_column": ds.response_column,
-                    "messages_column": ds.messages_column,
+                    "image_columns": ds.image_columns,
                     "s3_region": ds.s3_region,
                     "s3_endpoint_url": ds.s3_endpoint_url,
                 }

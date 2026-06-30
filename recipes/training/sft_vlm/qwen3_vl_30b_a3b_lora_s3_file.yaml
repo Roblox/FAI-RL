@@ -44,13 +44,12 @@ data:
   datasets:
     # S3 dataset loading: set name to an s3:// URI ending in .jsonl/.json/.csv/.parquet.
     # boto3 credentials resolve from the environment (IAM role, AWS_ACCESS_KEY_ID, etc.).
-    # Expected JSONL schema: {"image_url": "...", "question": "...", "response": "..."}
-    # (the same schema as data/sft_vlm/example_training_image_url.csv), or a
-    # messages_column already in conversational format.
+    # Expected schema: {"image": "...", "question": "...", "response": "..."}
+    # (the same schema as data/sft_vlm/example_training_image_url.csv). List
+    # several image_columns for multi-image rows.
     - name: "s3://your-bucket/datasets/example_training_data_bytes.csv"  # S3 URI to the dataset file (required)
-      image_column: "image"
-      question_column: "question"
-      response_column: "response"
+      image_columns: ["image"]
+      dataset_columns: ["question", "response"]
       s3_region: null          # AWS region override (null = use AWS_DEFAULT_REGION)
       s3_endpoint_url: null     # Custom S3-compatible endpoint (null = AWS S3)
 
@@ -59,9 +58,10 @@ data:
   image_fetch_retries: 3
   max_image_pixels: 1048576        # ~1MP; raise/lower to trade quality vs. memory
 
-  # system_prompt is a .format() template; {question} and {response} are filled per row
-  # from question_column / response_column. {response} is the target answer -- include it
-  # only for labeling/eval-style data (it leaks the answer for generative SFT).
+  # system_prompt is a .format() template keyed by the dataset_columns names;
+  # {question} and {response} are filled per row from those columns. The whole
+  # rendered text is one training turn (no prompt/completion masking), so it
+  # includes the {response} target.
   system_prompt: |
     You are a helpful multimodal assistant. Answer the user's question based on the image.
     Question: {question}

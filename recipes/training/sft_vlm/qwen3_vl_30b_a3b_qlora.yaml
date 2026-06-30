@@ -33,12 +33,11 @@ model:
 data:
   datasets:
     # Example dataset shipped with the repo: stable public image URLs + Q/A.
-    # Swap `name` for any HF/local/S3 dataset that has an image-URL column and
-    # question/response columns (or set messages_column for conversational data).
+    # Swap `name` for any HF/local/S3 dataset that has image column(s) and text
+    # columns. List several image_columns for multi-image rows.
     - name: "data/sft_vlm/example_training_image_url.csv"
-      image_column: "image"          # column holding an HTTP(S) URL (or a list of URLs)
-      question_column: "question"    # user prompt column
-      response_column: "response"    # target answer column
+      image_columns: ["image"]                  # column(s) holding image sources (URL/path/bytes)
+      dataset_columns: ["question", "response"] # text columns that fill the system_prompt template
 
   # Cache downloaded images on disk so they are not re-fetched every epoch.
   image_cache_dir: "data/vlm_image_cache"
@@ -48,9 +47,10 @@ data:
 
   # NOTE: max_length is forced to None internally for VLMs to avoid truncating
   # image placeholder tokens. The text knobs below are unused by sft_vlm.
-  # system_prompt is a .format() template; {question} and {response} are filled per row
-  # from question_column / response_column. {response} is the target answer -- include it
-  # only for labeling/eval-style data (it leaks the answer for generative SFT).
+  # system_prompt is a .format() template keyed by the dataset_columns names;
+  # {question} and {response} are filled per row from those columns. The whole
+  # rendered text is one training turn (no prompt/completion masking), so it
+  # includes the {response} target.
   system_prompt: |
     You are a helpful multimodal assistant. Answer the user's question based on the image.
     Question: {question}

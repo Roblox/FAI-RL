@@ -26,14 +26,13 @@ model:
 
 data:
   datasets:
-    # Dataset CSV in S3; its image_bytes column holds s3:// URIs to per-image
+    # Dataset CSV in S3; its image_columns column(s) hold s3:// URIs to per-image
     # binary files (escaped-bytes text form). s3_region / s3_endpoint_url govern
     # the dataset file; image_s3_region / image_s3_endpoint_url (below) govern
     # the s3:// image objects.
     - name: "s3://your-bucket/datasets/example_training_s3_data_bytes.csv"
-      image_column: "image"
-      question_column: "question"
-      response_column: "response"
+      image_columns: ["image"]
+      dataset_columns: ["question", "response"]
       s3_region: null          # AWS region override for the dataset file (null = use AWS_DEFAULT_REGION)
       s3_endpoint_url: null     # Custom S3-compatible endpoint for the dataset file (null = AWS S3)
 
@@ -44,9 +43,10 @@ data:
   image_s3_region: null            # AWS region for s3:// images (null = use AWS_DEFAULT_REGION)
   image_s3_endpoint_url: null      # Custom S3-compatible endpoint for s3:// images (null = AWS S3)
 
-  # system_prompt is a .format() template; {question} and {response} are filled per row
-  # from question_column / response_column. {response} is the target answer -- include it
-  # only for labeling/eval-style data (it leaks the answer for generative SFT).
+  # system_prompt is a .format() template keyed by the dataset_columns names;
+  # {question} and {response} are filled per row from those columns. The whole
+  # rendered text is one training turn (no prompt/completion masking), so it
+  # includes the {response} target.
   system_prompt: |
     You are a helpful multimodal assistant. Answer the user's question based on the image.
     Question: {question}

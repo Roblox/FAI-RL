@@ -37,21 +37,21 @@ model:
 data:
   datasets:
     # Placeholder dataset (the 5-row smoke example). Replace with your real data;
-    # the schema is image_column (URL/path) + question/response columns, or a
-    # messages_column already in conversational format.
+    # the schema is one or more image_columns (URL/path/bytes) + the text columns
+    # listed in dataset_columns. List several image_columns for multi-image rows.
     - name: "data/sft_vlm/example_training_image_url.csv"
-      image_column: "image"
-      question_column: "question"
-      response_column: "response"
+      image_columns: ["image"]
+      dataset_columns: ["question", "response"]
 
   image_cache_dir: "data/vlm_image_cache"
   image_fetch_timeout: 15
   image_fetch_retries: 3
   max_image_pixels: 1048576        # ~1MP; raise/lower to trade quality vs. memory
 
-  # system_prompt is a .format() template; {question} and {response} are filled per row
-  # from question_column / response_column. {response} is the target answer -- include it
-  # only for labeling/eval-style data (it leaks the answer for generative SFT).
+  # system_prompt is a .format() template keyed by the dataset_columns names;
+  # {question} and {response} are filled per row from those columns. The whole
+  # rendered text is one training turn (no prompt/completion masking), so it
+  # includes the {response} target.
   system_prompt: |
     You are a helpful multimodal assistant. Answer the user's question based on the image.
     Question: {question}

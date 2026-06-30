@@ -1,8 +1,9 @@
 # Inference for a fine-tuned Qwen3-VL-30B-A3B (multimodal MoE) checkpoint.
 #
-# Setting `image_column` enables VLM mode: each row's image URL/path is fetched
+# Setting `image_columns` enables VLM mode: each row's image URL/path is fetched
 # into a PIL image and fed to the model alongside the templated text prompt.
 # Use this after training with recipes/training/sft_vlm/qwen3_vl_30b_a3b_lora.yaml.
+# For a recipe that feeds multiple images per row, see qwen2_5_vl_3b_multi_image.yaml.
 #
 # The 30B model is too large for one GPU; the inference engine loads it with
 # device_map="auto", which automatically shards the weights across all visible
@@ -29,9 +30,10 @@ inference:
   dataset_columns: ["image_url", "question"]
   response_column: "response"
 
-  # Multimodal config: image_column names the column holding the image URL/path
-  # (or a list of them). Its presence is what enables VLM inference.
-  image_column: "image_url"
+  # Multimodal config: image_columns lists the column(s) holding the image URL/path
+  # (each cell may be a single value or a list). Its presence enables VLM inference;
+  # all images found across the listed columns are fed to the model per row.
+  image_columns: ["image_url"]
   image_cache_dir: "data/vlm_image_cache"
   image_fetch_timeout: 15
   image_fetch_retries: 3

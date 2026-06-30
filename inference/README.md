@@ -34,12 +34,14 @@ CUDA_VISIBLE_DEVICES=0 fai-rl-inference --recipe recipes/inference/qwen2_5_vl_3b
 
 ### Multimodal (VLM) Inference
 
-To run inference on a vision-language model fine-tuned with the `sft_vlm` algorithm, set **`image_column`** in the recipe. Its presence switches inference into VLM mode: for each row, the image URL/path in that column is fetched into a PIL image and fed to the model alongside the templated text prompt. See `recipes/inference/qwen2_5_vl_3b.yaml`.
+To run inference on a vision-language model fine-tuned with the `sft_vlm` algorithm, set **`image_columns`** in the recipe. Its presence switches inference into VLM mode: for each row, the image URL/path in those columns is fetched into a PIL image and fed to the model alongside the templated text prompt. See `recipes/inference/qwen2_5_vl_3b.yaml`.
 
 Key VLM recipe fields (under `inference:`):
-- `image_column` — dataset column holding an image URL / local path (or a list of them). **Required to enable VLM mode.**
+- `image_columns` — list of dataset columns, each holding an image URL / `s3://` URI / local path (or a list of them). Every image found across these columns (in order) is fed to the model, so a row can carry **multiple images**. **Required to enable VLM mode.** Mirrors the `sft_vlm` trainer's `image_columns`.
 - `image_cache_dir`, `image_fetch_timeout`, `image_fetch_retries`, `max_image_pixels` — image-fetch settings (mirror the training recipe).
-- `system_prompt` — prompt template (filled per row from `dataset_columns`); becomes the user text shown with the image.
+- `system_prompt` — prompt template (filled per row from `dataset_columns`); becomes the user text shown with the image(s).
+
+For multiple images per row, list more than one column (e.g. `image_columns: ["image_a", "image_b"]`) — the processor receives one image placeholder per fetched image, in column order. See `recipes/inference/qwen2_5_vl_3b_multi_image.yaml`.
 
 VLM mode loads the model as `AutoModelForImageTextToText` + `AutoProcessor`, automatically detects and merges PEFT/LoRA adapters, and supports the same multi-checkpoint, CSV-output, and S3-upload workflow as text models. It is **local-model only** — API endpoints are not supported for VLMs.
 

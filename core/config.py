@@ -110,7 +110,6 @@ class DataConfig:
     max_prompt_length: int = 256
     remove_unused_columns: bool = False
     system_prompt: Optional[str] = None
-    prompt_column: str = "prompt"
     dataset_num_proc: int = 1
 
     # Multimodal (sft_vlm) image-fetch settings. image_cache_dir, when set,
@@ -152,7 +151,6 @@ class DataConfig:
             "max_prompt_length": self.max_prompt_length,
             "remove_unused_columns": self.remove_unused_columns,
             "system_prompt": self.system_prompt,
-            "prompt_column": self.prompt_column,
             "dataset_num_proc": self.dataset_num_proc,
             "image_cache_dir": self.image_cache_dir,
             "image_fetch_timeout": self.image_fetch_timeout,

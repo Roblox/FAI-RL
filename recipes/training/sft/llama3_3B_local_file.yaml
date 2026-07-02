@@ -31,7 +31,6 @@ data:
     # Relative paths are resolved from the directory where training is launched.
     # Expected JSONL schema: {"prompt": "...", "response": "..."}
     - name: "data/train.jsonl"                          # Path to local JSONL file (required)
-      prompt_column: "prompt"                           # Column containing the input prompt
       dataset_columns: ["prompt", "response"]           # Columns to keep
 
   # Text processing settings

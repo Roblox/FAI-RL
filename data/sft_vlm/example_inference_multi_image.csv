@@ -1,0 +1,4 @@
+image_a,image_b,question
+https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/cat.png,https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/cats.png,How many animals are in the first image versus the second image?
+https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/bee.jpg,https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/beignets-task-guide.png,Describe what is shown in each image and say which one contains food.
+https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/pipeline-cat-chonk.jpeg,https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/cat.png,Do both images show the same kind of animal? Compare them.

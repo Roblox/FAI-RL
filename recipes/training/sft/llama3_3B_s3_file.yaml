@@ -29,7 +29,6 @@ data:
     # boto3 credentials are resolved from the environment (IAM role, AWS_ACCESS_KEY_ID, etc.).
     # Expected JSONL schema: {"prompt": "...", "response": "..."}
     - name: "s3://your-bucket/datasets/train.jsonl"   # S3 URI to the dataset file (required)
-      prompt_column: "prompt"                          # Column containing the input prompt
       dataset_columns: ["prompt", "response"]          # Columns to keep
       s3_region: null                                  # AWS region override (null = use AWS_DEFAULT_REGION)
       s3_endpoint_url: null                            # Custom S3-compatible endpoint (null = AWS S3)

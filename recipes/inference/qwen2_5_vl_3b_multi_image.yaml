@@ -1,0 +1,53 @@
+# Multi-image inference for a fine-tuned Qwen2.5-VL (multimodal) checkpoint.
+#
+# Like qwen2_5_vl_3b.yaml, but `image_columns` lists TWO columns, so each row
+# feeds two images to the model. Every image found across the listed columns (in
+# order) is attached to the row, and the processor receives one image placeholder
+# per image -- so the model sees both pictures alongside the templated prompt.
+# This mirrors the sft_vlm trainer's image_columns (multiple image columns per row).
+#
+# Run from the repo root:
+#   CUDA_VISIBLE_DEVICES=0 fai-rl-inference --recipe recipes/inference/qwen2_5_vl_3b_multi_image.yaml
+#   # or: python inference/inference.py --recipe recipes/inference/qwen2_5_vl_3b_multi_image.yaml
+inference:
+  # Local fine-tuned checkpoint (LoRA adapter + processor) or a vanilla VLM hub id.
+  # Multiple paths run multi-checkpoint inference into one CSV (see README).
+  model_paths:
+    - "models/qwen2.5-vl-3b-sft-lora-smoke"
+
+  output_file: "outputs/qwen2.5-vl-3b-multi-image-infer.csv"
+
+  # Dataset: a local CSV with two image-URL columns (image_a, image_b) + a question
+  # column. An S3-hosted CSV (s3://...) or a HuggingFace dataset id with the same
+  # columns works too -- just point dataset_name at it.
+  dataset_name: "data/sft_vlm/example_inference_multi_image.csv"
+  s3_region: null          # AWS region override (null = use AWS_DEFAULT_REGION). Also applies to s3:// model_paths.
+  s3_endpoint_url: null     # Custom S3-compatible endpoint (null = AWS S3)
+  dataset_split: "test"
+  dataset_columns: ["image_a", "image_b", "question"]
+  response_column: "response"
+
+  # Multimodal config: image_columns lists every column holding an image URL/path
+  # (each cell may also be a list). All images across these columns are fed to the
+  # model per row, in the order the columns are listed -- here image_a then image_b.
+  image_columns: ["image_a", "image_b"]
+  image_cache_dir: "data/vlm_image_cache"
+  image_fetch_timeout: 15
+  image_fetch_retries: 3
+  max_image_pixels: 262144          # ~0.25MP keeps inference light
+
+  # The prompt template is filled per row from dataset_columns and becomes the
+  # user text accompanying the images. It MUST contain at least one {placeholder}.
+  # The two images precede this text (one placeholder each), so the prompt can
+  # refer to "the first image" and "the second image".
+  system_prompt: |
+    You are a helpful multimodal assistant. You are shown two images.
+    The first image and the second image are provided in order.
+    Question: {question}
+    Response:
+
+  # Generation parameters. Greedy decoding for reproducible answers.
+  temperature: 1.0
+  top_p: 0.9
+  max_new_tokens: 256
+  do_sample: false

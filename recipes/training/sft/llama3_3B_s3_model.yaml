@@ -39,7 +39,6 @@ model:
 data:
   datasets:
     - name: "s3://your-bucket/datasets/train.jsonl"
-      prompt_column: "prompt"
       dataset_columns: ["prompt", "response"]
       s3_region: null
       s3_endpoint_url: null

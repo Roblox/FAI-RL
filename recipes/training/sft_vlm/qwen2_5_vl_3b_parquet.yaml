@@ -1,0 +1,98 @@
+# Multimodal (image + text) SFT recipe that reads a HuggingFace-style Parquet
+# dataset with embedded images (data/sft_vlm/example_training_data.parquet).
+#
+# The parquet uses the HuggingFace `images: List[Image]` schema, so each row's
+# image is embedded PNG bytes that datasets decodes to a PIL image at load time.
+# No URL/S3/local-file fetch happens -- _coerce_image_source() in the trainer
+# turns the embedded image into raw bytes and fetch_image() decodes it in-memory.
+#
+# Full LoRA fine-tune of Qwen2.5-VL-3B on the language layers with the vision
+# tower frozen -- fits a single modest GPU or Apple Silicon (MPS).
+model:
+  base_model_name: "Qwen/Qwen2.5-VL-3B-Instruct"
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_4bit: false
+  use_flash_attention: false
+
+  freeze_vision_tower: true
+
+  use_lora: true
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  lora_bias: "none"
+
+data:
+  datasets:
+    # images: HF List[Image] column -> embedded PNG bytes, decoded in-memory.
+    # dataset_columns lists the text columns that fill the system_prompt template.
+    - name: "data/sft_vlm/example_training_data.parquet"
+      image_columns: ["images"]
+      dataset_columns: ["prompt", "answer"]
+
+  # Images are embedded, so image_cache_dir / image_fetch_* / image_s3_* do not
+  # apply. Only max_image_pixels still runs (post-decode) to bound vision tokens;
+  # thumbnails are ~960px, so cap them to ~0.25MP.
+  max_image_pixels: 262144
+
+  # system_prompt is a .format() template keyed by the dataset_columns names.
+  # {prompt} is the per-row instruction and {answer} is the target response;
+  # both are filled from the parquet's columns. Only the {prompt}/{answer}
+  # placeholders are parsed -- any literal braces inside the substituted values
+  # (e.g. a JSON answer) are inserted verbatim and need no escaping. The whole
+  # rendered text is one training turn (no prompt/completion masking), so it
+  # includes the {answer} target.
+  system_prompt: |
+    {prompt}
+
+    {answer}
+
+training:
+  algorithm: "sft_vlm"
+  output_dir: "models/qwen2.5-vl-3b-sft-lora-parquet"
+
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 1.0e-4
+  num_train_epochs: 1
+  # max_steps omitted (defaults to -1) -> train over the full dataset for 1 epoch.
+  warmup_steps: 100
+
+  logging_steps: 10
+  save_steps: 500
+  eval_steps: 500
+
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+
+  dataloader_num_workers: 4
+  dataloader_pin_memory: false
+  dataloader_drop_last: false
+
+wandb:
+  enabled: false                                          # Enable W&B logging
+  project: "your-project"                                 # W&B project name
+  entity: "your-wandb-entity"                             # W&B username or team name
+  name: "Qwen2.5-VL-3B-Inst-LoRA-SFT-parquet"             # Experiment name in W&B
+  tags: ["SFT", "sft_vlm", "qwen2.5-vl", "3B", "LoRA", "parquet"]   # Tags for organizing experiments
+  api_key: null                                           # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)
+
+# S3 Checkpoint Upload
+# Automatically uploads checkpoints and the final model to S3
+s3:
+  enabled: false                                          # Enable S3 checkpoint upload
+  bucket: "your-s3-bucket"                                # S3 bucket name
+  prefix: "checkpoints/qwen2.5-vl-3b-sft-lora-parquet"    # S3 key prefix (folder path inside bucket)
+  region: null                                            # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
+  endpoint_url: null                                      # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
+  upload_checkpoints: true                                # Upload intermediate checkpoints (at every save_steps)
+  upload_final_model: true                                # Upload the final model at end of training
+  delete_local_after_upload: false                        # Delete local checkpoint files after successful upload

@@ -1,4 +1,4 @@
-import os, sys
+import io, os, sys
 from typing import Optional, List, Any
 
 from datasets import concatenate_datasets
@@ -104,6 +104,42 @@ class SFTVLMTrainer(BaseTrainer):
 
     # ------------------------------ data ------------------------------------
 
+    @staticmethod
+    def _coerce_image_source(s: Any):
+        """Normalize one image cell into an Arrow-serializable source.
+
+        String sources (HTTP(S) URL, local path, or ``s3://`` URI) pass through
+        unchanged. Embedded images -- raw ``bytes``, a ``PIL.Image``, or the HF
+        ``{'bytes'/'path'/'url'/'image'}`` dict that the datasets ``Image``
+        feature decodes to -- are reduced to something :func:`fetch_image` can
+        later decode: raw PNG bytes for pixel data, or the referenced path/URL
+        string. This lets parquet/HF datasets that embed image bytes (e.g. the
+        ``images: List[Image]`` schema) train without an external fetch step.
+
+        Returns ``None`` for empty cells so callers can drop them.
+        """
+        from PIL import Image
+
+        if s is None:
+            return None
+        if isinstance(s, str):
+            return s
+        if isinstance(s, (bytes, bytearray)):
+            return bytes(s)
+        if isinstance(s, Image.Image):
+            buf = io.BytesIO()
+            s.save(buf, format="PNG")
+            return buf.getvalue()
+        if isinstance(s, dict):
+            if s.get("bytes") is not None:
+                return bytes(s["bytes"])
+            for key in ("path", "url", "image"):
+                if s.get(key) is not None:
+                    return SFTVLMTrainer._coerce_image_source(s[key])
+            return None
+        # Unknown scalar source: preserve prior behavior and stringify.
+        return str(s)
+
     def _normalize_dataset(self, dataset, dataset_info):
         """Map a raw dataset to a uniform, Arrow-friendly schema.
 
@@ -127,10 +163,11 @@ class SFTVLMTrainer(BaseTrainer):
                 raw = example.get(col)
                 if raw is None:
                     continue
-                if isinstance(raw, (list, tuple)):
-                    sources.extend(str(s) for s in raw if s is not None)
-                else:
-                    sources.append(str(raw))
+                items = raw if isinstance(raw, (list, tuple)) else [raw]
+                for s in items:
+                    coerced = self._coerce_image_source(s)
+                    if coerced is not None:
+                        sources.append(coerced)
 
             return {
                 "_image_sources": sources,

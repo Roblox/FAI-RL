@@ -33,11 +33,15 @@ YAML configuration files for all supported training algorithms. Each recipe is a
 | Recipe | Dataset source | Model source | Notes |
 |--------|---------------|--------------|-------|
 | `sft_vlm/qwen2_5_vl_3b_lora.yaml` | Local file (image URLs) | HuggingFace Hub | LoRA, Qwen2.5-VL-3B — small, for validating the pipeline |
+| `sft_vlm/qwen2_5_vl_3b_lora_image_bytes.yaml` | Local file (local image paths / raw bytes) | HuggingFace Hub | LoRA, Qwen2.5-VL-3B — images loaded from local `.bin` byte files |
+| `sft_vlm/qwen2_5_vl_3b_parquet.yaml` | Local Parquet (embedded images) | HuggingFace Hub | LoRA, Qwen2.5-VL-3B — HF-style `images: List[Image]` parquet, images decoded in-memory |
+| `sft_vlm/qwen2_5_vl_3b_lora_s3_file.yaml` | S3 file (image URLs) | HuggingFace Hub | LoRA, Qwen2.5-VL-3B — dataset file loaded from S3 |
+| `sft_vlm/qwen2_5_vl_3b_lora_s3_image_bytes.yaml` | S3 file (`s3://` image URIs) | HuggingFace Hub | LoRA, Qwen2.5-VL-3B — images fetched from S3 |
+| `sft_vlm/qwen3_vl_30b_a3b_lora.yaml` | Local file (image URLs) | HuggingFace Hub | LoRA, Qwen3-VL-30B-A3B MoE VLM |
 | `sft_vlm/qwen3_vl_30b_a3b_qlora.yaml` | Local file (image URLs) | HuggingFace Hub | QLoRA (4-bit), Qwen3-VL-30B-A3B MoE VLM |
-| `sft_vlm/qwen2_5_vl_3b_lora_s3_file.yaml` | S3 file (`s3://bucket/key.jsonl`, image URLs) | HuggingFace Hub | LoRA, Qwen2.5-VL-3B — dataset file loaded from S3 |
-| `sft_vlm/qwen3_vl_30b_a3b_lora_s3_file.yaml` | S3 file (`s3://bucket/key.jsonl`, image URLs) | HuggingFace Hub | LoRA, Qwen3-VL-30B-A3B MoE VLM — dataset file loaded from S3 |
+| `sft_vlm/qwen3_vl_30b_a3b_lora_s3_file.yaml` | S3 file (image URLs) | HuggingFace Hub | LoRA, Qwen3-VL-30B-A3B MoE VLM — dataset file loaded from S3 |
 
-Fine-tunes a vision-language model on `(image, prompt) -> response` data. Images are supplied as **HTTP(S) URLs** (or local paths) and fetched into PIL images at data-loading time. See [Multimodal datasets](#multimodal-datasets-sft_vlm) below.
+Fine-tunes a vision-language model on `(image, text) -> response` data, and supports **multiple images per row**. Images can be supplied as **HTTP(S) URLs**, local paths, `s3://` URIs, raw bytes, or **embedded in a Parquet file** (HuggingFace `images: List[Image]` schema) — all fetched/decoded into PIL images at data-loading time. See [Multimodal datasets](#multimodal-datasets-sft_vlm) below.
 
 ### DPO (Direct Preference Optimization)
 
@@ -98,16 +102,16 @@ All algorithms support three dataset sources. The source is selected by the valu
 | DPO | `prompt`, `chosen`, `rejected` |
 | GRPO | `prompt`, `answer` |
 | GSPO | `prompt`, `answer` |
-| SFT_VLM | `image_url`, `question`, `response` (see below) |
+| SFT_VLM | one or more image columns + one or more text columns (see below) |
 
-Column names are configurable — use `text_column`, `prompt_column`, `answer_column`, `chosen_column`, `rejected_column` in the dataset entry to remap them.
+Column names are configurable — use `text_column`, `prompt_column`, `answer_column`, `chosen_column`, `rejected_column` in the dataset entry to remap them. For **SFT_VLM**, images and text columns are named explicitly via `image_columns` and `dataset_columns` (see [Multimodal datasets](#multimodal-datasets-sft_vlm)).
 
 ### Multimodal datasets (SFT_VLM)
 
-The `sft_vlm` algorithm trains vision-language models on image + text. Each dataset row needs an image column plus a prompt/response pair. The shipped example is a CSV (any of `.csv` / `.jsonl` / `.json` / `.parquet`, HF Hub, or S3 works):
+The `sft_vlm` algorithm trains vision-language models on image + text. Each dataset row needs at least one image column plus one or more text columns. Columns are named via **`image_columns`** (a list) and **`dataset_columns`** (a list); a row can carry **multiple images**. The shipped example is a CSV (any of `.csv` / `.jsonl` / `.json` / `.parquet`, HF Hub, or S3 works):
 
 ```csv
-image_url,question,response
+image,question,response
 https://example.com/cat.jpg,What is in this image?,A cat sitting on a couch.
 ```
 
@@ -116,18 +120,22 @@ Configure the columns in the dataset entry, and the image-fetch behavior under `
 ```yaml
 data:
   datasets:
-    - name: "recipes/training/sft_vlm/example_training_image_url.csv"   # HF Hub / local / S3
-      image_column: "image_url"      # holds an HTTP(S) URL, a local path, or a list of them (multi-image)
-      question_column: "question"
-      response_column: "response"
-      # messages_column: "messages"  # alternative: a column already in conversational format
+    - name: "data/sft_vlm/example_training_image_url.csv"   # HF Hub / local / S3
+      image_columns: ["image"]              # one or more columns; each cell may hold an
+                                            # HTTP(S) URL, local path, s3:// URI, raw bytes,
+                                            # an embedded PIL image, or a list of any of these.
+                                            # List several columns for multi-image rows.
+      dataset_columns: ["question", "response"]  # text columns that fill the system_prompt template
   image_cache_dir: "data/vlm_image_cache"   # cache downloads so they aren't re-fetched each epoch
   image_fetch_timeout: 15
   image_fetch_retries: 3
   max_image_pixels: 1048576          # optional: downscale large images to bound vision tokens / memory
-  # system_prompt is a .format() template (like the text SFT recipes): {question} and
-  # {response} are filled per row. {response} leaks the target, so use it only for
-  # labeling/eval-style data. Double any literal braces as {{ }}.
+  image_s3_region: null              # override AWS region when an image value is an s3:// URI
+  image_s3_endpoint_url: null        # set for MinIO or other S3-compatible stores
+  # system_prompt is a .format() template (like the text SFT recipes), keyed by the
+  # dataset_columns names: {question} and {response} are filled per row. {response}
+  # leaks the target, so use it only for labeling/eval-style data. When no
+  # system_prompt is set, the dataset_columns values are concatenated instead.
   system_prompt: |
     You are a helpful multimodal assistant. Answer the user's question based on the image.
     Question: {question}
@@ -135,11 +143,13 @@ data:
 ```
 
 Notes:
-- `system_prompt` is a `str.format()` template supporting `{question}` and `{response}` (the configured question/response columns), mirroring the text-SFT templating above. Unknown placeholders fall back to the literal text.
-- Images are fetched from their URLs at startup; rows whose images can't be fetched/decoded are dropped (with a logged count).
-- A small example dataset of public image URLs ships at `recipes/training/sft_vlm/example_training_image_url.csv`. Any HF/local/S3 dataset with an image-URL column works — just point `name` at it.
+- `system_prompt` is a `str.format()` template whose placeholders are the `dataset_columns` names (e.g. `{question}`, `{response}`), mirroring the text-SFT templating above. Unknown placeholders fall back to the literal text. The rendered text is a single training turn (no prompt/completion masking).
+- **Multiple images per row:** list more than one column in `image_columns` (e.g. `["image_a", "image_b"]`), or put a list of image sources in a single cell. Every image found across the listed columns (in order) is attached to the row.
+- **Image sources:** each cell may be an HTTP(S) URL, a local path, an `s3://` URI, raw image bytes, or an embedded PIL image. Parquet files using the HuggingFace `images: List[Image]` schema (embedded PNG bytes) are decoded in-memory — no fetch happens. See `sft_vlm/qwen2_5_vl_3b_parquet.yaml`.
+- Images are fetched/decoded at startup; rows whose images can't be fetched/decoded (or that render empty text) are dropped, with a logged count.
+- Example datasets ship under `data/sft_vlm/`: `example_training_image_url.csv` (public image URLs), `example_training_data.csv` (local image paths), `example_training_data_bytes.csv` (local byte files), and `example_training_data.parquet` (embedded images). Any HF/local/S3 dataset with an image column works — just point `name` at it.
 - `data.max_length` is forced to `None` internally for VLMs so image placeholder tokens are never truncated.
-- **Network:** the training environment must be able to reach the image hosts **and** the HuggingFace Hub (for the model). If image hosts are blocked, pre-download images and use local paths in `image_column`.
+- **Network:** the training environment must be able to reach the image hosts **and** the HuggingFace Hub (for the model). If image hosts are blocked, pre-download images and use local paths (or an embedded-image parquet) in `image_columns`.
 
 ## Quick Start
 

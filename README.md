@@ -10,7 +10,7 @@ A production-ready framework for training, inference, evaluation using advanced 
 
 FAI-RL provides a unified, extensible framework for fine-tuning language models with the state-of-the-art algorithms:
 
-- 🎯 **Supports Multiple RL Algorithms**: DPO, GRPO, GSPO implementations as well as support for Supervised Fine-Tuning and Continuous Pre-Training.
+- 🎯 **Supports Multiple RL Algorithms**: DPO, GRPO, GSPO implementations as well as support for Supervised Fine-Tuning (text and multimodal vision-language) and Continuous Pre-Training.
 - 🚀 **Production Ready**: Validated on AWS p4d instances with 8x A100 GPUs
 - 📦 **Simple Configuration**: YAML-based configs with CLI override support
 - ⚡ **Memory Efficient**: Full support for LoRA, QLoRA, and DeepSpeed ZeRO-3
@@ -40,7 +40,7 @@ We assume the user environment already has the necessary ML libraries
 installed (notably `torch`, with a CUDA build matching the host).
 
 ```bash
-uv pip install FAI-RL
+pip install FAI-RL
 ```
 
 ### Clone the Repository for Configuration Recipes
@@ -94,7 +94,7 @@ The default value (`https://api.wandb.ai`) points to the public W&B cloud. This 
 
 ### Training
 
-Train a model using any of the supported algorithms (CPT, SFT, DPO, GRPO, GSPO):
+Train a model using any of the supported algorithms (CPT, SFT, SFT_VLM, DPO, GRPO, GSPO):
 
 ```bash
 # Single GPU training with LoRA
@@ -138,12 +138,13 @@ fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --debug
 
 ## Supported Algorithms
 
-FAI-RL supports five training algorithms for language model fine-tuning:
+FAI-RL supports six training algorithms for language model fine-tuning:
 
 | Algorithm | Full Name | Description | Best For |
 |-----------|-----------|-------------|----------|
 | **CPT** | Continuous Pre-Training | Next-token prediction on raw text; no chat template | Domain adaptation, corpus ingestion |
 | **SFT** | Supervised Fine-Tuning | Direct supervised learning from labeled examples | Instruction fine-tuning and foundational model fine-tuning |
+| **SFT_VLM** | Multimodal Supervised Fine-Tuning | Supervised fine-tuning of vision-language models on `(image, text) -> response` data (supports multiple images per row) | Instruction-tuning VLMs, image understanding tasks |
 | **DPO** | Direct Preference Optimization | Alignment via preference learning without explicit reward models | Human preference alignment, chat model training |
 | **GRPO** | Group Relative Policy Optimization | Efficient preference learning with group-based comparison | Reasoning tasks, competitive response generation |
 | **GSPO** | Group Sequence Policy Optimization | Advanced sequence-level policy optimization | Complex multi-step reasoning, mathematical problem-solving |
@@ -255,7 +256,7 @@ FAI-RL/
 │       ├── mmlu.py
 │       └── gsm8k.py
 ├── recipes/                   # YAML configuration files
-│   ├── training/              # Training recipes (cpt/, sft/, dpo/, grpo/, gspo/)
+│   ├── training/              # Training recipes (cpt/, sft/, sft_vlm/, dpo/, grpo/, gspo/)
 │   ├── inference/             # Inference recipes
 │   └── evaluation/            # Evaluation recipes (mmlu/, gsm8k/)
 ├── configs/                   # DeepSpeed configurations

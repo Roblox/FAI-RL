@@ -1,6 +1,8 @@
 # FAI-RL Training
 
-Training implementations supporting CPT (Continuous Pre-Training), SFT (Supervised Fine-Tuning), DPO (Direct Preference Optimization), GRPO (Group Relative Policy Optimization), and GSPO (Group Sequence Policy Optimization) methods.
+Training implementations supporting CPT (Continuous Pre-Training), SFT (Supervised Fine-Tuning), SFT_VLM (multimodal vision-language SFT), DPO (Direct Preference Optimization), GRPO (Group Relative Policy Optimization), and GSPO (Group Sequence Policy Optimization) methods.
+
+> **Multimodal (SFT_VLM):** image + text fine-tuning of vision-language models has its own recipes and dataset schema. See the [SFT_VLM recipe guide](../recipes/training/README.md#multimodal-datasets-sft_vlm).
 
 ## 🚀 Quick Start
 
@@ -85,7 +87,7 @@ Replace the following values for your specific use case:
   - **SFT**: Use `prompt_column` and `answer_column`
   - **DPO**: Use `prompt_column`, `chosen_column`, and `rejected_column`
   - **GRPO/GSPO**: Use `prompt_column` and `answer_column`
-- `training.algorithm` → choose from: `cpt`, `sft`, `dpo`, `grpo`, `gspo`
+- `training.algorithm` → choose from: `cpt`, `sft`, `sft_vlm`, `dpo`, `grpo`, `gspo`
 - `training.output_dir` → your desired model output directory
 - `wandb.*` → your Weights & Biases configuration (or set `enabled: false` to disable)
 

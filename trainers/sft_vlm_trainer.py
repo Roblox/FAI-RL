@@ -32,12 +32,19 @@ class SFTVLMTrainer(BaseTrainer):
     `system_prompt` template, and delegates to TRL's SFTTrainer. Because the
     processing class is a `ProcessorMixin`, TRL treats this as a VLM run: it skips
     its own tokenization/preprocessing and auto-selects
-    `DataCollatorForVisionLanguageModeling`, which reads each row's `messages` +
+    `DataCollatorForVisionLanguageModeling`, which reads each row's messages +
     `images` and builds `pixel_values`/`labels` on the fly.
 
+    Two data shapes are emitted depending on config. Flat mode (default) yields a
+    single-turn `messages` row and computes loss over the whole sequence. Split
+    (chat) mode -- enabled when `data.user_prompt` and `data.assistant_prompt` are
+    set -- yields a conversational `prompt`/`completion` pair so the collator masks
+    the prompt and computes loss only on the assistant completion
+    (completion_only_loss).
+
     Dataset rows are produced lazily via `Dataset.with_transform`, so images are
-    decoded to PIL only at access time and the heterogeneous multimodal
-    `messages` structure is never serialized to Arrow.
+    decoded to PIL only at access time and the heterogeneous multimodal message
+    structure is never serialized to Arrow.
     """
 
     # Load the base model as an image-text-to-text model instead of a causal LM.
@@ -49,6 +56,10 @@ class SFTVLMTrainer(BaseTrainer):
         self.model = None
         self.processor = None
         self.train_dataset = None
+        # Split (chat) mode: emit conversational prompt/completion rows and mask
+        # the prompt (completion_only_loss). Legacy flat mode emits a single
+        # `messages` turn with loss over the whole sequence.
+        self._split_mode = config.data.split_mode
 
     # ----------------------------- model -----------------------------------
 
@@ -147,13 +158,17 @@ class SFTVLMTrainer(BaseTrainer):
         and serialized safely):
           _image_sources : list[str]  -- image sources gathered, in order, from
                                           every image_columns column for the row
-          _text          : str        -- the full text built from dataset_columns
-                                          (via the system_prompt template, or by
-                                          concatenation when no template is set)
+          _text          : str        -- (flat mode) the full text built from
+                                          dataset_columns via the system_prompt
+                                          template, or concatenation when unset
+          _user_text     : str        -- (split mode) rendered user turn
+          _assistant_text: str        -- (split mode) rendered assistant turn
         """
         image_columns = dataset_info.image_columns or []
         dataset_columns = dataset_info.dataset_columns or []
         system_prompt = self.config.data.system_prompt
+        user_prompt = self.config.data.user_prompt
+        assistant_prompt = self.config.data.assistant_prompt
 
         def fn(example):
             # Gather image sources across every configured image column. Each
@@ -169,6 +184,15 @@ class SFTVLMTrainer(BaseTrainer):
                     if coerced is not None:
                         sources.append(coerced)
 
+            if self._split_mode:
+                return {
+                    "_image_sources": sources,
+                    # Empty when no system_prompt is configured; the transform then
+                    # omits the system turn entirely.
+                    "_system_text": self._build_text(system_prompt, dataset_columns, example) if system_prompt else "",
+                    "_user_text": self._build_text(user_prompt, dataset_columns, example),
+                    "_assistant_text": self._build_text(assistant_prompt, dataset_columns, example),
+                }
             return {
                 "_image_sources": sources,
                 "_text": self._build_text(system_prompt, dataset_columns, example),
@@ -209,17 +233,16 @@ class SFTVLMTrainer(BaseTrainer):
         return img.resize(new_size)
 
     def _build_text(self, template: Optional[str], dataset_columns: List[str], example) -> str:
-        """Build one text block for a row from its configured text columns.
+        """Render one text block for a row from a template + its text columns.
 
-        Mirrors the text SFT trainer: when ``system_prompt`` is set it is a
-        ``str.format`` template keyed by the dataset's column names -- a column
-        name is just a variable, so ``dataset_columns: [question, response]``
-        renders ``"...{question}...{response}"`` (double any literal braces as
-        ``{{`` / ``}}``). When no template is set, the column values are
-        concatenated in order. The whole text becomes a single training turn with
-        no prompt/completion masking, so include only what the model should learn
-        to produce. Falls back to the literal template if it references an unknown
-        key or is malformed.
+        ``template`` is a ``str.format`` template keyed by the dataset's column
+        names -- a column name is just a variable, so ``dataset_columns:
+        [question, response]`` renders ``"...{question}...{response}"`` (double any
+        literal braces as ``{{`` / ``}}``). When ``template`` is falsy, the column
+        values are concatenated in order. Used for the flat ``system_prompt``
+        template as well as the split-mode ``user_prompt`` / ``assistant_prompt``
+        / system turns. Falls back to the literal template if it references an
+        unknown key or is malformed.
         """
         fmt = {col: example.get(col, "") for col in dataset_columns}
         if template:
@@ -238,6 +261,9 @@ class SFTVLMTrainer(BaseTrainer):
 
     def _make_transform(self):
         """Build the lazy with_transform callable (batched columnar input)."""
+        if self._split_mode:
+            return self._make_split_transform()
+
         def transform(batch):
             out_messages, out_images = [], []
             for text, sources in zip(batch["_text"], batch["_image_sources"]):
@@ -250,6 +276,34 @@ class SFTVLMTrainer(BaseTrainer):
                 out_messages.append(messages)
                 out_images.append(images)
             return {"messages": out_messages, "images": out_images}
+
+        return transform
+
+    def _make_split_transform(self):
+        """Lazy transform for split (chat) mode: conversational prompt/completion.
+
+        Emits `prompt` (optional system turn + user turn) and `completion` (the
+        assistant turn) so TRL's vision collator takes its prompt/completion path
+        and masks the prompt (completion_only_loss). Images attach to the user turn
+        -- the collator inserts one image placeholder per image via
+        `prepare_multimodal_messages`.
+        """
+        def transform(batch):
+            out_prompt, out_completion, out_images = [], [], []
+            for sys_text, user_text, assistant_text, sources in zip(
+                batch["_system_text"], batch["_user_text"],
+                batch["_assistant_text"], batch["_image_sources"],
+            ):
+                images = self._fetch_images(sources)
+                prompt = []
+                if sys_text:
+                    prompt.append({"role": "system", "content": sys_text})
+                prompt.append({"role": "user", "content": user_text})
+                completion = [{"role": "assistant", "content": assistant_text}]
+                out_prompt.append(prompt)
+                out_completion.append(completion)
+                out_images.append(images)
+            return {"prompt": out_prompt, "completion": out_completion, "images": out_images}
 
         return transform
 
@@ -274,7 +328,10 @@ class SFTVLMTrainer(BaseTrainer):
             def is_valid(example):
                 if not example["_image_sources"]:
                     return False
-                if not example["_text"].strip():
+                if self._split_mode:
+                    if not example["_user_text"].strip() or not example["_assistant_text"].strip():
+                        return False
+                elif not example["_text"].strip():
                     return False
                 try:
                     self._fetch_images(example["_image_sources"])
@@ -346,6 +403,10 @@ class SFTVLMTrainer(BaseTrainer):
             # be cut, which crashes the processor / model.
             max_length=None,
             dataset_num_proc=self.config.data.dataset_num_proc,
+            # Split mode emits prompt/completion rows; mask the prompt so the
+            # vision collator computes loss only on the assistant completion. Flat
+            # mode leaves this False (loss over the whole sequence).
+            completion_only_loss=True if self._split_mode else None,
         )
 
     def setup_trainer(self):

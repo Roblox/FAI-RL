@@ -87,7 +87,10 @@ class DatasetInfo:
     # the columns whose values fill the system_prompt .format() template (e.g.
     # dataset_columns: [question, response] with a "...{question}...{response}"
     # template). When no system_prompt is set, the column values are concatenated
-    # in order. The result is one training turn (no prompt/completion masking).
+    # in order. In legacy flat mode this is one training turn (loss over the whole
+    # sequence); in split mode (DataConfig.user_prompt/assistant_prompt set) these
+    # same columns fill the user/assistant/system templates and loss is
+    # completion-only.
     dataset_columns: Optional[List[str]] = None
 
     # Multimodal (sft_vlm) image columns. image_columns names one or more columns,
@@ -110,6 +113,18 @@ class DataConfig:
     max_prompt_length: int = 256
     remove_unused_columns: bool = False
     system_prompt: Optional[str] = None
+    # Split (chat) mode for SFT. When BOTH user_prompt and assistant_prompt are
+    # set, each row is built as a conversational prompt/completion pair instead of
+    # one flat turn, and loss is computed only on the assistant completion (the
+    # prompt is masked). Both are str.format() templates keyed by each dataset's
+    # dataset_columns, exactly like system_prompt (e.g. user_prompt: "{question}",
+    # assistant_prompt: "{response}"). In this mode system_prompt, if set, becomes
+    # a real system-role turn (still .format()-templated). When both are unset the
+    # trainers stay in the legacy flat-template mode (system_prompt is the single
+    # turn, loss over the whole sequence). Setting exactly one raises a config
+    # error (see __post_init__).
+    user_prompt: Optional[str] = None
+    assistant_prompt: Optional[str] = None
     dataset_num_proc: int = 1
 
     # Multimodal (sft_vlm) image-fetch settings. image_cache_dir, when set,
@@ -127,6 +142,22 @@ class DataConfig:
     # its default credential/region resolution chain.
     image_s3_region: Optional[str] = None
     image_s3_endpoint_url: Optional[str] = None
+
+    def __post_init__(self):
+        # Split (chat) mode is both-or-neither: rendering a prompt/completion pair
+        # requires both a user turn and an assistant turn.
+        if bool(self.user_prompt) != bool(self.assistant_prompt):
+            missing = "assistant_prompt" if self.user_prompt else "user_prompt"
+            raise ValueError(
+                "data.user_prompt and data.assistant_prompt must be set together "
+                f"(missing: {missing}). Set both to enable split/completion-only "
+                "mode, or neither to use the legacy flat system_prompt template."
+            )
+
+    @property
+    def split_mode(self) -> bool:
+        """True when user/assistant turns are split (completion-only loss)."""
+        return bool(self.user_prompt) and bool(self.assistant_prompt)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -151,6 +182,8 @@ class DataConfig:
             "max_prompt_length": self.max_prompt_length,
             "remove_unused_columns": self.remove_unused_columns,
             "system_prompt": self.system_prompt,
+            "user_prompt": self.user_prompt,
+            "assistant_prompt": self.assistant_prompt,
             "dataset_num_proc": self.dataset_num_proc,
             "image_cache_dir": self.image_cache_dir,
             "image_fetch_timeout": self.image_fetch_timeout,

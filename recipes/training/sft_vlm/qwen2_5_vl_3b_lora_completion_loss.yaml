@@ -1,0 +1,93 @@
+# Multimodal SFT with completion-only loss (split user/assistant prompts).
+#
+# Same small Qwen2.5-VL-3B smoke setup as qwen2_5_vl_3b_lora.yaml, but instead of
+# one flat training turn this recipe splits each row into a user turn and an
+# assistant turn. Loss is then computed ONLY on the assistant response (the prompt
+# is masked) -- the standard SFT recipe for instruction-tuned chat models.
+#
+# The switch is data.user_prompt + data.assistant_prompt below. Set BOTH to enable
+# split mode; omit both to fall back to the flat system_prompt template.
+model:
+  base_model_name: "Qwen/Qwen2.5-VL-3B-Instruct"
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_4bit: false
+  use_flash_attention: false
+
+  freeze_vision_tower: true
+
+  use_lora: true
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  lora_bias: "none"
+
+data:
+  datasets:
+    - name: "data/sft_vlm/example_training_image_url.csv"
+      image_columns: ["image"]
+      dataset_columns: ["question", "response"]
+
+  image_cache_dir: "data/vlm_image_cache"
+  image_fetch_timeout: 15
+  image_fetch_retries: 3
+  max_image_pixels: 262144
+
+  image_s3_region: null
+  image_s3_endpoint_url: null
+
+  # Split (chat) mode. system_prompt is a real system-role turn; user_prompt and
+  # assistant_prompt are str.format() templates keyed by dataset_columns. Because
+  # loss is completion-only, the assistant_prompt is the only text the model is
+  # trained to produce -- keep the target (here {response}) in it, and keep inputs
+  # (the {question}) in user_prompt.
+  system_prompt: "You are a helpful multimodal assistant. Answer the user's question based on the image."
+  user_prompt: "{question}"
+  assistant_prompt: "{response}"
+
+training:
+  algorithm: "sft_vlm"
+  output_dir: "models/qwen2.5-vl-3b-sft-lora-completion-loss"
+
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 2
+  learning_rate: 1.0e-4
+  num_train_epochs: 1
+  max_steps: 2                 # smoke test: a couple of steps is enough
+  warmup_steps: 0
+
+  logging_steps: 1
+  save_steps: 2
+  eval_steps: 2
+
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+
+  dataloader_num_workers: 0
+  dataloader_pin_memory: false
+  dataloader_drop_last: false
+
+wandb:
+  enabled: false
+  project: "your-project"
+  entity: "your-wandb-entity"
+  name: "Qwen2.5-VL-3B-Inst-LoRA-SFT-completion-loss"
+  tags: ["SFT", "sft_vlm", "qwen2.5-vl", "3B", "LoRA", "completion-only-loss"]
+  api_key: null
+  base_url: "https://api.wandb.ai"
+
+s3:
+  enabled: false
+  bucket: "your-s3-bucket"
+  prefix: "checkpoints/qwen2.5-vl-3b-sft-lora-completion-loss"
+  region: null
+  endpoint_url: null
+  upload_checkpoints: true
+  upload_final_model: true
+  delete_local_after_upload: false

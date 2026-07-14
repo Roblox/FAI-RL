@@ -50,6 +50,24 @@ class SFTTrainer(BaseTrainer):
 
         self.logger.info("Model and tokenizer loaded successfully")
 
+    def _render(self, template: str, fmt: dict) -> str:
+        """Render a str.format() template keyed by dataset columns.
+
+        Falls back to the literal template (once-warned) if it references an
+        unknown key or is malformed, mirroring the flat-mode behavior.
+        """
+        try:
+            return template.format(**fmt)
+        except (KeyError, IndexError, ValueError) as e:
+            if not getattr(self, "_tmpl_warn_emitted", False):
+                self.logger.warning(
+                    f"Prompt template not rendered ({e}); using literal text. "
+                    f"Available placeholders: {sorted(fmt)}. Double any literal "
+                    f"braces as {{{{ }}}}."
+                )
+                self._tmpl_warn_emitted = True
+            return template
+
     def setup_data(self):
         """Load and prepare training datasets."""
         datasets = []
@@ -66,37 +84,62 @@ class SFTTrainer(BaseTrainer):
 
             # Get system prompt from config
             system_prompt = self.config.data.system_prompt
-            
+
             # Get dataset columns from config
             dataset_columns = getattr(dataset_info, "dataset_columns", None)
-            
-            # Standardize column names for SFT
-            if system_prompt and dataset_columns:
-                # Use system prompt as a template with dataset columns
-                def format_with_system_prompt(example):
-                    # Create a dictionary of placeholders from dataset columns
-                    format_dict = {}
-                    for col in dataset_columns:
-                        if col in example:
-                            format_dict[col] = example[col]
-                    
-                    # Format the system prompt with the values from the dataset
-                    try:
-                        text = system_prompt.format(**format_dict)
-                    except KeyError as e:
-                        self.logger.warning(f"Missing key in system prompt template: {e}")
-                        text = system_prompt
-                    
-                    return {"text": text}
-                
-                dataset = dataset.map(format_with_system_prompt, remove_columns=dataset.column_names)
-            
-            # Filter out invalid rows where text is None or empty
-            def is_valid_example(example):
-                """Check if example has valid text field."""
-                text = example.get("text")
-                return text is not None and isinstance(text, str) and text.strip() != ""
-            
+
+            if self.config.data.split_mode:
+                # Split (chat) mode: build a conversational prompt/completion pair
+                # per row so TRL masks the prompt and computes loss only on the
+                # assistant completion (completion_only_loss). system_prompt, when
+                # set, is a real system-role turn.
+                user_tmpl = self.config.data.user_prompt
+                assistant_tmpl = self.config.data.assistant_prompt
+
+                def build_chat_example(example):
+                    fmt = {c: example.get(c, "") for c in (dataset_columns or [])}
+                    prompt = []
+                    if system_prompt:
+                        prompt.append({"role": "system", "content": self._render(system_prompt, fmt)})
+                    prompt.append({"role": "user", "content": self._render(user_tmpl, fmt)})
+                    completion = [{"role": "assistant", "content": self._render(assistant_tmpl, fmt)}]
+                    return {"prompt": prompt, "completion": completion}
+
+                dataset = dataset.map(build_chat_example, remove_columns=dataset.column_names)
+
+                def is_valid_example(example):
+                    """Require non-empty user and assistant content."""
+                    user = example["prompt"][-1]["content"]
+                    assistant = example["completion"][0]["content"]
+                    return bool(user and user.strip()) and bool(assistant and assistant.strip())
+            else:
+                # Legacy flat mode: one training turn, loss over the whole sequence.
+                if system_prompt and dataset_columns:
+                    # Use system prompt as a template with dataset columns
+                    def format_with_system_prompt(example):
+                        # Create a dictionary of placeholders from dataset columns
+                        format_dict = {}
+                        for col in dataset_columns:
+                            if col in example:
+                                format_dict[col] = example[col]
+
+                        # Format the system prompt with the values from the dataset
+                        try:
+                            text = system_prompt.format(**format_dict)
+                        except KeyError as e:
+                            self.logger.warning(f"Missing key in system prompt template: {e}")
+                            text = system_prompt
+
+                        return {"text": text}
+
+                    dataset = dataset.map(format_with_system_prompt, remove_columns=dataset.column_names)
+
+                # Filter out invalid rows where text is None or empty
+                def is_valid_example(example):
+                    """Check if example has valid text field."""
+                    text = example.get("text")
+                    return text is not None and isinstance(text, str) and text.strip() != ""
+
             dataset = dataset.filter(is_valid_example)
             
             skipped = original_size - len(dataset)
@@ -158,6 +201,10 @@ class SFTTrainer(BaseTrainer):
             ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
             max_length=self.config.data.max_length,
             dataset_num_proc=self.config.data.dataset_num_proc,
+            # In split mode rows are prompt/completion pairs; mask the prompt so
+            # loss is computed only on the assistant completion. (Flat mode leaves
+            # this at TRL's default of False -> loss over the whole sequence.)
+            completion_only_loss=True if self.config.data.split_mode else None,
         )
 
     def setup_trainer(self):

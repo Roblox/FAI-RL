@@ -744,7 +744,15 @@ class BaseTrainer(ABC):
                 pass
 
     def build_callbacks(self) -> list:
-        """Build trainer callbacks from config (e.g. S3 upload)."""
+        """Build trainer callbacks from config (e.g. S3 upload).
+
+        Also attaches the observation-only DebugCallback, which emits verbose
+        training diagnostics (config/arch, decoded first batches, tokenization
+        sanity, loss/masking stats, optimizer/scheduler, distributed layout,
+        memory/perf, and progress) at INFO. It never mutates training state and
+        every hook is wrapped so a logging failure can't crash the run. Set
+        FAI_RL_DISABLE_DEBUG_CALLBACK=1 to skip it.
+        """
         callbacks = []
         s3_cb = build_s3_callback(self.config.s3)
         if s3_cb is not None:
@@ -753,6 +761,13 @@ class BaseTrainer(ABC):
                 self.config.s3.bucket, self.config.s3.prefix,
             )
             callbacks.append(s3_cb)
+
+        if os.environ.get("FAI_RL_DISABLE_DEBUG_CALLBACK") != "1":
+            from utils.debug_callback import DebugCallback
+            callbacks.append(DebugCallback(self.logger, self.config))
+            self.logger.info(
+                "Debug diagnostics enabled (INFO); set FAI_RL_DISABLE_DEBUG_CALLBACK=1 to disable."
+            )
         return callbacks
 
     @abstractmethod

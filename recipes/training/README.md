@@ -144,6 +144,13 @@ data:
 
 Notes:
 - `system_prompt` is a `str.format()` template whose placeholders are the `dataset_columns` names (e.g. `{question}`, `{response}`), mirroring the text-SFT templating above. Unknown placeholders fall back to the literal text. The rendered text is a single training turn (no prompt/completion masking).
+- **Completion-only loss (split user/assistant turns):** set **both** `user_prompt` and `assistant_prompt` (`str.format()` templates keyed by `dataset_columns`, just like `system_prompt`) to train on separate user and assistant turns with loss computed **only on the assistant response** — the prompt is masked. This is the standard recipe for instruction-tuned chat models. In this mode `system_prompt`, if set, becomes a real system-role turn. Setting just one of the two is a config error (both-or-neither). Omit both to keep the flat single-turn behavior above. See `sft_vlm/qwen2_5_vl_3b_lora_completion_loss.yaml`. Works the same way for the text `sft` algorithm.
+  ```yaml
+  data:
+    system_prompt: "You are a helpful multimodal assistant. Answer based on the image."
+    user_prompt: "{question}"        # inputs the model conditions on (masked)
+    assistant_prompt: "{response}"   # the only text the model is trained to produce
+  ```
 - **Multiple images per row:** list more than one column in `image_columns` (e.g. `["image_a", "image_b"]`), or put a list of image sources in a single cell. Every image found across the listed columns (in order) is attached to the row.
 - **Image sources:** each cell may be an HTTP(S) URL, a local path, an `s3://` URI, raw image bytes, or an embedded PIL image. Parquet files using the HuggingFace `images: List[Image]` schema (embedded PNG bytes) are decoded in-memory — no fetch happens. See `sft_vlm/qwen2_5_vl_3b_parquet.yaml`.
 - Images are fetched/decoded at startup; rows whose images can't be fetched/decoded (or that render empty text) are dropped, with a logged count.

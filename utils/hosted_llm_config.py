@@ -29,17 +29,19 @@ logger = logging.getLogger(__name__)
 # CUSTOMIZE THESE FUNCTIONS FOR YOUR HOSTED LLM
 # ============================================================================
 
-def build_hosted_llm_request(prompt: str, config) -> Optional[Dict[str, Any]]:
+def build_hosted_llm_request(prompt: str, config, system_prompt: str = None) -> Optional[Dict[str, Any]]:
     """
     Build custom request data for your hosted LLM.
-    
+
     Return None to use default OpenAI-compatible format.
     Return a dictionary to use your custom format.
-    
+
     Args:
-        prompt: The input prompt text
+        prompt: The input prompt text (user turn)
         config: Configuration object with model, max_new_tokens, temperature, etc.
-        
+        system_prompt: Optional system-role message (chat/split mode). When None,
+            only the user turn is sent.
+
     Returns:
         Dictionary with your custom request format, or None for default
     """
@@ -48,18 +50,22 @@ def build_hosted_llm_request(prompt: str, config) -> Optional[Dict[str, Any]]:
     # ========================================================================
     # This is a working implementation that matches OpenAI's API format.
     # Modify this if your hosted LLM uses a different format.
-    
+
+    messages = []
+    if system_prompt:
+        messages.append({"content": system_prompt, "role": "system"})
+    messages.append({"content": prompt, "role": "user"})
     data = {
         "model": config.model,
         "max_tokens": getattr(config, 'max_new_tokens', 1000),
         "temperature": getattr(config, 'temperature', 1.0),
-        "messages": [{"content": prompt, "role": "user"}]
+        "messages": messages
     }
-    
+
     # Add optional parameters if they exist in config
     if hasattr(config, 'top_p'):
         data["top_p"] = config.top_p
-    
+
     return data
     
     # ========================================================================

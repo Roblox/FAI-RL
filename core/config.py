@@ -328,7 +328,15 @@ class InferenceConfig:
     dataset_split: str = "test"
     output_file: str = "outputs/inference_results.json"
     system_prompt: str = ""
-    
+    # Split (chat) mode. When user_prompt is set, inference builds each row as a
+    # chat conversation instead of one flat prompt: system_prompt (if set) becomes
+    # a system-role turn and user_prompt a user-role turn, both str.format()
+    # templates keyed by dataset_columns (e.g. user_prompt: "{prompt}"). The model
+    # generates the assistant turn, so unlike the SFT trainer there is no
+    # assistant_prompt. When user_prompt is unset, inference stays in the legacy
+    # flat mode (system_prompt is the single templated prompt). See split_mode.
+    user_prompt: Optional[str] = None
+
     # Dataset column configuration
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     response_column: str = "response"
@@ -366,6 +374,11 @@ class InferenceConfig:
     top_p: float = 0.9
     max_new_tokens: int = 200
     do_sample: bool = True
+
+    @property
+    def split_mode(self) -> bool:
+        """True when user_prompt is set, enabling system/user chat turns."""
+        return bool(self.user_prompt)
 
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}

@@ -73,34 +73,42 @@ def _extract_json_from_text(text: str) -> Dict[str, Any]:
     raise json.JSONDecodeError(f"Could not extract valid JSON from text: {text[:200]}...", text, 0)
 
 
-def _build_google_request_data(prompt: str, config) -> dict:
+def _build_google_request_data(prompt: str, config, system_prompt: str = None) -> dict:
     """Build request data for Google/Gemini models."""
     generation_config = {
         "maxOutputTokens": getattr(config, 'max_new_tokens', 1000)
     }
-    
+
     # Add optional parameters if they exist
     if hasattr(config, 'temperature'):
         generation_config["temperature"] = config.temperature
     if hasattr(config, 'top_p'):
         generation_config["topP"] = config.top_p
-    
-    return {
+
+    data = {
         "contents": [{
             "role": "user",
             "parts": [{"text": prompt}]
         }],
         "generationConfig": generation_config
     }
+    # Gemini keeps the system message separate from the user turn.
+    if system_prompt:
+        data["system_instruction"] = {"parts": [{"text": system_prompt}]}
+    return data
 
 
-def _build_openai_request_data(prompt: str, config) -> dict:
+def _build_openai_request_data(prompt: str, config, system_prompt: str = None) -> dict:
     """Build request data for OpenAI/ChatGPT models."""
+    messages = []
+    if system_prompt:
+        messages.append({"content": system_prompt, "role": "system"})
+    messages.append({"content": prompt, "role": "user"})
     data = {
         "model": config.model,
-        "messages": [{"content": prompt, "role": "user"}]
+        "messages": messages
     }
-    
+
     # Add optional parameters if they exist
     if hasattr(config, 'max_new_tokens'):
         data["max_tokens"] = config.max_new_tokens
@@ -108,47 +116,54 @@ def _build_openai_request_data(prompt: str, config) -> dict:
         data["temperature"] = config.temperature
     if hasattr(config, 'top_p'):
         data["top_p"] = config.top_p
-    
+
     return data
 
 
-def _build_anthropic_request_data(prompt: str, config) -> dict:
+def _build_anthropic_request_data(prompt: str, config, system_prompt: str = None) -> dict:
     """Build request data for Anthropic/Claude models."""
     data = {
         "model": config.model,
         "max_tokens": getattr(config, 'max_new_tokens', 1000),
         "messages": [{"content": prompt, "role": "user"}]
     }
-    
+    # Anthropic takes the system message as a top-level field, not a message.
+    if system_prompt:
+        data["system"] = system_prompt
+
     # Add optional parameters if they exist
     if hasattr(config, 'temperature'):
         data["temperature"] = config.temperature
     if hasattr(config, 'top_p'):
         data["top_p"] = config.top_p
-    
+
     return data
 
 
-def _build_default_request_data(prompt: str, config) -> dict:
+def _build_default_request_data(prompt: str, config, system_prompt: str = None) -> dict:
     """
     Build request data for other models (generic format).
-    
+
     Default format is OpenAI-compatible.
     Customize in utils/hosted_llm_config.py for your hosted LLM.
     """
     # Check if custom hosted LLM configuration exists
     if hosted_llm_config:
-        custom_data = hosted_llm_config.build_hosted_llm_request(prompt, config)
+        custom_data = hosted_llm_config.build_hosted_llm_request(prompt, config, system_prompt)
         if custom_data is not None:
             logger.debug("Using custom hosted LLM request format")
             return custom_data
-    
+
     # Default: OpenAI-compatible format
+    messages = []
+    if system_prompt:
+        messages.append({"content": system_prompt, "role": "system"})
+    messages.append({"content": prompt, "role": "user"})
     return {
         "model": config.model,
         "max_tokens": getattr(config, 'max_new_tokens', 1000),
         "temperature": getattr(config, 'temperature', 1.0),
-        "messages": [{"content": prompt, "role": "user"}]
+        "messages": messages
     }
 
 
@@ -308,19 +323,22 @@ def _prepare_api_url(api_endpoint: str, api_key: str) -> str:
 
 def generate_response_by_api(
     prompt: str,
-    config
+    config,
+    system_prompt: str = None
 ) -> Union[Dict[str, Any], str]:
     """
     Generate response using API-based inference.
-    
+
     This is the main function for calling LLM APIs to generate text responses.
     Supports OpenAI/ChatGPT, Google/Gemini, and Anthropic/Claude.
     Provider is automatically detected from the api_endpoint URL.
-    
+
     Args:
-        prompt: The input prompt text
+        prompt: The input prompt text (user turn)
         config: Configuration object with model, api_endpoint, api_key, etc.
-        
+        system_prompt: Optional system-role message (split/chat mode). When None,
+            the request carries only the user turn (legacy flat behavior).
+
     Returns:
         Generated response text from the API
     """
@@ -338,13 +356,13 @@ def generate_response_by_api(
         # Build request data based on provider type (detected from endpoint)
         provider = _get_model_provider(config.api_endpoint)
         if provider == "google":
-            data = _build_google_request_data(prompt, config)
+            data = _build_google_request_data(prompt, config, system_prompt)
         elif provider == "openai":
-            data = _build_openai_request_data(prompt, config)
+            data = _build_openai_request_data(prompt, config, system_prompt)
         elif provider == "anthropic":
-            data = _build_anthropic_request_data(prompt, config)
+            data = _build_anthropic_request_data(prompt, config, system_prompt)
         else:
-            data = _build_default_request_data(prompt, config)
+            data = _build_default_request_data(prompt, config, system_prompt)
         
         # Make the API request
         response = _make_api_request(url, headers, data)

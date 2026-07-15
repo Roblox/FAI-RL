@@ -1,0 +1,36 @@
+# Inference Configuration — Split (Chat) Mode
+# This config runs inference using structured chat turns instead of one flat
+# prompt. Setting `user_prompt` switches inference into chat mode: `system_prompt`
+# (optional) becomes a system-role turn and `user_prompt` a user-role turn, both
+# rendered per row from `dataset_columns`. The model's chat template is applied
+# (add_generation_prompt=True) and the model generates the assistant turn.
+#
+# Omit `user_prompt` to fall back to the legacy flat `system_prompt` template
+# (see recipes/inference/llama3_3B.yaml).
+
+inference:
+  # Model Configuration - Single Checkpoint
+  model_paths:
+    - "models/llama3-3B-inst-sft-full-v1/checkpoint-100"
+
+  # Path to save inference results (CSV format with input columns + response column)
+  output_file: "outputs/llama3-3B-inst-sft-full-v1-infer-chat.csv"
+
+  # Dataset Configuration
+  dataset_name: "your-org/your-inference-dataset"  # HuggingFace dataset identifier
+  dataset_split: "test"                            # train, test, or validation
+  dataset_columns: ["persona", "prompt"]           # Columns available to the templates below
+  response_column: "response"                      # Column to store model responses
+
+  # Chat (split) mode prompts. Both are str.format() templates keyed by
+  # dataset_columns. system_prompt is optional; user_prompt enables chat mode.
+  system_prompt: |
+    You are a helpful AI assistant. Answer accurately and safely.
+    Your persona: {persona}
+  user_prompt: "{prompt}"
+
+  # Generation Parameters
+  temperature: 1.0            # Sampling temperature (0.0 = deterministic)
+  top_p: 0.9                  # Nucleus sampling threshold
+  max_new_tokens: 1000        # Max tokens to generate per response
+  do_sample: true             # Enable sampling (false = greedy decoding)

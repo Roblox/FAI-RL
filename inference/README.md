@@ -45,6 +45,18 @@ For multiple images per row, list more than one column (e.g. `image_columns: ["i
 
 VLM mode loads the model as `AutoModelForImageTextToText` + `AutoProcessor`, automatically detects and merges PEFT/LoRA adapters, and supports the same multi-checkpoint, CSV-output, and S3-upload workflow as text models. It is **local-model only** — API endpoints are not supported for VLMs.
 
+### Chat (Split) Mode
+
+By default, `system_prompt` is a single **flat** template that becomes the entire prompt fed to the model. Setting **`user_prompt`** switches inference into **chat mode**, structuring each row as proper conversation turns instead:
+
+- `system_prompt` (optional) → a **system-role** turn.
+- `user_prompt` (required for chat mode) → a **user-role** turn.
+- The model generates the **assistant** turn — so, unlike the `sft` trainer's split mode, there is **no `assistant_prompt`**.
+
+Both are `str.format()` templates keyed by `dataset_columns` (e.g. `user_prompt: "{prompt}"`), exactly like the flat `system_prompt`. In chat mode the model's chat template is applied with `add_generation_prompt=True`, so system/user roles are honored (rather than concatenated as raw text). This works across all three paths: local text, VLM (system turn prepended before the image+text user turn), and API (OpenAI/default → `system` message; Anthropic → top-level `system` field; Gemini → `system_instruction`).
+
+Leave `user_prompt` unset to keep the legacy flat `system_prompt` behavior — existing recipes are unaffected. See `recipes/inference/llama3_3B_chat.yaml`.
+
 > **Running with Local Code**: If running directly from the repository, use `python inference/inference.py` instead of `fai-rl-inference`:
 > ```bash
 > python inference/inference.py --recipe recipes/inference/llama3_3B.yaml

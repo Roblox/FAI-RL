@@ -139,6 +139,160 @@ def _peek_deepspeed_config(
     return ds_path
 
 
+# Auto-default ZeRO-3: large non-quantized multi-GPU LoRA/full runs that don't
+# set training.deepspeed_config fall through to plain DDP, where *every* rank
+# loads a full copy of the model into host RAM. For ~30B+ models that OOM-kills
+# the pod during model load (silent SIGKILL, no traceback) regardless of GPU
+# count -- see BaseTrainer._maybe_enable_deepspeed_zero3_init. ZeRO-3 partitions
+# parameters at from_pretrained time so each rank materializes only 1/world_size
+# of the model. We use a *no-offload* ZeRO-3 config (sharding alone fixes the
+# host-RAM OOM; CPU offload is unnecessary on large GPUs and has caused VLM
+# issues), and only above a size threshold so small models keep the faster DDP
+# path. Override the threshold with FAI_RL_ZERO3_MIN_PARAMS_B; set it to a huge
+# value to effectively disable the auto-default. An explicit
+# `deepspeed_config: null` in the recipe is honored as "force DDP".
+AUTO_ZERO3_CONFIG = "configs/deepspeed/zero3_auto_config.json"
+
+
+def _zero3_min_params_billions() -> float:
+    """Model size (in billions of params) at/above which ZeRO-3 is auto-selected."""
+    try:
+        return float(os.environ.get("FAI_RL_ZERO3_MIN_PARAMS_B", "20"))
+    except (TypeError, ValueError):
+        return 20.0
+
+
+def _recipe_with_overrides(recipe_path: Optional[str], overrides: Optional[list]) -> Dict:
+    """Load recipe YAML + apply CLI overrides, quietly (no logging/validation).
+
+    Mirrors _peek_deepspeed_config's tolerant parsing so the launcher can inspect
+    recipe fields repeatedly without spamming logs or crashing on partial recipes.
+    """
+    recipe: Dict = {}
+    if recipe_path:
+        try:
+            with open(recipe_path, 'r') as f:
+                recipe = yaml.safe_load(f) or {}
+        except Exception:
+            return {}
+    if overrides:
+        for override in overrides:
+            if '=' not in override:
+                continue
+            key, value_str = override.split('=', 1)
+            try:
+                set_nested_value(recipe, key.strip(), parse_value(value_str))
+            except Exception:
+                pass
+    return recipe
+
+
+def _deepspeed_config_key_present(
+    recipe_path: Optional[str], overrides: Optional[list]
+) -> bool:
+    """True if training.deepspeed_config is explicitly set in the recipe/overrides.
+
+    Distinguishes "key absent" (auto-decide) from "key present but null" (an
+    explicit request for plain DDP, which we must honor rather than override).
+    """
+    training = _recipe_with_overrides(recipe_path, overrides).get("training") or {}
+    return "deepspeed_config" in training
+
+
+def _peek_model_name(
+    recipe_path: Optional[str], overrides: Optional[list]
+) -> Optional[str]:
+    """Read model.base_model_name from recipe + CLI overrides (or None)."""
+    model = _recipe_with_overrides(recipe_path, overrides).get("model") or {}
+    return model.get("base_model_name")
+
+
+def _estimate_model_params_billions(model_name: Optional[str]) -> Optional[float]:
+    """Best-effort estimate of a model's total parameter count, in billions.
+
+    Loads only the (tiny) HF config -- not the weights -- and estimates from the
+    architecture. Handles dense decoders, MoE (counts *all* experts, since host
+    RAM holds every expert), and VLMs (unwraps text_config). Returns None when
+    the config can't be resolved (e.g. s3:// path, offline, or unknown fields),
+    in which case the caller falls back to the existing DDP behavior. The
+    estimate only needs to be accurate enough to clear a coarse size threshold.
+    """
+    if not model_name or model_name.startswith("s3://"):
+        return None
+    try:
+        from transformers import AutoConfig
+        cfg = AutoConfig.from_pretrained(model_name)
+    except Exception:
+        return None
+
+    text_cfg = getattr(cfg, "text_config", None) or cfg
+
+    def field(*names, default=0):
+        for src in (text_cfg, cfg):
+            for name in names:
+                val = getattr(src, name, None)
+                if val:
+                    return val
+        return default
+
+    hidden = field("hidden_size", "n_embd", "d_model")
+    layers = field("num_hidden_layers", "n_layer", "num_layers")
+    vocab = field("vocab_size")
+    if not hidden or not layers:
+        return None
+    intermediate = field("intermediate_size", "ffn_dim", default=4 * hidden)
+
+    # Attention (q/k/v/o); GQA makes this an over-estimate, which is fine for a
+    # coarse threshold.
+    attn = 4 * hidden * hidden
+    experts = field("num_experts", "num_local_experts", "n_routed_experts")
+    if experts:
+        moe_inter = field("moe_intermediate_size", default=intermediate)
+        mlp = 3 * hidden * moe_inter * experts
+    else:
+        mlp = 3 * hidden * intermediate
+    total = layers * (attn + mlp) + 2 * vocab * hidden  # + input embed & lm_head
+    return total / 1e9
+
+
+def _auto_zero3_config_if_large(
+    recipe_path: Optional[str], overrides: Optional[list]
+) -> Optional[str]:
+    """Return the auto ZeRO-3 config path when a large model should use it, else None.
+
+    Returns None (keep DDP) when deepspeed_config is explicitly set (incl. null),
+    when DeepSpeed isn't available, when the model is below the size threshold,
+    when its size can't be estimated, or when the shipped config file is missing.
+    Caller is responsible for the multi-GPU / not-quantized gating.
+    """
+    if _deepspeed_config_key_present(recipe_path, overrides):
+        return None
+    if not supports_deepspeed():
+        return None
+    model_name = _peek_model_name(recipe_path, overrides)
+    est_billions = _estimate_model_params_billions(model_name)
+    if est_billions is None:
+        logger.info(
+            "Could not estimate size of model '%s'; keeping DDP. Set "
+            "training.deepspeed_config explicitly to force a strategy.",
+            model_name,
+        )
+        return None
+    threshold = _zero3_min_params_billions()
+    if est_billions < threshold:
+        return None
+    auto_path = os.path.join(project_root, AUTO_ZERO3_CONFIG)
+    if not os.path.exists(auto_path):
+        return None
+    logger.info(
+        "Auto-selecting ZeRO-3 (%s) for large model '%s' (~%.0fB params >= %.0fB "
+        "threshold): plain DDP would replicate the full model into host RAM on "
+        "every rank and OOM-kill the pod. Set deepspeed_config: null to force DDP.",
+        AUTO_ZERO3_CONFIG, model_name, est_billions, threshold,
+    )
+    return auto_path
+
+
 def get_algorithm_from_recipe(recipe_path, overrides):
     """Get algorithm name from recipe file and overrides."""
     try:
@@ -183,8 +337,13 @@ def launch_distributed_training(args):
         else:
             # Check if using quantization (only if recipe file is provided)
             uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
-            
+
             ds_path = None if uses_quantization else _peek_deepspeed_config(args.recipe, args.overrides)
+            if not uses_quantization and not ds_path:
+                # No explicit deepspeed_config: auto-select ZeRO-3 for large
+                # models (see _auto_zero3_config_if_large) to avoid the
+                # full-model-per-rank host-RAM OOM under plain DDP.
+                ds_path = _auto_zero3_config_if_large(args.recipe, args.overrides)
             if ds_path and supports_deepspeed():
                 if not os.path.exists(ds_path):
                     raise FileNotFoundError(f"training.deepspeed_config not found: {ds_path}")
@@ -335,6 +494,11 @@ def main():
             uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
             if world_size > 1 and not uses_quantization:
                 ds_path = _peek_deepspeed_config(args.recipe, args.overrides)
+                if not ds_path:
+                    # No explicit deepspeed_config: auto-select ZeRO-3 for large
+                    # models so DDP doesn't replicate the full model into host
+                    # RAM on every rank and OOM-kill the pod.
+                    ds_path = _auto_zero3_config_if_large(args.recipe, args.overrides)
                 if ds_path and os.path.exists(ds_path) and supports_deepspeed():
                     os.environ['DEEPSPEED_CONFIG'] = ds_path
                     logger.info(

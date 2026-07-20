@@ -25,6 +25,7 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
   - [Inference](#inference)
   - [Evaluation](#evaluation)
 - [Supported Methods](#supported-methods)
+- [Supported Base Models](#supported-base-models)
 - [Key Features](#key-features)
 - [Project Structure](#-project-structure)
 - [S3 Checkpoint Upload](#-s3-checkpoint-upload)

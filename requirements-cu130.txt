@@ -1,0 +1,16 @@
+# PyTorch built for CUDA 13.0.
+#
+# torch is intentionally NOT declared in pyproject.toml so that FAI-RL stays
+# cross-platform (e.g. macOS has no CUDA) and does not lock users to one CUDA
+# build. Standard dependency metadata cannot pin an index URL, so the cu130
+# wheels are installed from here instead.
+#
+# Usage:
+#   pip install -r requirements-cu130.txt
+#   pip install -e ".[cuda]"
+#
+# For a different CUDA build, change the index URL below (e.g. cu121, cu124).
+
+--extra-index-url https://download.pytorch.org/whl/cu130
+torch
+torchvision==0.28.0

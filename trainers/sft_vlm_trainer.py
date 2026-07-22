@@ -85,8 +85,26 @@ class SFTVLMTrainer(BaseTrainer):
 
         # Optionally freeze the vision encoder (standard for VLM SFT; also avoids
         # training the ViT under full fine-tuning).
+        frozen_tower_attr = None
         if getattr(self.config.model, "freeze_vision_tower", True):
-            self._freeze_vision_tower(self.model)
+            frozen_tower_attr = self._freeze_vision_tower(self.model)
+
+        # Keep LoRA out of the (frozen) vision tower. target_modules like q_proj
+        # match by name across the whole model, so without this PEFT tries to
+        # adapt the vision tower's attention -- whose projections are custom
+        # module types (e.g. Gemma4's Gemma4ClippableLinear) that PEFT can't wrap,
+        # raising "Target module ... is not supported". A regex string exclusion
+        # is required because a list only suffix-matches leaf names, not a subtree.
+        if (
+            getattr(self.config.model, "use_lora", False)
+            and frozen_tower_attr is not None
+            and not getattr(self.config.model, "lora_exclude_modules", None)
+        ):
+            self.config.model.lora_exclude_modules = rf"(.*\.)?{frozen_tower_attr}\..*"
+            self.logger.info(
+                "Excluding frozen vision tower from LoRA injection: "
+                f"lora_exclude_modules={self.config.model.lora_exclude_modules!r}"
+            )
 
         # Apply LoRA/QLoRA if enabled (reuses BaseTrainer helper).
         self.model = self.apply_lora_to_model(self.model, TaskType.CAUSAL_LM, quantization_config)
@@ -96,7 +114,12 @@ class SFTVLMTrainer(BaseTrainer):
         self.logger.info("VLM and processor loaded successfully")
 
     def _freeze_vision_tower(self, model):
-        """Freeze the vision encoder submodule if one can be located."""
+        """Freeze the vision encoder submodule if one can be located.
+
+        Returns the attribute name of the frozen tower (e.g. "vision_tower"), or
+        None if no known vision submodule was found. Callers use the name to keep
+        LoRA from being injected into the frozen tower.
+        """
         # PEFT may wrap the model; reach through to the underlying module.
         base = getattr(model, "base_model", model)
         base = getattr(base, "model", base)
@@ -107,11 +130,12 @@ class SFTVLMTrainer(BaseTrainer):
                     for p in tower.parameters():
                         p.requires_grad_(False)
                     self.logger.info(f"Froze vision tower: {attr}")
-                    return
+                    return attr
         self.logger.warning(
             "freeze_vision_tower=true but no known vision submodule "
             f"({', '.join(_VISION_TOWER_ATTRS)}) was found; nothing frozen."
         )
+        return None
 
     # ------------------------------ data ------------------------------------
 

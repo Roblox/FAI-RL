@@ -34,21 +34,52 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
 
 ## 📦 Installation
 
-### Install the Package
+FAI-RL does **not** pin `torch` in its package metadata, so it stays
+cross-platform and never locks you to a single CUDA build. You install a
+`torch`/`torchvision` build matching your host first, then install FAI-RL on
+top. We recommend a dedicated conda environment.
 
-We assume the user environment already has the necessary ML libraries
-installed (notably `torch`, with a CUDA build matching the host).
+### 1. Create a conda environment
 
 ```bash
-pip install FAI-RL
+conda create -n fai-rl python=3.12 -y
+conda activate fai-rl
 ```
 
-### Clone the Repository for Configuration Recipes
+> Python 3.9–3.12 are supported.
+
+### 2. Clone the repository
+
+The training/inference/evaluation commands read recipe YAMLs that live in the
+repo, so cloning is recommended even if you install from PyPI.
 
 ```bash
 git clone https://github.com/Roblox/FAI-RL.git
 cd FAI-RL
 ```
+
+### 3. Install PyTorch (CUDA 13.0)
+
+`requirements-cu130.txt` pulls `torch`/`torchvision` from the CUDA 13.0 wheel
+index. For a different CUDA version, edit the index URL in that file (e.g.
+`cu121`, `cu124`).
+
+```bash
+pip install -r requirements-cu130.txt
+```
+
+### 4. Install FAI-RL
+
+```bash
+# From source (editable) — recommended, includes the recipe YAMLs
+pip install -e ".[cuda]"        # bitsandbytes, deepspeed, mpi4py
+
+# ...or from PyPI
+pip install "FAI-RL[cuda]"
+```
+
+> The `[cuda]` extra is Linux/NVIDIA only. On macOS, omit it: `pip install -e .`
+
 
 > **Package**: [https://pypi.org/project/FAI-RL/](https://pypi.org/project/FAI-RL/)
 

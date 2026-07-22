@@ -358,6 +358,22 @@ def main():
             os.environ.get('WORLD_SIZE', '?'),
         )
     else:
+        # Single-GPU, non-distributed run. On a multi-GPU host, HF Trainer sees
+        # every visible GPU (torch.cuda.device_count() > 1), sets _n_gpu > 1, and
+        # silently wraps the model in torch.nn.DataParallel. DataParallel replicates
+        # the model per device and breaks VLMs whose vision tower is frozen: e.g.
+        # Qwen2.5-VL's get_image_features reads self.visual.dtype, which does
+        # `next(p.dtype for p in self.parameters() if p.is_floating_point())` and
+        # raises StopIteration on a replica with no trainable (float) params.
+        # Pin visibility to a single device so no DataParallel wrapping occurs.
+        # Set this before any torch CUDA call so device enumeration picks it up;
+        # honor an explicit user-provided CUDA_VISIBLE_DEVICES if present.
+        if 'CUDA_VISIBLE_DEVICES' not in os.environ:
+            os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+            logger.info(
+                "Single-GPU run: pinned CUDA_VISIBLE_DEVICES=0 to avoid nn.DataParallel "
+                "(pass --num-gpus N for multi-GPU DDP, or set CUDA_VISIBLE_DEVICES yourself)."
+            )
         logger.info("Running single-GPU training...")
 
     # Load recipe from file and/or CLI arguments

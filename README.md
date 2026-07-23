@@ -25,6 +25,7 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
   - [Inference](#inference)
   - [Evaluation](#evaluation)
 - [Supported Methods](#supported-methods)
+- [Supported Models](#supported-models)
 - [Key Features](#key-features)
 - [Project Structure](#-project-structure)
 - [S3 Checkpoint Upload](#-s3-checkpoint-upload)
@@ -196,6 +197,22 @@ Additional features supported across all algorithms:
 - ✅ Custom reward functions and dataset templates
 - ✅ Weights & Biases integration for experiment tracking
 - ✅ Automatic S3 checkpoint upload (supports S3-compatible stores)
+
+## Supported Models
+
+FAI-RL provides pre-configured recipes and has been validated with the following models:
+
+| # | Model |
+|---|-------|
+| 1 | Qwen3 30B A3B Instruct (2507) |
+| 2 | Qwen3.6 27B |
+| 3 | Gemma 4 31B |
+| 4 | Gemma 4 26B A4B IT |
+| 5 | Qwen3-VL 30B A3B |
+| 6 | Qwen3 8B |
+| 7 | Qwen3 4B |
+| 8 | Llama 3.2 3B |
+| 9 | Llama 3.1 8B |
 
 ## Key Features
 

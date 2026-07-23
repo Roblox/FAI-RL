@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "FAI-RL"
-version = "0.1.42"
+version = "0.1.43"
 description = "Foundation of AI - Reinforcement learning Library"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -24,6 +24,7 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -42,7 +43,8 @@ dependencies = [
     "tiktoken==0.12.0",
     "boto3==1.42.92",
     "pillow==11.3.0",
-    "requests==2.32.5"
+    "requests==2.32.5",
+    "torchvision==0.28.0"
 ]
 
 [project.optional-dependencies]

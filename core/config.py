@@ -1,6 +1,6 @@
 # rl_finetuning/core/config.py
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List, Literal
+from typing import Optional, Dict, Any, List, Literal, Union
 import yaml
 import sys
 import os
@@ -40,6 +40,17 @@ class ModelConfig:
     lora_alpha: int = 16
     lora_dropout: float = 0.05
     lora_target_modules: Optional[List[str]] = None
+    # Module name patterns to exclude from LoRA injection even if they match
+    # lora_target_modules. Needed for VLMs, where the (frozen) vision tower has
+    # attention projections named like the language model's (q_proj/k_proj/...)
+    # but wrapped in custom module types PEFT can't adapt. The sft_vlm trainer
+    # auto-populates this with the vision tower when freeze_vision_tower is set
+    # and no explicit list is given.
+    #
+    # A list matches leaf module names (suffix match); a single string is treated
+    # by PEFT as a regex full-matched against the whole module path, which is what
+    # you need to exclude an entire subtree such as ".*vision_tower.*".
+    lora_exclude_modules: Optional[Union[str, List[str]]] = None
     lora_bias: str = "none"
 
     # Multimodal (vision-language) configuration. Only used by the sft_vlm
@@ -67,6 +78,7 @@ class ModelConfig:
             "lora_alpha": self.lora_alpha,
             "lora_dropout": self.lora_dropout,
             "lora_target_modules": self.lora_target_modules,
+            "lora_exclude_modules": self.lora_exclude_modules,
             "lora_bias": self.lora_bias,
             "freeze_vision_tower": self.freeze_vision_tower,
         }

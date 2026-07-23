@@ -1,0 +1,101 @@
+# Multimodal (image + text) SFT recipe for Gemma-4-31B-it (dense VLM) with QLoRA.
+#
+# Algorithm: sft_vlm. Images are supplied as HTTP(S) URLs in the dataset and
+# fetched into PIL images at data-loading time. Because this is a ~31B model,
+# this recipe uses 4-bit QLoRA. The launcher uses torchrun (DDP) for multi-GPU
+# because quantization is enabled (bitsandbytes 4-bit is incompatible with the
+# DeepSpeed ZeRO-3 parameter sharding used by the non-quantized LoRA recipe).
+model:
+  base_model_name: "google/gemma-4-31B-it"            # HuggingFace VLM id or local path
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_4bit: true                                   # 4-bit QLoRA (requires CUDA + bitsandbytes)
+  bnb_4bit_compute_dtype: "bfloat16"
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_use_double_quant: true
+  use_flash_attention: false
+
+  # Freeze the vision encoder; train the language model via LoRA adapters.
+  freeze_vision_tower: true
+
+  # LoRA / QLoRA configuration. Target the language-model attention projections.
+  use_lora: true
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  lora_bias: "none"
+
+data:
+  datasets:
+    # Example dataset shipped with the repo: stable public image URLs + Q/A.
+    # Swap `name` for any HF/local/S3 dataset that has image column(s) and text
+    # columns. List several image_columns for multi-image rows.
+    - name: "data/sft_vlm/example_training_image_url.csv"
+      image_columns: ["image"]                  # column(s) holding image sources (URL/path/bytes)
+      dataset_columns: ["question", "response"] # text columns that fill the system_prompt template
+
+  # Cache downloaded images on disk so they are not re-fetched every epoch.
+  image_cache_dir: "data/vlm_image_cache"
+  image_fetch_timeout: 15
+  image_fetch_retries: 3
+  max_image_pixels: 1048576        # cap images at ~1MP to bound vision tokens / memory
+
+  # NOTE: max_length is forced to None internally for VLMs to avoid truncating
+  # image placeholder tokens. The text knobs below are unused by sft_vlm.
+  # system_prompt is a .format() template keyed by the dataset_columns names;
+  # {question} and {response} are filled per row from those columns. The whole
+  # rendered text is one training turn (no prompt/completion masking), so it
+  # includes the {response} target.
+  system_prompt: |
+    You are a helpful multimodal assistant. Answer the user's question based on the image.
+    Question: {question}
+    Response: {response}
+
+training:
+  algorithm: "sft_vlm"
+  output_dir: "models/gemma-4-31b-it-sft-qlora-v1"
+
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 1.0e-4
+  num_train_epochs: 1
+  max_steps: -1
+  warmup_steps: 20
+
+  logging_steps: 1
+  save_steps: 50
+  eval_steps: 50
+
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+
+  dataloader_num_workers: 2
+  dataloader_pin_memory: false
+  dataloader_drop_last: true
+
+wandb:
+  enabled: false                                          # Enable W&B logging
+  project: "your-project"                                 # W&B project name
+  entity: "your-wandb-entity"                             # W&B username or team name
+  name: "Gemma-4-31B-it-SFT-QLoRA"                        # Experiment name in W&B
+  tags: ["SFT", "sft_vlm", "gemma-4", "31B", "QLoRA", "multimodal"]   # Tags for organizing experiments
+  api_key: null                                           # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)
+
+# S3 Checkpoint Upload
+# Automatically uploads checkpoints and the final model to S3
+s3:
+  enabled: false                                         # Enable S3 checkpoint upload
+  bucket: "your-s3-bucket"                               # S3 bucket name
+  prefix: "checkpoints/gemma-4-31b-it-sft-qlora-v1"      # S3 key prefix (folder path inside bucket)
+  region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
+  endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
+  upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)
+  upload_final_model: true                               # Upload the final model at end of training
+  delete_local_after_upload: false                       # Delete local checkpoint files after successful upload

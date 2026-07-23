@@ -696,7 +696,7 @@ class BaseTrainer(ABC):
                 pass
         
         # Create LoRA config
-        lora_config = LoraConfig(
+        lora_kwargs = dict(
             r=self.config.model.lora_r,
             lora_alpha=self.config.model.lora_alpha,
             lora_dropout=self.config.model.lora_dropout,
@@ -704,6 +704,15 @@ class BaseTrainer(ABC):
             bias=self.config.model.lora_bias,
             task_type=task_type,
         )
+        # exclude_modules keeps target-module name matching (e.g. q_proj) from
+        # leaking into submodules we must not adapt -- notably a VLM's frozen
+        # vision tower, whose attention projections share those names but are
+        # custom module types PEFT cannot wrap. Only pass it when set so we stay
+        # compatible with peft versions lacking the field.
+        exclude_modules = getattr(self.config.model, "lora_exclude_modules", None)
+        if exclude_modules:
+            lora_kwargs["exclude_modules"] = exclude_modules
+        lora_config = LoraConfig(**lora_kwargs)
         
         # Apply LoRA to model
         model = get_peft_model(model, lora_config)

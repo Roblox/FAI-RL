@@ -1,0 +1,110 @@
+# Multimodal (video + text) LoRA SFT recipe for Gemma-4-31B-it.
+#
+# Same as gemma_4_31b_it_lora.yaml but training on VIDEO: each row's
+# video_columns URL is downloaded (and disk-cached), sampled to a fixed number of
+# frames, and fed to the processor as videos= via the video-aware collator.
+# Gemma4Processor supports video natively (dedicated video processor + <|video|>
+# token). Gemma-4-31B is a dense ~31B VLM, so this trains with DeepSpeed ZeRO-3 +
+# CPU offload across GPUs:
+#
+#   python trainers/train.py --num-gpus 8 \
+#     --recipe recipes/training/sft_vlm/gemma_4_31b_it_lora_video_url.yaml
+#
+# (Single-GPU is not realistic for this model; use the qwen2_5_vl_3b video recipe
+# for smoke tests.) Swap in your own dataset under `data.datasets`.
+model:
+  base_model_name: "google/gemma-4-31B-it"
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_4bit: false
+  use_flash_attention: true        # falls back to SDPA automatically if flash_attn isn't installed
+
+  freeze_vision_tower: true
+
+  use_lora: true
+  lora_r: 16                       # a bit more capacity than the 3B recipe (r=8) for the larger LM
+  lora_alpha: 32                   # ~2x rank
+  lora_dropout: 0.05
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  lora_bias: "none"
+
+data:
+  datasets:
+    # Placeholder dataset (the small smoke example). Replace with your real data;
+    # the schema is one or more video_columns (URL/path/s3://) + the text columns
+    # listed in dataset_columns. List several video_columns for multi-video rows.
+    - name: "data/sft_vlm/example_training_video_url.csv"
+      video_columns: ["video"]
+      dataset_columns: ["question", "response"]
+
+  video_cache_dir: "data/vlm_video_cache"
+  video_fetch_timeout: 30
+  video_fetch_retries: 3
+  # Frame sampling: sample video_num_frames uniformly, or set video_fps to sample
+  # at a fixed frames-per-second rate. Raise/lower to trade coverage vs. memory.
+  video_num_frames: 8
+  video_fps: null
+  video_backend: "pyav"
+  video_s3_region: null
+  video_s3_endpoint_url: null
+
+  # system_prompt is a .format() template keyed by the dataset_columns names;
+  # {question} and {response} are filled per row from those columns. The whole
+  # rendered text is one training turn (no prompt/completion masking), so it
+  # includes the {response} target.
+  system_prompt: |
+    You are a helpful multimodal assistant. Answer the user's question based on the video.
+    Question: {question}
+    Response: {response}
+
+training:
+  algorithm: "sft_vlm"
+  output_dir: "models/gemma-4-31b-it-sft-lora-video-v1"
+
+  # ZeRO-3 + CPU offload shards/offloads the 31B base weights and optimizer state
+  # so LoRA SFT fits across multiple GPUs. Requires DeepSpeed to be installed.
+  deepspeed_config: "configs/deepspeed/zero3_config.json"
+
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8   # effective batch = 1 x 8 x num_gpus
+  learning_rate: 1.0e-4
+  num_train_epochs: 1
+  max_steps: -1                    # -1 = train for num_train_epochs
+  warmup_steps: 20
+
+  logging_steps: 5
+  save_steps: 50
+  eval_steps: 50
+
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true     # essential at this scale
+
+  dataloader_num_workers: 4
+  dataloader_pin_memory: false
+  dataloader_drop_last: true
+
+wandb:
+  enabled: false                                          # Enable W&B logging
+  project: "your-project"                                 # W&B project name
+  entity: "your-wandb-entity"                             # W&B username or team name
+  name: "Gemma-4-31B-it-LoRA-SFT-video"                   # Experiment name in W&B
+  tags: ["SFT", "sft_vlm", "gemma-4", "31B", "LoRA", "video"]
+  api_key: null                                           # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)
+
+# S3 Checkpoint Upload
+# Automatically uploads checkpoints and the final model to S3
+s3:
+  enabled: false                                         # Enable S3 checkpoint upload
+  bucket: "your-s3-bucket"                               # S3 bucket name
+  prefix: "checkpoints/gemma-4-31b-it-sft-lora-video-v1"
+  region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
+  endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
+  upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)
+  upload_final_model: true                               # Upload the final model at end of training
+  delete_local_after_upload: false                       # Delete local checkpoint files after successful upload

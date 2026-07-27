@@ -33,6 +33,7 @@ from transformers import (
 from datasets import load_dataset
 from utils.api_utils import generate_response_by_api
 from utils.image_utils import fetch_image
+from utils.video_utils import fetch_video
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._internal._generate_schema")
@@ -386,8 +387,8 @@ def generate_response(model, tokenizer, prompt: str = None, config=None, message
 
 
 def is_vlm_inference(config) -> bool:
-    """VLM mode is enabled when the recipe sets a non-empty image_columns."""
-    return bool(getattr(config, "image_columns", None))
+    """VLM mode is enabled when the recipe sets image_columns or video_columns."""
+    return bool(getattr(config, "image_columns", None)) or bool(getattr(config, "video_columns", None))
 
 
 def load_vlm_model_and_processor(config):
@@ -497,15 +498,52 @@ def fetch_example_images(config, example):
     return images
 
 
-def generate_vlm_response(model, processor, prompt_text: str, images, config, system_text: str = None):
-    """Generate a response from a VLM given a text prompt and PIL image(s).
+def fetch_example_videos(config, example):
+    """Fetch + frame-sample the video(s) referenced by config.video_columns for a row.
 
-    Builds a single user turn containing one image placeholder per image followed
-    by the text, applies the processor's chat template, and decodes only the newly
-    generated tokens (matching the text path's behavior). In split (chat) mode a
-    non-empty ``system_text`` is prepended as a system-role turn.
+    video_columns lists one or more columns; each cell may hold a single URL/path
+    or a list of them. Every video found across the columns (in order) is sampled
+    to frames. Returns a list of frame arrays (possibly empty), one per video.
     """
+    sources = []
+    for col in (getattr(config, "video_columns", None) or []):
+        raw = example.get(col)
+        if raw is None:
+            continue
+        elif isinstance(raw, (list, tuple)):
+            sources.extend(str(s) for s in raw if s is not None)
+        else:
+            sources.append(str(raw))
+
+    videos = []
+    for s in sources:
+        frames = fetch_video(
+            s,
+            num_frames=getattr(config, "video_num_frames", 8),
+            fps=getattr(config, "video_fps", None),
+            cache_dir=getattr(config, "video_cache_dir", None),
+            timeout=getattr(config, "video_fetch_timeout", 30),
+            retries=getattr(config, "video_fetch_retries", 3),
+            s3_region=getattr(config, "video_s3_region", None),
+            s3_endpoint_url=getattr(config, "video_s3_endpoint_url", None),
+            backend=getattr(config, "video_backend", "pyav"),
+        )
+        videos.append(frames)
+    return videos
+
+
+def generate_vlm_response(model, processor, prompt_text: str, images, config, system_text: str = None, videos=None):
+    """Generate a response from a VLM given a text prompt and image(s)/video(s).
+
+    Builds a single user turn containing one image placeholder per image and one
+    video placeholder per video, followed by the text, applies the processor's
+    chat template, and decodes only the newly generated tokens (matching the text
+    path's behavior). In split (chat) mode a non-empty ``system_text`` is prepended
+    as a system-role turn.
+    """
+    videos = videos or []
     content = [{"type": "image"} for _ in images]
+    content += [{"type": "video"} for _ in videos]
     content.append({"type": "text", "text": prompt_text})
     messages = []
     if system_text:
@@ -516,6 +554,7 @@ def generate_vlm_response(model, processor, prompt_text: str, images, config, sy
     inputs = processor(
         text=[text],
         images=images if images else None,
+        videos=videos if videos else None,
         return_tensors="pt",
     ).to(model.device)
 
@@ -697,10 +736,11 @@ def run_inference(config, debug=False):
                 elif is_vlm:
                     # `tokenizer` holds the processor in VLM mode.
                     images = fetch_example_images(config, example)
+                    videos = fetch_example_videos(config, example)
                     if messages is not None:
-                        response = generate_vlm_response(model, tokenizer, user_text, images, config, system_text=system_text)
+                        response = generate_vlm_response(model, tokenizer, user_text, images, config, system_text=system_text, videos=videos)
                     else:
-                        response = generate_vlm_response(model, tokenizer, full_prompt, images, config)
+                        response = generate_vlm_response(model, tokenizer, full_prompt, images, config, videos=videos)
                 else:
                     if messages is not None:
                         response = generate_response(model, tokenizer, config=config, messages=messages)

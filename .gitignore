@@ -360,3 +360,6 @@ ENV/
 
 # Multimodal (sft_vlm) downloaded image cache
 data/vlm_image_cache/
+
+# Multimodal (sft_vlm) downloaded video cache
+data/vlm_video_cache/

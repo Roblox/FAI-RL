@@ -1,0 +1,49 @@
+# Video inference for a fine-tuned Qwen2.5-VL (multimodal) checkpoint.
+#
+# Like qwen2_5_vl_3b.yaml, but `video_columns` names a column holding a video
+# URL/path; each row's video is downloaded, sampled to video_num_frames frames,
+# and fed to the model (one video placeholder) alongside the templated prompt.
+# Mirrors the sft_vlm trainer's video_columns.
+#
+# Run from the repo root:
+#   CUDA_VISIBLE_DEVICES=0 fai-rl-inference --recipe recipes/inference/qwen2_5_vl_3b_video.yaml
+#   # or: python inference/inference.py --recipe recipes/inference/qwen2_5_vl_3b_video.yaml
+inference:
+  # Local fine-tuned checkpoint (LoRA adapter + processor) or a vanilla VLM hub id.
+  model_paths:
+    - "models/qwen2.5-vl-3b-sft-lora-video-smoke"
+
+  output_file: "outputs/qwen2.5-vl-3b-video-infer.csv"
+
+  # Dataset: a local CSV with a video-URL column + a question column. An S3-hosted
+  # CSV (s3://...) or a HuggingFace dataset id with the same columns works too.
+  dataset_name: "data/sft_vlm/example_training_video_url.csv"
+  s3_region: null
+  s3_endpoint_url: null
+  dataset_split: "test"
+  dataset_columns: ["video", "question"]
+  response_column: "response"
+
+  # Multimodal config: video_columns lists every column holding a video URL/path
+  # (each cell may also be a list). All videos across these columns are fed to the
+  # model per row, sampled to frames.
+  video_columns: ["video"]
+  video_cache_dir: "data/vlm_video_cache"
+  video_fetch_timeout: 30
+  video_fetch_retries: 3
+  video_num_frames: 8
+  video_fps: null
+  video_backend: "pyav"
+
+  # The prompt template is filled per row from dataset_columns and becomes the
+  # user text accompanying the video. It MUST contain at least one {placeholder}.
+  system_prompt: |
+    You are a helpful multimodal assistant. Answer the user's question based on the video.
+    Question: {question}
+    Response:
+
+  # Generation parameters. Greedy decoding for reproducible answers.
+  temperature: 1.0
+  top_p: 0.9
+  max_new_tokens: 256
+  do_sample: false

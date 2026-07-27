@@ -176,7 +176,7 @@ FAI-RL supports six training algorithms for language model fine-tuning:
 |-----------|-----------|-------------|----------|
 | **CPT** | Continuous Pre-Training | Next-token prediction on raw text; no chat template | Domain adaptation, corpus ingestion |
 | **SFT** | Supervised Fine-Tuning | Direct supervised learning from labeled examples | Instruction fine-tuning and foundational model fine-tuning |
-| **SFT_VLM** | Multimodal Supervised Fine-Tuning | Supervised fine-tuning of vision-language models on `(image, text) -> response` data (supports multiple images per row) | Instruction-tuning VLMs, image understanding tasks |
+| **SFT_VLM** | Multimodal Supervised Fine-Tuning | Supervised fine-tuning of vision-language models on `(image/video, text) -> response` data (supports multiple images or videos per row; set `image_columns` and/or `video_columns`) | Instruction-tuning VLMs, image and video understanding tasks |
 | **DPO** | Direct Preference Optimization | Alignment via preference learning without explicit reward models | Human preference alignment, chat model training |
 | **GRPO** | Group Relative Policy Optimization | Efficient preference learning with group-based comparison | Reasoning tasks, competitive response generation |
 | **GSPO** | Group Sequence Policy Optimization | Advanced sequence-level policy optimization | Complex multi-step reasoning, mathematical problem-solving |

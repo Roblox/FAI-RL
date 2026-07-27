@@ -1,0 +1,7 @@
+video,question,response
+https://huggingface.co/datasets/raushan-testing-hf/videos-test/resolve/main/sample_demo_1.mp4,What is happening in this video?,A person is demonstrating an activity on camera across several moments of the clip.
+https://huggingface.co/datasets/raushan-testing-hf/videos-test/resolve/main/sample_demo_1.mp4,Describe this video in one sentence.,A short demo clip showing a person and their surroundings over a few seconds.
+https://huggingface.co/datasets/raushan-testing-hf/videos-test/resolve/main/sample_demo_1.mp4,Is this a still image or a moving video?,It is a moving video composed of multiple sampled frames.
+https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4,What kind of content is shown in this video?,An animated cartoon scene featuring stylized characters and an outdoor setting.
+https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4,Is this live-action footage or animation?,It is computer-generated animation.
+https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4,Write a brief caption for this clip.,A short animated clip with cartoon characters in a natural landscape.

@@ -14,6 +14,8 @@ from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.dataset_utils import load_training_dataset
 from utils.image_utils import fetch_image
+from utils.video_utils import fetch_video
+from trainers.vlm_collator import VideoAwareVLMCollator
 
 
 # Submodule attribute names commonly used for the vision encoder across VLM
@@ -175,6 +177,26 @@ class SFTVLMTrainer(BaseTrainer):
         # Unknown scalar source: preserve prior behavior and stringify.
         return str(s)
 
+    @staticmethod
+    def _coerce_video_source(s: Any):
+        """Normalize one video cell into an Arrow-serializable source.
+
+        Videos are referenced, not embedded, so this is simpler than the image
+        version: string sources (HTTP(S) URL, ``s3://`` URI, or local path) and
+        the HF ``{'path'/'url'/'video'}`` dict pass through; everything else is
+        stringified. Returns ``None`` for empty cells so callers can drop them.
+        """
+        if s is None:
+            return None
+        if isinstance(s, str):
+            return s
+        if isinstance(s, dict):
+            for key in ("video", "path", "url"):
+                if s.get(key) is not None:
+                    return SFTVLMTrainer._coerce_video_source(s[key])
+            return None
+        return str(s)
+
     def _normalize_dataset(self, dataset, dataset_info):
         """Map a raw dataset to a uniform, Arrow-friendly schema.
 
@@ -189,6 +211,7 @@ class SFTVLMTrainer(BaseTrainer):
           _assistant_text: str        -- (split mode) rendered assistant turn
         """
         image_columns = dataset_info.image_columns or []
+        video_columns = dataset_info.video_columns or []
         dataset_columns = dataset_info.dataset_columns or []
         system_prompt = self.config.data.system_prompt
         user_prompt = self.config.data.user_prompt
@@ -208,9 +231,22 @@ class SFTVLMTrainer(BaseTrainer):
                     if coerced is not None:
                         sources.append(coerced)
 
+            # Gather video sources the same way across every video column.
+            video_sources = []
+            for col in video_columns:
+                raw = example.get(col)
+                if raw is None:
+                    continue
+                items = raw if isinstance(raw, (list, tuple)) else [raw]
+                for s in items:
+                    coerced = self._coerce_video_source(s)
+                    if coerced is not None:
+                        video_sources.append(coerced)
+
             if self._split_mode:
                 return {
                     "_image_sources": sources,
+                    "_video_sources": video_sources,
                     # Empty when no system_prompt is configured; the transform then
                     # omits the system turn entirely.
                     "_system_text": self._build_text(system_prompt, dataset_columns, example) if system_prompt else "",
@@ -219,6 +255,7 @@ class SFTVLMTrainer(BaseTrainer):
                 }
             return {
                 "_image_sources": sources,
+                "_video_sources": video_sources,
                 "_text": self._build_text(system_prompt, dataset_columns, example),
             }
 
@@ -243,6 +280,25 @@ class SFTVLMTrainer(BaseTrainer):
             )
             images.append(self._maybe_downscale(img, max_pixels))
         return images
+
+    def _fetch_videos(self, sources: List[str]) -> List[Any]:
+        """Fetch + frame-sample each video source into the processor's frame form."""
+        data = self.config.data
+        videos = []
+        for s in sources:
+            frames = fetch_video(
+                s,
+                num_frames=data.video_num_frames,
+                fps=data.video_fps,
+                cache_dir=data.video_cache_dir,
+                timeout=data.video_fetch_timeout,
+                retries=data.video_fetch_retries,
+                s3_region=data.video_s3_region,
+                s3_endpoint_url=data.video_s3_endpoint_url,
+                backend=data.video_backend,
+            )
+            videos.append(frames)
+        return videos
 
     @staticmethod
     def _maybe_downscale(img, max_pixels: Optional[int]):
@@ -289,19 +345,41 @@ class SFTVLMTrainer(BaseTrainer):
             return self._make_split_transform()
 
         def transform(batch):
-            out_messages, out_images = [], []
-            for text, sources in zip(batch["_text"], batch["_image_sources"]):
+            out_messages, out_images, out_videos = [], [], []
+            for text, sources, vsources in zip(
+                batch["_text"], batch["_image_sources"], batch["_video_sources"]
+            ):
                 images = self._fetch_images(sources)
-                # A single turn carrying the full templated text. Raw-string
-                # content lets TRL's vision collator insert one image placeholder
-                # per image into the message. Labels cover the whole sequence (no
-                # prompt/completion masking), mirroring the text SFT trainer.
-                messages = [{"role": "user", "content": text}]
+                videos = self._fetch_videos(vsources)
+                # Without videos: raw-string content lets TRL's vision collator
+                # insert one image placeholder per image. With videos: emit
+                # pre-structured content so we can add explicit {"type":"video"}
+                # placeholders too (the collator/processor render the right tokens).
+                # Labels cover the whole sequence (no prompt/completion masking).
+                if videos:
+                    messages = [{"role": "user", "content": self._build_content(text, images, videos)}]
+                else:
+                    messages = [{"role": "user", "content": text}]
                 out_messages.append(messages)
                 out_images.append(images)
-            return {"messages": out_messages, "images": out_images}
+                out_videos.append(videos)
+            return {"messages": out_messages, "images": out_images, "videos": out_videos}
 
         return transform
+
+    @staticmethod
+    def _build_content(text: str, images: List[Any], videos: List[Any]) -> List[dict]:
+        """Structured user-turn content: image, then video, then text placeholders.
+
+        One unfilled ``{"type": "image"}`` per image (TRL's
+        ``prepare_multimodal_messages`` fills these from the ``images`` list) and
+        one ``{"type": "video"}`` per video (rendered as video tokens by the
+        processor's chat template; the collator feeds the frames via ``videos=``).
+        """
+        content = [{"type": "image"} for _ in images]
+        content += [{"type": "video"} for _ in videos]
+        content.append({"type": "text", "text": text})
+        return content
 
     def _make_split_transform(self):
         """Lazy transform for split (chat) mode: conversational prompt/completion.
@@ -313,21 +391,32 @@ class SFTVLMTrainer(BaseTrainer):
         `prepare_multimodal_messages`.
         """
         def transform(batch):
-            out_prompt, out_completion, out_images = [], [], []
-            for sys_text, user_text, assistant_text, sources in zip(
+            out_prompt, out_completion, out_images, out_videos = [], [], [], []
+            for sys_text, user_text, assistant_text, sources, vsources in zip(
                 batch["_system_text"], batch["_user_text"],
-                batch["_assistant_text"], batch["_image_sources"],
+                batch["_assistant_text"], batch["_image_sources"], batch["_video_sources"],
             ):
                 images = self._fetch_images(sources)
+                videos = self._fetch_videos(vsources)
                 prompt = []
                 if sys_text:
                     prompt.append({"role": "system", "content": sys_text})
-                prompt.append({"role": "user", "content": user_text})
+                # Images and videos attach to the user turn. With videos, use
+                # pre-structured content so {"type":"video"} placeholders are
+                # explicit; otherwise keep raw-string content (image-only path).
+                if videos:
+                    prompt.append({"role": "user", "content": self._build_content(user_text, images, videos)})
+                else:
+                    prompt.append({"role": "user", "content": user_text})
                 completion = [{"role": "assistant", "content": assistant_text}]
                 out_prompt.append(prompt)
                 out_completion.append(completion)
                 out_images.append(images)
-            return {"prompt": out_prompt, "completion": out_completion, "images": out_images}
+                out_videos.append(videos)
+            return {
+                "prompt": out_prompt, "completion": out_completion,
+                "images": out_images, "videos": out_videos,
+            }
 
         return transform
 
@@ -350,7 +439,8 @@ class SFTVLMTrainer(BaseTrainer):
             # When image_cache_dir is set this also warms the cache so the
             # training-time transform reads from disk instead of re-downloading.
             def is_valid(example):
-                if not example["_image_sources"]:
+                # A row must carry at least one media source (image or video).
+                if not example["_image_sources"] and not example["_video_sources"]:
                     return False
                 if self._split_mode:
                     if not example["_user_text"].strip() or not example["_assistant_text"].strip():
@@ -359,9 +449,10 @@ class SFTVLMTrainer(BaseTrainer):
                     return False
                 try:
                     self._fetch_images(example["_image_sources"])
+                    self._fetch_videos(example["_video_sources"])
                     return True
                 except Exception as e:
-                    self.logger.warning(f"Dropping row (image fetch failed): {e}")
+                    self.logger.warning(f"Dropping row (media fetch failed): {e}")
                     return False
 
             ds = ds.filter(is_valid)
@@ -371,7 +462,7 @@ class SFTVLMTrainer(BaseTrainer):
             if skipped > 0:
                 self.logger.warning(
                     f"Skipped {skipped} examples from {dataset_info.name} "
-                    f"(no images, empty text, or unfetchable images)"
+                    f"(no media, empty text, or unfetchable images/videos)"
                 )
 
             normalized.append(ds)
@@ -433,15 +524,38 @@ class SFTVLMTrainer(BaseTrainer):
             completion_only_loss=True if self._split_mode else None,
         )
 
+    @property
+    def _has_video_columns(self) -> bool:
+        """True when any configured dataset declares video_columns."""
+        return any(getattr(ds, "video_columns", None) for ds in self.config.data.datasets)
+
     def setup_trainer(self):
-        """Initialize TRL's SFTTrainer with the processor (auto vision collator)."""
+        """Initialize TRL's SFTTrainer with the processor (auto vision collator).
+
+        When any dataset uses video_columns we pass an explicit video-aware
+        collator (it also feeds videos= to the processor); otherwise TRL
+        auto-selects its image-only DataCollatorForVisionLanguageModeling.
+        """
         training_args = self.setup_training_args()
+
+        data_collator = None
+        if self._has_video_columns:
+            # Mirror the args TRL uses when it auto-builds the vision collator.
+            data_collator = VideoAwareVLMCollator(
+                processor=self.processor,
+                max_length=training_args.max_length,
+                completion_only_loss=bool(self._split_mode),
+                pad_to_multiple_of=training_args.pad_to_multiple_of,
+                dataset_text_field=training_args.dataset_text_field,
+            )
+            self.logger.info("Using video-aware VLM collator (video_columns configured)")
 
         self.trainer = TRLSFTTrainer(
             model=self.model,
             args=training_args,
             processing_class=self.processor,
             train_dataset=self.train_dataset,
+            data_collator=data_collator,
             callbacks=self.build_callbacks(),
         )
 

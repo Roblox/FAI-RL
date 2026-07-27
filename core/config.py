@@ -111,6 +111,12 @@ class DatasetInfo:
     # is attached to the row, so a single row may carry multiple images.
     image_columns: Optional[List[str]] = None
 
+    # Multimodal (sft_vlm) video columns. video_columns names one or more columns,
+    # each holding an HTTP(S) URL, an s3:// URI, a local path, or a list thereof,
+    # pointing at a video file. Every video found across these columns (in order)
+    # is attached to the row and sampled to frames (see DataConfig.video_num_frames).
+    video_columns: Optional[List[str]] = None
+
     # S3 connection overrides (only used when name starts with s3://).
     # When unset, boto3 uses its default credential/region resolution chain.
     s3_region: Optional[str] = None
@@ -155,6 +161,24 @@ class DataConfig:
     image_s3_region: Optional[str] = None
     image_s3_endpoint_url: Optional[str] = None
 
+    # Multimodal (sft_vlm) video-fetch settings. video_cache_dir, when set, caches
+    # downloaded video files on disk so a URL is not re-fetched every epoch.
+    video_cache_dir: Optional[str] = None
+    video_fetch_timeout: int = 10
+    video_fetch_retries: int = 3
+    # Frame sampling: sample video_num_frames uniformly, OR video_fps frames per
+    # second (fps takes priority when both are set). Bounds the number of vision
+    # tokens / sequence length so long videos don't blow up memory.
+    video_num_frames: Optional[int] = 8
+    video_fps: Optional[float] = None
+    # Decode backend for transformers.video_utils.load_video ("pyav" is installed
+    # and handles URL/local/most codecs).
+    video_backend: str = "pyav"
+    # S3 connection overrides used when a video value is an s3:// URI. Independent
+    # of each dataset's s3_region / s3_endpoint_url (which govern the dataset file).
+    video_s3_region: Optional[str] = None
+    video_s3_endpoint_url: Optional[str] = None
+
     def __post_init__(self):
         # Split (chat) mode is both-or-neither: rendering a prompt/completion pair
         # requires both a user turn and an assistant turn.
@@ -185,6 +209,7 @@ class DataConfig:
                     "answer_column": ds.answer_column,
                     "dataset_columns": ds.dataset_columns,
                     "image_columns": ds.image_columns,
+                    "video_columns": ds.video_columns,
                     "s3_region": ds.s3_region,
                     "s3_endpoint_url": ds.s3_endpoint_url,
                 }
@@ -203,6 +228,14 @@ class DataConfig:
             "max_image_pixels": self.max_image_pixels,
             "image_s3_region": self.image_s3_region,
             "image_s3_endpoint_url": self.image_s3_endpoint_url,
+            "video_cache_dir": self.video_cache_dir,
+            "video_fetch_timeout": self.video_fetch_timeout,
+            "video_fetch_retries": self.video_fetch_retries,
+            "video_num_frames": self.video_num_frames,
+            "video_fps": self.video_fps,
+            "video_backend": self.video_backend,
+            "video_s3_region": self.video_s3_region,
+            "video_s3_endpoint_url": self.video_s3_endpoint_url,
         }
 
 
@@ -370,6 +403,21 @@ class InferenceConfig:
     # When unset, boto3 uses its default credential/region resolution chain.
     image_s3_region: Optional[str] = None
     image_s3_endpoint_url: Optional[str] = None
+
+    # Multimodal (VLM) video inference. Setting video_columns enables VLM mode: it
+    # names one or more dataset columns, each holding an HTTP(S) URL, an s3:// URI,
+    # a local path, or a list thereof, pointing at a video file. Every video found
+    # is sampled to frames and fed to the processor alongside the templated text
+    # prompt. Knobs mirror DataConfig's. Mirrors the sft_vlm trainer's video_columns.
+    video_columns: Optional[List[str]] = None
+    video_cache_dir: Optional[str] = None
+    video_fetch_timeout: int = 10
+    video_fetch_retries: int = 3
+    video_num_frames: Optional[int] = 8
+    video_fps: Optional[float] = None
+    video_backend: str = "pyav"
+    video_s3_region: Optional[str] = None
+    video_s3_endpoint_url: Optional[str] = None
 
     # S3 connection settings (used when model_paths entries start with s3://)
     s3_region: Optional[str] = None

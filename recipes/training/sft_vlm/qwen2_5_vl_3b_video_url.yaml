@@ -1,0 +1,104 @@
+# Small multimodal (video + text) SFT recipe for quick end-to-end validation.
+#
+# Same pipeline as qwen2_5_vl_3b_lora.yaml but training on VIDEO instead of
+# images: each row's video_columns URL is downloaded (and disk-cached), sampled
+# to a fixed number of frames, and fed to the processor as videos= via the
+# video-aware collator. Qwen2.5-VL-3B is small enough to validate the full path
+# (video URL fetch -> frame sample -> processor -> collator -> loss -> checkpoint)
+# on a single modest GPU.
+model:
+  base_model_name: "Qwen/Qwen2.5-VL-3B-Instruct"
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_4bit: false
+  use_flash_attention: false
+
+  freeze_vision_tower: true
+
+  use_lora: true
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  lora_bias: "none"
+
+data:
+  datasets:
+    # video_columns lists one or more video columns; each value may be an HTTP(S)
+    # URL, a local path, or an s3:// URI (e.g. s3://your-bucket/clips/demo.mp4).
+    # s3:// videos use the video_s3_region / video_s3_endpoint_url settings below.
+    # dataset_columns lists the text columns that fill the system_prompt template.
+    - name: "data/sft_vlm/example_training_video_url.csv"
+      video_columns: ["video"]
+      dataset_columns: ["question", "response"]
+
+  video_cache_dir: "data/vlm_video_cache"
+  video_fetch_timeout: 30
+  video_fetch_retries: 3
+  # Frame sampling: sample video_num_frames uniformly (keep it small for the smoke
+  # test to bound vision tokens / sequence length). Set video_fps instead to
+  # sample at a fixed frames-per-second rate.
+  video_num_frames: 8
+  video_fps: null
+  video_backend: "pyav"
+  # S3 overrides applied when a video value is an s3:// URI. When unset, boto3
+  # uses its default credential/region resolution chain.
+  video_s3_region: null
+  video_s3_endpoint_url: null
+
+  # system_prompt is a .format() template keyed by the dataset_columns names;
+  # {question} and {response} are filled per row from those columns. The whole
+  # rendered text is one training turn (no prompt/completion masking), so it
+  # includes the {response} target.
+  system_prompt: |
+    You are a helpful multimodal assistant. Answer the user's question based on the video.
+    Question: {question}
+    Response: {response}
+
+training:
+  algorithm: "sft_vlm"
+  output_dir: "models/qwen2.5-vl-3b-sft-lora-video-smoke"
+
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 2
+  learning_rate: 1.0e-4
+  num_train_epochs: 1
+  max_steps: 2                 # smoke test: a couple of steps is enough
+  warmup_steps: 0
+
+  logging_steps: 1
+  save_steps: 2
+  eval_steps: 2
+
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+
+  dataloader_num_workers: 0
+  dataloader_pin_memory: false
+  dataloader_drop_last: false
+
+wandb:
+  enabled: false                                          # Enable W&B logging
+  project: "your-project"                                 # W&B project name
+  entity: "your-wandb-entity"                             # W&B username or team name
+  name: "Qwen2.5-VL-3B-Inst-LoRA-SFT-video"               # Experiment name in W&B
+  tags: ["SFT", "sft_vlm", "qwen2.5-vl", "3B", "LoRA", "video"]
+  api_key: null                                           # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)
+
+# S3 Checkpoint Upload
+# Automatically uploads checkpoints and the final model to S3
+s3:
+  enabled: false                                         # Enable S3 checkpoint upload
+  bucket: "your-s3-bucket"                               # S3 bucket name
+  prefix: "checkpoints/qwen2.5-vl-3b-sft-lora-video-smoke"
+  region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
+  endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
+  upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)
+  upload_final_model: true                               # Upload the final model at end of training
+  delete_local_after_upload: false                       # Delete local checkpoint files after successful upload

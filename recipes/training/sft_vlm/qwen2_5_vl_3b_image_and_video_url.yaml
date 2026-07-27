@@ -1,0 +1,103 @@
+# Combined image + video SFT recipe for quick end-to-end validation.
+#
+# A single recipe (and a single dataset row) can carry BOTH images and videos:
+# set image_columns AND video_columns. Every image is fetched to PIL and every
+# video is sampled to frames; the user turn gets one image placeholder per image
+# followed by one video placeholder per video, then the text. The video-aware
+# collator feeds images= and videos= to the processor in one call, so the model
+# sees both modalities together. (You can also mix by listing an image-only
+# dataset and a video-only dataset under data.datasets -- each row uses whatever
+# columns it declares.)
+model:
+  base_model_name: "Qwen/Qwen2.5-VL-3B-Instruct"
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_4bit: false
+  use_flash_attention: false
+
+  freeze_vision_tower: true
+
+  use_lora: true
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  lora_bias: "none"
+
+data:
+  datasets:
+    # Each row has an image column and a video column. Both image_columns and
+    # video_columns may list several columns for multi-image / multi-video rows.
+    - name: "data/sft_vlm/example_training_image_and_video_url.csv"
+      image_columns: ["image"]
+      video_columns: ["video"]
+      dataset_columns: ["question", "response"]
+
+  # Image fetch/decode knobs.
+  image_cache_dir: "data/vlm_image_cache"
+  image_fetch_timeout: 15
+  image_fetch_retries: 3
+  max_image_pixels: 262144         # ~0.25MP keeps the smoke test light
+
+  # Video fetch/sample knobs.
+  video_cache_dir: "data/vlm_video_cache"
+  video_fetch_timeout: 30
+  video_fetch_retries: 3
+  video_num_frames: 8
+  video_fps: null
+  video_backend: "pyav"
+
+  # system_prompt is a .format() template keyed by the dataset_columns names;
+  # {question} and {response} are filled per row. The whole rendered text is one
+  # training turn (no prompt/completion masking), so it includes the {response}.
+  system_prompt: |
+    You are a helpful multimodal assistant. You are shown an image and a video.
+    Answer the user's question based on both.
+    Question: {question}
+    Response: {response}
+
+training:
+  algorithm: "sft_vlm"
+  output_dir: "models/qwen2.5-vl-3b-sft-lora-image-video-smoke"
+
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 2
+  learning_rate: 1.0e-4
+  num_train_epochs: 1
+  max_steps: 2                 # smoke test: a couple of steps is enough
+  warmup_steps: 0
+
+  logging_steps: 1
+  save_steps: 2
+  eval_steps: 2
+
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+
+  dataloader_num_workers: 0
+  dataloader_pin_memory: false
+  dataloader_drop_last: false
+
+wandb:
+  enabled: false
+  project: "your-project"
+  entity: "your-wandb-entity"
+  name: "Qwen2.5-VL-3B-Inst-LoRA-SFT-image-video"
+  tags: ["SFT", "sft_vlm", "qwen2.5-vl", "3B", "LoRA", "image", "video"]
+  api_key: null
+  base_url: "https://api.wandb.ai"
+
+s3:
+  enabled: false
+  bucket: "your-s3-bucket"
+  prefix: "checkpoints/qwen2.5-vl-3b-sft-lora-image-video-smoke"
+  region: null
+  endpoint_url: null
+  upload_checkpoints: true
+  upload_final_model: true
+  delete_local_after_upload: false

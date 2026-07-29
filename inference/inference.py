@@ -33,6 +33,7 @@ from transformers import (
 from datasets import load_dataset
 from utils.api_utils import generate_response_by_api
 from utils.image_utils import fetch_image
+from utils.media_utils import collect_media_sources
 from utils.video_utils import fetch_video
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
@@ -474,15 +475,9 @@ def fetch_example_images(config, example):
     so a single row may carry multiple images. Returns a list of RGB PIL images
     (possibly empty), each optionally downscaled to max_image_pixels.
     """
-    sources = []
-    for col in (config.image_columns or []):
-        raw = example.get(col)
-        if raw is None:
-            continue
-        elif isinstance(raw, (list, tuple)):
-            sources.extend(str(s) for s in raw if s is not None)
-        else:
-            sources.append(str(raw))
+    sources = collect_media_sources(
+        example.get(col) for col in (config.image_columns or [])
+    )
 
     images = []
     for s in sources:
@@ -505,15 +500,10 @@ def fetch_example_videos(config, example):
     or a list of them. Every video found across the columns (in order) is sampled
     to frames. Returns a list of frame arrays (possibly empty), one per video.
     """
-    sources = []
-    for col in (getattr(config, "video_columns", None) or []):
-        raw = example.get(col)
-        if raw is None:
-            continue
-        elif isinstance(raw, (list, tuple)):
-            sources.extend(str(s) for s in raw if s is not None)
-        else:
-            sources.append(str(raw))
+    sources = collect_media_sources(
+        example.get(col)
+        for col in (getattr(config, "video_columns", None) or [])
+    )
 
     videos = []
     for s in sources:

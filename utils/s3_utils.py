@@ -87,8 +87,14 @@ def upload_directory_to_s3(
             argv.extend(["--endpoint-url", endpoint_url])
         argv.extend(["--numworkers", "256", "run"])
         env = os.environ.copy()
-        if region and "AWS_REGION" not in env and "AWS_DEFAULT_REGION" not in env:
+        if region:
+            # An explicitly configured region must win over the compute's
+            # ambient AWS_REGION/AWS_DEFAULT_REGION: the target bucket's region
+            # is unrelated to where the job happens to run. Without this, an
+            # s5cmd transfer to a us-east-1 bucket from a us-east-2 pod inherits
+            # us-east-2 and 301-redirects (BucketRegionError).
             env["AWS_REGION"] = region
+            env["AWS_DEFAULT_REGION"] = region
         result = subprocess.run(argv, input=manifest, text=True, env=env, capture_output=True)
         if result.returncode != 0:
             raise RuntimeError(
@@ -291,8 +297,14 @@ def download_directory_from_s3(
         # s5cmd sync handles recursive directory copies efficiently
         argv.extend(["sync", f"s3://{bucket}/{prefix}/*", f"{local_dir}/"])
         env = os.environ.copy()
-        if region and "AWS_REGION" not in env and "AWS_DEFAULT_REGION" not in env:
+        if region:
+            # An explicitly configured region must win over the compute's
+            # ambient AWS_REGION/AWS_DEFAULT_REGION: the target bucket's region
+            # is unrelated to where the job happens to run. Without this, an
+            # s5cmd transfer to a us-east-1 bucket from a us-east-2 pod inherits
+            # us-east-2 and 301-redirects (BucketRegionError).
             env["AWS_REGION"] = region
+            env["AWS_DEFAULT_REGION"] = region
         result = subprocess.run(argv, env=env, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(
@@ -403,8 +415,14 @@ def upload_file_to_s3(
             argv.extend(["--endpoint-url", endpoint_url])
         argv.extend(["cp", local_path, f"s3://{bucket}/{s3_key}"])
         env = os.environ.copy()
-        if region and "AWS_REGION" not in env and "AWS_DEFAULT_REGION" not in env:
+        if region:
+            # An explicitly configured region must win over the compute's
+            # ambient AWS_REGION/AWS_DEFAULT_REGION: the target bucket's region
+            # is unrelated to where the job happens to run. Without this, an
+            # s5cmd transfer to a us-east-1 bucket from a us-east-2 pod inherits
+            # us-east-2 and 301-redirects (BucketRegionError).
             env["AWS_REGION"] = region
+            env["AWS_DEFAULT_REGION"] = region
         result = subprocess.run(argv, env=env, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(

@@ -467,6 +467,22 @@ class BaseTrainer(ABC):
                     self.logger.info("Using device_map=auto for quantized model (no DeepSpeed, no CUDA).")
             else:
                 self.logger.info("DeepSpeed detected; not setting device_map to let DeepSpeed place parameters.")
+        elif using_deepspeed:
+            # Non-quantized + DeepSpeed (e.g. ZeRO-3 partitioned load): let
+            # DeepSpeed place/partition parameters. Setting device_map here would
+            # fight zero.Init sharding, so leave it unset.
+            self.logger.info("DeepSpeed detected; not setting device_map to let DeepSpeed place parameters.")
+        elif is_cuda_available():
+            # Full-precision (non-quantized) plain DDP / single-GPU without
+            # DeepSpeed. Load each rank's replica directly onto its own GPU.
+            # Without this, from_pretrained materializes the ENTIRE model on the
+            # host (device_map unset) on every rank, so N concurrent torchrun
+            # ranks OOM the host on large models. Mirrors the quantized branch
+            # above (proven on the QLoRA DDP path); the whole model stays on one
+            # device, so DDP wraps it normally and only gradients are all-reduced.
+            current_device = torch.cuda.current_device()
+            model_kwargs["device_map"] = {"": current_device}
+            self.logger.info(f"Using device_map={{'': {current_device}}} for full-precision model (no DeepSpeed).")
         elif is_mps_available():
             # For MPS, we need to explicitly set device_map for proper device placement
             model_kwargs["device_map"] = "mps"

@@ -11,7 +11,7 @@ A production-ready framework for training, inference, evaluation using advanced 
 FAI-RL provides a unified, extensible framework for fine-tuning language models with the state-of-the-art algorithms:
 
 - 🎯 **Supports Multiple RL Algorithms**: DPO, GRPO, GSPO implementations as well as support for Supervised Fine-Tuning (text and multimodal vision-language) and Continuous Pre-Training.
-- 🚀 **Production Ready**: Validated on AWS p4d instances with 8x A100 GPUs
+- 🚀 **Production Ready**: Tested on NVIDIA A100 and B200 GPU environments
 - 📦 **Simple Configuration**: YAML-based configs with CLI override support
 - ⚡ **Memory Efficient**: Full support for LoRA, QLoRA, and DeepSpeed ZeRO-3
 - 🔧 **Highly Extensible**: Custom reward functions, dataset templates, and API integrations
@@ -415,7 +415,9 @@ FAI-RL provides multiple techniques for efficient training of large models on li
 
 ### Validated on Hardware
 
-This framework has been validated on:
+This framework has been tested on NVIDIA A100 and B200 GPUs.
+
+#### A100 Environment
 
 * **Instance:** AWS EC2 p4d.24xlarge
 * **GPUs:** 8 x NVIDIA A100-SXM4-80GB (80GB VRAM each)
@@ -423,6 +425,15 @@ This framework has been validated on:
 * **Memory:** 1152 GiB
 * **Storage:** 8TB NVMe SSD
 * **Network:** 400 Gbps
+
+#### B200 Environment
+
+* **Instance:** AWS EC2 p6-b200.48xlarge
+* **GPUs:** 8 x NVIDIA B200 (180GB HBM3e each)
+* **CPU:** 192 vCPUs
+* **Memory:** 2048 GiB
+* **Storage:** 8TB NVMe SSD
+* **Network:** 3.2 Tbps
 
 ## 📄 License
 

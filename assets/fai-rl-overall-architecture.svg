@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1450" viewBox="0 0 1200 1450" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1355" viewBox="0 95 1200 1355" role="img" aria-labelledby="title desc">
   <title id="title">FAI-RL overall architecture</title>
   <desc id="desc">Architecture diagram showing FAI-RL configuration, fine-tuning, batch inference, evaluation, shared foundations, data sources, and outputs.</desc>
   <defs>
@@ -32,9 +32,6 @@
   </defs>
 
   <rect class="bg" width="1200" height="1450"/>
-
-  <text class="title" x="50" y="55">FAI-RL overall architecture</text>
-  <text class="body" x="50" y="82">A recipe-driven framework for fine-tuning, offline generation, and benchmark scoring.</text>
 
   <text class="label" x="50" y="130">CONTROL PLANE</text>
 

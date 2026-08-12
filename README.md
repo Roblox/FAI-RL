@@ -6,6 +6,10 @@
 
 A production-ready framework for training, inference, evaluation using advanced reinforcement learning techniques. Built for researchers and practitioners who need a flexible, scalable solution for LLM fine-tuning.
 
+## Architecture
+
+![FAI-RL overall architecture](assets/fai-rl-overall-architecture.svg)
+
 ## Overview
 
 FAI-RL provides a unified, extensible framework for fine-tuning language models with the state-of-the-art algorithms:
@@ -18,6 +22,7 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
 
 ## Table of Contents
 
+- [Architecture](#architecture)
 - [Installation](#-installation)
 - [Authentication & Setup](#-authentication--setup)
 - [Quick Start](#-quick-start)

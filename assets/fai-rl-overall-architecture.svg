@@ -1,0 +1,199 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1450" viewBox="0 0 1200 1450" role="img" aria-labelledby="title desc">
+  <title id="title">FAI-RL overall architecture</title>
+  <desc id="desc">Architecture diagram showing FAI-RL configuration, fine-tuning, batch inference, evaluation, shared foundations, data sources, and outputs.</desc>
+  <defs>
+    <style>
+      .bg { fill: #111318; }
+      .surface { fill: #191c22; stroke: #343944; stroke-width: 1.5; }
+      .surface-2 { fill: #20242c; stroke: #414754; stroke-width: 1.5; }
+      .accent-surface { fill: #18263a; stroke: #4f9cf9; stroke-width: 1.8; }
+      .lane { fill: #15181e; stroke: #343944; stroke-width: 1.5; }
+      .lane-accent { fill: #141d29; stroke: #4f9cf9; stroke-width: 1.8; }
+      .title { fill: #f2f4f8; font: 600 27px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .h2 { fill: #f2f4f8; font: 600 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .h3 { fill: #f2f4f8; font: 600 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .body { fill: #b7bdc9; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .small { fill: #8e96a5; font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .label { fill: #7e8797; font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 1.6px; }
+      .pill { fill: #252a33; stroke: #414754; stroke-width: 1; }
+      .pill-accent { fill: #1d3450; stroke: #4f9cf9; stroke-width: 1; }
+      .pill-text { fill: #cbd1dc; font: 600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .pill-accent-text { fill: #85bcff; font: 600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .arrow { stroke: #4f9cf9; stroke-width: 1.8; fill: none; marker-end: url(#arrowhead); }
+      .connector { stroke: #596170; stroke-width: 1.4; fill: none; marker-end: url(#arrowhead-muted); }
+      .rule { stroke: #343944; stroke-width: 1; }
+    </style>
+    <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#4f9cf9"/>
+    </marker>
+    <marker id="arrowhead-muted" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#596170"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1200" height="1450"/>
+
+  <text class="title" x="50" y="55">FAI-RL overall architecture</text>
+  <text class="body" x="50" y="82">A recipe-driven framework for fine-tuning, offline generation, and benchmark scoring.</text>
+
+  <text class="label" x="50" y="130">CONTROL PLANE</text>
+
+  <rect class="surface" x="50" y="150" width="300" height="88" rx="10"/>
+  <text class="h3" x="70" y="181">Recipes + CLI overrides</text>
+  <text class="small" x="70" y="205">recipes/{training,inference,evaluation}/*.yaml</text>
+
+  <path class="arrow" d="M350 194 H430"/>
+
+  <rect class="accent-surface" x="430" y="150" width="340" height="88" rx="10"/>
+  <text class="h3" x="450" y="181">Typed configuration</text>
+  <text class="small" x="450" y="205">ExperimentConfig / InferenceConfig / EvaluationConfig</text>
+
+  <path class="arrow" d="M770 194 H850"/>
+
+  <rect class="surface" x="850" y="150" width="300" height="88" rx="10"/>
+  <text class="h3" x="870" y="181">CLI dispatch</text>
+  <text class="small" x="870" y="205">fai-rl-train / fai-rl-inference / fai-rl-eval</text>
+
+  <text class="small" x="539" y="277">select runtime path</text>
+  <path class="arrow" d="M600 247 V298"/>
+
+  <text class="label" x="50" y="324">EXECUTION PLANE</text>
+
+  <!-- Fine-tuning lane -->
+  <rect class="lane-accent" x="50" y="344" width="350" height="580" rx="12"/>
+  <text class="h2" x="70" y="378">Fine-tune</text>
+  <text class="small" x="70" y="400">Six trainer algorithms</text>
+  <rect class="pill-accent" x="328" y="364" width="52" height="24" rx="12"/>
+  <text class="pill-accent-text" x="339" y="380">TRAIN</text>
+
+  <rect class="accent-surface" x="70" y="426" width="310" height="90" rx="9"/>
+  <text class="h3" x="90" y="457">Training launcher</text>
+  <text class="small" x="90" y="481">Python, torchrun DDP, or DeepSpeed</text>
+  <path class="arrow" d="M225 516 V552"/>
+
+  <rect class="accent-surface" x="70" y="552" width="310" height="90" rx="9"/>
+  <text class="h3" x="90" y="583">BaseTrainer</text>
+  <text class="small" x="90" y="607">Model loading, quantization, PEFT,</text>
+  <text class="small" x="90" y="625">callbacks, devices</text>
+  <path class="arrow" d="M225 642 V678"/>
+
+  <rect class="surface-2" x="70" y="678" width="310" height="180" rx="9"/>
+  <text class="h3" x="90" y="709">Algorithm dispatch</text>
+  <rect class="pill" x="90" y="734" width="52" height="28" rx="14"/>
+  <text class="pill-text" x="105" y="752">CPT</text>
+  <rect class="pill" x="150" y="734" width="52" height="28" rx="14"/>
+  <text class="pill-text" x="165" y="752">SFT</text>
+  <rect class="pill-accent" x="210" y="734" width="82" height="28" rx="14"/>
+  <text class="pill-accent-text" x="223" y="752">SFT-VLM</text>
+  <rect class="pill" x="300" y="734" width="60" height="28" rx="14"/>
+  <text class="pill-text" x="318" y="752">DPO</text>
+  <rect class="pill" x="112" y="776" width="68" height="28" rx="14"/>
+  <text class="pill-text" x="128" y="794">GRPO</text>
+  <rect class="pill" x="190" y="776" width="68" height="28" rx="14"/>
+  <text class="pill-text" x="206" y="794">GSPO</text>
+  <text class="small" x="90" y="834">TRL trainers with algorithm-specific</text>
+  <text class="small" x="90" y="852">templates, collators, losses, and rewards</text>
+
+  <!-- Inference lane -->
+  <rect class="lane" x="425" y="344" width="350" height="580" rx="12"/>
+  <text class="h2" x="445" y="378">Generate</text>
+  <text class="small" x="445" y="400">Offline batch inference</text>
+  <rect class="pill" x="700" y="364" width="55" height="24" rx="12"/>
+  <text class="pill-text" x="710" y="380">INFER</text>
+
+  <rect class="surface-2" x="445" y="426" width="310" height="90" rx="9"/>
+  <text class="h3" x="465" y="457">Inference engine</text>
+  <text class="small" x="465" y="481">Load data, format prompts, iterate checkpoints</text>
+  <path class="arrow" d="M600 516 V552"/>
+
+  <rect class="surface-2" x="445" y="552" width="145" height="132" rx="9"/>
+  <text class="h3" x="465" y="583">Local models</text>
+  <text class="small" x="465" y="607">Causal LM or</text>
+  <text class="small" x="465" y="625">image-text model;</text>
+  <text class="small" x="465" y="643">optional adapters</text>
+
+  <rect class="surface-2" x="610" y="552" width="145" height="132" rx="9"/>
+  <text class="h3" x="630" y="583">External APIs</text>
+  <text class="small" x="630" y="607">OpenAI-compatible,</text>
+  <text class="small" x="630" y="625">Gemini, Anthropic,</text>
+  <text class="small" x="630" y="643">hosted models</text>
+  <path class="arrow" d="M600 684 V720"/>
+
+  <rect class="surface-2" x="445" y="720" width="310" height="90" rx="9"/>
+  <text class="h3" x="465" y="751">Generation results</text>
+  <text class="small" x="465" y="775">Response CSV plus run-summary JSON</text>
+
+  <!-- Evaluation lane -->
+  <rect class="lane" x="800" y="344" width="350" height="580" rx="12"/>
+  <text class="h2" x="820" y="378">Score</text>
+  <text class="small" x="820" y="400">Inference plus benchmark logic</text>
+  <rect class="pill" x="1078" y="364" width="52" height="24" rx="12"/>
+  <text class="pill-text" x="1088" y="380">EVAL</text>
+
+  <rect class="surface-2" x="820" y="426" width="310" height="90" rx="9"/>
+  <text class="h3" x="840" y="457">Evaluation orchestrator</text>
+  <text class="small" x="840" y="481">Prepare benchmark and invoke shared inference</text>
+  <text class="small" x="924" y="544">reuses</text>
+  <path class="arrow" d="M975 516 V552"/>
+
+  <rect class="surface-2" x="820" y="552" width="310" height="90" rx="9"/>
+  <text class="h3" x="840" y="583">Inference engine</text>
+  <text class="small" x="840" y="607">Same model and generation path as batch inference</text>
+  <path class="arrow" d="M975 642 V678"/>
+
+  <rect class="surface-2" x="820" y="678" width="310" height="110" rx="9"/>
+  <text class="h3" x="840" y="709">MMLU / GSM8K scoring</text>
+  <text class="small" x="840" y="733">Extract answers, compute accuracy,</text>
+  <text class="small" x="840" y="751">compare checkpoints</text>
+
+  <text class="small" x="512" y="961">shared dependencies and I/O</text>
+  <path class="arrow" d="M600 930 V986"/>
+
+  <!-- Shared foundation -->
+  <rect class="lane" x="50" y="986" width="1100" height="220" rx="12"/>
+  <text class="h2" x="70" y="1022">Shared foundation</text>
+  <text class="small" x="70" y="1045">Used across training, inference, and evaluation / HuggingFace-centered ML stack</text>
+
+  <rect class="surface-2" x="70" y="1070" width="250" height="105" rx="9"/>
+  <text class="h3" x="88" y="1101">Config &amp; overrides</text>
+  <text class="small" x="88" y="1125">Dataclasses, YAML parsing,</text>
+  <text class="small" x="88" y="1143">CLI key=value merge</text>
+
+  <rect class="surface-2" x="340" y="1070" width="250" height="105" rx="9"/>
+  <text class="h3" x="358" y="1101">Data &amp; media</text>
+  <text class="small" x="358" y="1125">HF Hub, local files, S3,</text>
+  <text class="small" x="358" y="1143">image and video utilities</text>
+
+  <rect class="surface-2" x="610" y="1070" width="250" height="105" rx="9"/>
+  <text class="h3" x="628" y="1101">Model stack</text>
+  <text class="small" x="628" y="1125">Transformers + TRL + PEFT</text>
+  <text class="small" x="628" y="1143">+ bitsandbytes</text>
+
+  <rect class="surface-2" x="880" y="1070" width="250" height="105" rx="9"/>
+  <text class="h3" x="898" y="1101">Operations</text>
+  <text class="small" x="898" y="1125">W&amp;B tracking, logs, S3</text>
+  <text class="small" x="898" y="1143">checkpoint and result uploads</text>
+
+  <!-- Inputs and outputs -->
+  <rect class="surface" x="50" y="1230" width="650" height="160" rx="12"/>
+  <text class="h2" x="70" y="1266">Data enters here</text>
+  <line class="rule" x1="70" y1="1284" x2="680" y2="1284"/>
+  <text class="h3" x="70" y="1317">HuggingFace Hub</text>
+  <text class="small" x="70" y="1341">Datasets and base models</text>
+  <text class="h3" x="278" y="1317">Local files</text>
+  <text class="small" x="278" y="1341">CSV, JSON, Parquet, media</text>
+  <text class="h3" x="500" y="1317">S3</text>
+  <text class="small" x="500" y="1341">Datasets, models, adapters</text>
+
+  <rect class="surface" x="720" y="1230" width="430" height="160" rx="12"/>
+  <text class="h2" x="740" y="1266">Artifacts leave here</text>
+  <line class="rule" x1="740" y1="1284" x2="1130" y2="1284"/>
+  <text class="body" x="740" y="1314">models/</text>
+  <text class="small" x="810" y="1314">checkpoints and adapters</text>
+  <text class="body" x="740" y="1342">outputs/</text>
+  <text class="small" x="810" y="1342">inference and eval CSV/JSON</text>
+  <text class="body" x="740" y="1370">logs/</text>
+  <text class="small" x="810" y="1370">runtime logs; optional W&amp;B/S3</text>
+
+  <text class="small" x="317" y="1425">Repository scope: offline training, generation, and scoring; no online serving layer.</text>
+</svg>

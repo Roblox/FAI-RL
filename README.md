@@ -6,6 +6,10 @@
 
 A production-ready framework for training, inference, evaluation using advanced reinforcement learning techniques. Built for researchers and practitioners who need a flexible, scalable solution for LLM fine-tuning.
 
+## Architecture
+
+![FAI-RL overall architecture](assets/fai-rl-overall-architecture.svg)
+
 ## Overview
 
 FAI-RL provides a unified, extensible framework for fine-tuning language models with the state-of-the-art algorithms:
@@ -18,6 +22,7 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
 
 ## Table of Contents
 
+- [Architecture](#architecture)
 - [Installation](#-installation)
 - [Authentication & Setup](#-authentication--setup)
 - [Quick Start](#-quick-start)
@@ -204,15 +209,15 @@ FAI-RL provides pre-configured recipes and has been validated with the following
 
 | # | Model |
 |---|-------|
-| 1 | Qwen3 30B A3B Instruct (2507) |
-| 2 | Qwen3.6 27B |
-| 3 | Gemma 4 31B |
-| 4 | Gemma 4 26B A4B IT |
-| 5 | Qwen3-VL 30B A3B |
-| 6 | Qwen3 8B |
-| 7 | Qwen3 4B |
-| 8 | Llama 3.2 3B |
-| 9 | Llama 3.1 8B |
+| 1 | [Qwen3 30B A3B Instruct (2507)](https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507) |
+| 2 | [Qwen3.6 27B](https://huggingface.co/Qwen/Qwen3.6-27B) |
+| 3 | [Gemma 4 31B](https://huggingface.co/google/gemma-4-31B-it) |
+| 4 | [Gemma 4 26B A4B IT](https://huggingface.co/google/gemma-4-26B-A4B-it) |
+| 5 | [Qwen3-VL 30B A3B](https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct) |
+| 6 | [Qwen3 8B](https://huggingface.co/Qwen/Qwen3-8B) |
+| 7 | [Qwen3 4B](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) |
+| 8 | [Llama 3.2 3B](https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct) |
+| 9 | [Llama 3.1 8B](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct) |
 
 ## Key Features
 

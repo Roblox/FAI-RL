@@ -1,0 +1,82 @@
+# GRPO / RLVR smoke test sized for a single Apple Silicon Mac (MPS).
+#
+# Binding constraint on a Mac is NOT memory (64 GB unified is plenty here) —
+# it is rollout generation throughput. GRPO generates num_generations
+# completions per prompt per step through plain HF `generate` (no vLLM on
+# MPS), so wall-clock scales as:
+#
+#   max_steps  x  (per_device_train_batch_size x gradient_accumulation_steps)
+#              x  max_completion_length
+#
+# where max_completion_length = data.max_length - data.max_prompt_length.
+#
+# Run:
+#   python trainers/train.py --recipe recipes/training/grpo/qwen2_5_0_5B_mps_smoke.yaml --num-gpus 1
+
+model:
+  base_model_name: "Qwen/Qwen2.5-0.5B-Instruct"   # ~1 GB download, open weights, has a chat template
+  torch_dtype: "float16"                           # MPS prefers fp16; fall back to float32 if you see NaN losses
+  low_cpu_mem_usage: true
+  load_in_8bit: false                              # bitsandbytes is CUDA-only; the launcher force-disables these on MPS
+  load_in_4bit: false
+  use_flash_attention: false                       # flash-attn is CUDA-only
+
+  use_lora: true
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  lora_target_modules:
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_bias: "none"
+
+data:
+  datasets:
+    # HF slice syntax passes straight through to load_dataset()
+    # (utils/dataset_utils.py:106), so this only downloads/keeps 64 rows.
+    - name: "openai/gsm8k"
+      subset: "main"
+      split: "train[:64]"
+      prompt_column: "question"
+      answer_column: "answer"
+
+  max_length: 768                                  # 768 - 512 = 256-token completions (vs 1024 in the stock recipe)
+  max_prompt_length: 512                           # GSM8K template prompt is ~200 tokens incl. system + 1-shot
+  remove_unused_columns: false                     # must stay false: the reward fn needs the `answer` column
+
+training:
+  algorithm: "grpo"
+  output_dir: "models/qwen2_5-0_5B-grpo-mps-smoke"
+
+  num_generations: 4                               # group size; keep global batch divisible by this
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2                   # global batch 8 -> 2 unique prompts per optimizer step
+  learning_rate: 1.0e-4
+  num_train_epochs: 1
+  max_steps: 10                                    # hard cap so the smoke run is bounded; raise to 100-200 to see reward move
+  warmup_steps: 2                                  # stock recipe's 50 would exceed max_steps entirely
+
+  logging_steps: 1
+  save_steps: 1000                                 # effectively "final save only" for a 10-step run
+  eval_steps: 1000
+
+  bf16: false                                      # bf16 is auto-switched to fp16 on MPS (utils/device_utils.py)
+  fp16: true                                       # auto-disabled if torch < 2.8.0 (GradScaler+MPS requirement)
+  gradient_checkpointing: false                    # pure slowdown here; you have the memory
+
+  dataloader_num_workers: 0
+  dataloader_pin_memory: false
+  dataloader_drop_last: true
+  save_only_model: true
+  prediction_loss_only: true
+
+wandb:
+  enabled: false
+
+s3:
+  enabled: false

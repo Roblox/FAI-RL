@@ -9,7 +9,7 @@ difference is whether the LoRA adapter is attached. Greedy decoding, so the
 comparison is deterministic.
 
 Usage:
-  python scripts/ab_eval_grpo.py --adapter /tmp/grpo_trained --n 100
+  python scripts/ab_eval_grpo.py --arm nokl=/tmp/grpo_trained --arm kl=/tmp/grpo_fixed --n 100
 """
 import argparse
 import json
@@ -31,20 +31,39 @@ from trainers.templates.gsm8k_template import GSM8KTemplate
 
 
 def build_tokenizer(base_model):
-    """Replicate core/trainer_base.py:setup_tokenizer_with_model exactly, so the
-    adapter's resized embedding matches and both arms are prompted identically."""
+    """Mirror the FIXED core/trainer_base.py:setup_tokenizer_with_model: add a pad
+    token only when the tokenizer lacks one, so the vocab is never grown."""
     tok = AutoTokenizer.from_pretrained(base_model)
     if tok.pad_token is None:
-        tok.pad_token = tok.eos_token
+        tok.add_special_tokens({"pad_token": "[PAD]"})
     tok.padding_side = "left"
-    tok.add_special_tokens({"pad_token": "[PAD]"})
     return tok
+
+
+def adapter_embed_rows(adapter):
+    """Embedding rows baked into an adapter, or None if it carries none.
+
+    Pre-fix checkpoints contain a full resized embed_tokens; post-fix ones don't.
+    Detecting it lets one script score both layouts with no manual flag.
+    """
+    path = os.path.join(adapter, "adapter_model.safetensors")
+    if not os.path.exists(path):
+        return None
+    from safetensors import safe_open
+    with safe_open(path, "pt") as f:
+        for k in f.keys():
+            if k.endswith("embed_tokens.weight"):
+                return f.get_slice(k).get_shape()[0]
+    return None
 
 
 def load_model(base_model, tok, adapter=None, device="mps"):
     model = AutoModelForCausalLM.from_pretrained(base_model, dtype=torch.float16)
-    model.resize_token_embeddings(len(tok))
     if adapter:
+        rows = adapter_embed_rows(adapter)
+        if rows and rows != model.get_input_embeddings().weight.shape[0]:
+            print(f"    (legacy adapter carries a resized embedding: {rows} rows)")
+            model.resize_token_embeddings(rows)
         model = PeftModel.from_pretrained(model, adapter)
         model = model.merge_and_unload()
     return model.to(device).eval()
@@ -118,7 +137,8 @@ def summarize(name, rows):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--base", default="Qwen/Qwen2.5-0.5B-Instruct")
-    p.add_argument("--adapter", required=True)
+    p.add_argument("--arm", action="append", default=[], metavar="NAME=PATH",
+                   help="repeatable; a 'base' arm (no adapter) is always run first")
     p.add_argument("--split", default="test")
     p.add_argument("--n", type=int, default=100)
     p.add_argument("--max-new-tokens", type=int, default=512)
@@ -139,8 +159,9 @@ def main():
         answers.append(f["answer"])
 
     print(f"Held-out GSM8K {args.split}[:{args.n}], greedy, max_new_tokens={args.max_new_tokens}\n")
+    arms = [("base", None)] + [tuple(a.split("=", 1)) for a in args.arm]
     results = {}
-    for name, adapter in [("base", None), ("grpo", args.adapter)]:
+    for name, adapter in arms:
         print(f"  generating: {name}")
         t0 = time.time()
         model = load_model(args.base, tok, adapter, args.device)
@@ -153,17 +174,19 @@ def main():
 
     print("\nRESULTS   strict = repo <answer>-tag extractor (what GRPO optimized)")
     print("          loose  = last-number-in-text (format-blind true accuracy)\n")
-    sb, lb = summarize("base", results["base"])
-    sg, lg = summarize("grpo", results["grpo"])
+    accs = {name: summarize(name, results[name]) for name, _ in arms}
 
-    for lbl, key, ab, ag in [("strict", "strict_correct", sb, sg),
-                             ("loose ", "loose_correct", lb, lg)]:
-        gained = sum(1 for b, g in zip(results["base"], results["grpo"])
-                     if g[key] and not b[key])
-        lost = sum(1 for b, g in zip(results["base"], results["grpo"])
-                   if b[key] and not g[key])
-        print(f"  {lbl}: {ag - ab:+6.1%}   ({gained} fixed, {lost} broken, "
-              f"net {gained - lost:+d}/{len(results['base'])})")
+    print("\n  vs base (paired, identical problems):")
+    for name, _ in arms[1:]:
+        for i, (lbl, key) in enumerate([("strict", "strict_correct"),
+                                        ("loose ", "loose_correct")]):
+            gained = sum(1 for b, g in zip(results["base"], results[name])
+                         if g[key] and not b[key])
+            lost = sum(1 for b, g in zip(results["base"], results[name])
+                       if b[key] and not g[key])
+            print(f"    {name:<6} {lbl}: {accs[name][i] - accs['base'][i]:+6.1%}   "
+                  f"({gained} fixed, {lost} broken, net {gained - lost:+d}"
+                  f"/{len(results['base'])})")
 
     with open(dump_path, "w") as f:
         json.dump({k: [dict(r) for r in v] for k, v in results.items()}, f, indent=1)

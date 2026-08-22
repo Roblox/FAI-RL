@@ -59,6 +59,10 @@ training:
   output_dir: "models/qwen2_5-0_5B-grpo-mps-smoke"
 
   num_generations: 4                               # group size; keep global batch divisible by this
+  # KL coefficient toward the reference policy. Non-zero is essential here: at
+  # beta=0.0 this exact run drives held-out GSM8K accuracy DOWN from 44% to 17%
+  # by learning to emit bare digits in empty <think> tags. See scripts/ab_eval_grpo.py.
+  beta: 0.04
   per_device_train_batch_size: 4
   gradient_accumulation_steps: 2                   # global batch 8 -> 2 unique prompts per optimizer step
   learning_rate: 1.0e-4

@@ -488,16 +488,37 @@ class BaseTrainer(ABC):
             model_name = self.config.model.base_model_name
             
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        
-        # Set pad token if not present
+
+        # Establish a pad token WITHOUT growing the vocabulary. The previous code
+        # called add_special_tokens({"pad_token": "[PAD]"}) unconditionally, which
+        # made the `is None` check below dead and appended a brand-new token even
+        # to models that already pad (Qwen2.5 pads with <|endoftext|>). That grows
+        # len(tokenizer), forces the embedding resize below, and makes PEFT
+        # serialize the full embed_tokens + lm_head into every adapter checkpoint
+        # -- measured 561 MB instead of 18 MB for a 0.5B model, ~2 GB for an 8B.
+        #
+        # Reusing eos as pad keeps the vocab untouched for the common case of a
+        # tokenizer with no pad token (Llama 3, GPT-2); a fresh [PAD] is only
+        # added when there is no eos to borrow.
         if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
+            if tokenizer.eos_token is not None:
+                tokenizer.pad_token = tokenizer.eos_token
+            else:
+                tokenizer.add_special_tokens({"pad_token": "[PAD]"})
         tokenizer.padding_side = "left"
-        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-        
-        # Resize embeddings
-        model.resize_token_embeddings(len(tokenizer))
-        
+
+        # Only GROW the embedding matrix, never shrink it. Models are commonly
+        # published with vocab_size padded past len(tokenizer) for kernel
+        # alignment (Qwen2.5-0.5B: 151936 vs 151665), so an unconditional
+        # resize to len(tokenizer) would truncate real rows.
+        current_rows = model.get_input_embeddings().weight.shape[0]
+        if len(tokenizer) > current_rows:
+            self.logger.info(
+                f"Resizing embeddings {current_rows} -> {len(tokenizer)} "
+                f"(tokenizer has more tokens than the model's embedding matrix)"
+            )
+            model.resize_token_embeddings(len(tokenizer))
+
         return tokenizer
 
     @staticmethod

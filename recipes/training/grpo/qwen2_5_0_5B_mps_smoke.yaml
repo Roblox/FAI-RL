@@ -1,14 +1,14 @@
 # GRPO / RLVR smoke test sized for a single Apple Silicon Mac (MPS).
 #
-# Binding constraint on a Mac is NOT memory (64 GB unified is plenty here) —
-# it is rollout generation throughput. GRPO generates num_generations
-# completions per prompt per step through plain HF `generate` (no vLLM on
-# MPS), so wall-clock scales as:
+# MEASURED on an M3 Max / 64 GB (torch 2.13.0, transformers 5.8.0, trl 1.2.0):
+#   10 steps = 99 s wall clock (~10 s/step), 1.38 GB MPS allocated.
+#   Step time tracks ACTUAL completion length, not the cap: it fell 16 s -> 5 s
+#   over 10 steps as the policy learned to emit short well-formed answers.
+#   1 epoch over 64 rows = 32 optimizer steps (2 unique prompts/step) ~= 5.5 min.
 #
-#   max_steps  x  (per_device_train_batch_size x gradient_accumulation_steps)
-#              x  max_completion_length
-#
-# where max_completion_length = data.max_length - data.max_prompt_length.
+# Memory is nowhere near the limit — the constraint is rollout generation
+# throughput, since GRPO samples num_generations completions per prompt through
+# plain HF `generate` (no vLLM on MPS). Scale by steps, not by dataset size.
 #
 # Run:
 #   python trainers/train.py --recipe recipes/training/grpo/qwen2_5_0_5B_mps_smoke.yaml --num-gpus 1
@@ -45,7 +45,12 @@ data:
       prompt_column: "question"
       answer_column: "answer"
 
-  max_length: 768                                  # 768 - 512 = 256-token completions (vs 1024 in the stock recipe)
+  # max_completion_length = max_length - max_prompt_length = 512.
+  # Measured: raising this cap from 256 -> 512 cost nothing (105 s vs 99 s for
+  # 10 steps) because the policy generates ~50-120 tokens anyway. At 256 the cap
+  # clipped 12-37% of completions early on, and a clipped completion never emits
+  # </answer>, so it silently forfeits the format reward. Keep the headroom.
+  max_length: 1024
   max_prompt_length: 512                           # GSM8K template prompt is ~200 tokens incl. system + 1-shot
   remove_unused_columns: false                     # must stay false: the reward fn needs the `answer` column
 
@@ -58,7 +63,10 @@ training:
   gradient_accumulation_steps: 2                   # global batch 8 -> 2 unique prompts per optimizer step
   learning_rate: 1.0e-4
   num_train_epochs: 1
-  max_steps: 10                                    # hard cap so the smoke run is bounded; raise to 100-200 to see reward move
+  # ~10 s/step measured. 10 steps (~100 s) is already enough to watch the XML
+  # format reward climb 0.03 -> ~0.50 (its ceiling). For a longer ablation:
+  # 128 steps ~= 22 min, and bump the slice above to train[:256] to stay 1 epoch.
+  max_steps: 10
   warmup_steps: 2                                  # stock recipe's 50 would exceed max_steps entirely
 
   logging_steps: 1

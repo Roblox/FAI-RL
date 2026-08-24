@@ -1,4 +1,5 @@
-import io, os, sys
+import io, math, os, sys
+from numbers import Real
 from typing import Optional, List, Any
 
 from datasets import concatenate_datasets
@@ -142,6 +143,17 @@ class SFTVLMTrainer(BaseTrainer):
     # ------------------------------ data ------------------------------------
 
     @staticmethod
+    def _is_empty_media_source(s: Any) -> bool:
+        """Return whether a media cell has no usable source."""
+        if s is None:
+            return True
+        if isinstance(s, str):
+            return not s.strip()
+        if isinstance(s, (bytes, bytearray)):
+            return not s
+        return isinstance(s, Real) and math.isnan(s)
+
+    @staticmethod
     def _coerce_image_source(s: Any):
         """Normalize one image cell into an Arrow-serializable source.
 
@@ -157,10 +169,10 @@ class SFTVLMTrainer(BaseTrainer):
         """
         from PIL import Image
 
-        if s is None:
+        if SFTVLMTrainer._is_empty_media_source(s):
             return None
         if isinstance(s, str):
-            return s
+            return s.strip()
         if isinstance(s, (bytes, bytearray)):
             return bytes(s)
         if isinstance(s, Image.Image):
@@ -186,10 +198,10 @@ class SFTVLMTrainer(BaseTrainer):
         the HF ``{'path'/'url'/'video'}`` dict pass through; everything else is
         stringified. Returns ``None`` for empty cells so callers can drop them.
         """
-        if s is None:
+        if SFTVLMTrainer._is_empty_media_source(s):
             return None
         if isinstance(s, str):
-            return s
+            return s.strip()
         if isinstance(s, dict):
             for key in ("video", "path", "url"):
                 if s.get(key) is not None:

@@ -19,6 +19,49 @@ from typing import Any, Optional
 from utils.image_utils import _cache_path, _fetch_url
 
 
+def as_video_metadata_dict(metadata):
+    """Convert transformers video metadata into a plain dict the processor accepts.
+
+    Gemma (and Qwen3-VL) need ``fps`` and ``frames_indices`` to stamp timestamps
+    into the prompt. ``load_video`` already returns this; we keep it instead of
+    dropping it and forcing the processor to guess ``fps=24``.
+    """
+    if metadata is None:
+        return None
+    if isinstance(metadata, dict):
+        data = dict(metadata)
+    else:
+        try:
+            data = {key: metadata[key] for key in metadata}
+        except Exception:
+            data = {
+                "total_num_frames": getattr(metadata, "total_num_frames", None),
+                "fps": getattr(metadata, "fps", None),
+                "width": getattr(metadata, "width", None),
+                "height": getattr(metadata, "height", None),
+                "duration": getattr(metadata, "duration", None),
+                "frames_indices": getattr(metadata, "frames_indices", None),
+            }
+    indices = data.get("frames_indices")
+    if indices is not None:
+        data["frames_indices"] = [int(i) for i in list(indices)]
+    fps = data.get("fps")
+    if fps is not None:
+        data["fps"] = float(fps)
+    total = data.get("total_num_frames")
+    if total is not None:
+        data["total_num_frames"] = int(total)
+    return data
+
+
+def _unpack_decode(decoded):
+    """Normalize ``_decode`` output to ``(frames, metadata_dict_or_none)``."""
+    if isinstance(decoded, tuple) and len(decoded) == 2:
+        frames, metadata = decoded
+        return frames, as_video_metadata_dict(metadata)
+    return decoded, None
+
+
 def _sample_kwargs(num_frames: Optional[int], fps: Optional[float]) -> dict:
     """Build the frame-sampling kwargs for ``load_video``.
 
@@ -37,8 +80,8 @@ def _decode(path: str, *, num_frames: Optional[int], fps: Optional[float], backe
     """Decode + sample frames from a local video file path."""
     from transformers.video_utils import load_video
 
-    frames, _metadata = load_video(path, backend=backend, **_sample_kwargs(num_frames, fps))
-    return frames
+    frames, metadata = load_video(path, backend=backend, **_sample_kwargs(num_frames, fps))
+    return frames, as_video_metadata_dict(metadata)
 
 
 def fetch_video(
@@ -52,6 +95,7 @@ def fetch_video(
     s3_region: Optional[str] = None,
     s3_endpoint_url: Optional[str] = None,
     backend: str = "pyav",
+    return_metadata: bool = False,
 ):
     """Resolve a video source into sampled frames the processor accepts.
 
@@ -61,10 +105,11 @@ def fetch_video(
       * a local file path string -> decoded from disk
       * a dict with a ``"url"``/``"path"``/``"video"`` key -> dispatched on the key
 
-    Frames are sampled with ``fps`` if set, else ``num_frames`` uniformly. The
-    return value is whatever ``transformers.video_utils.load_video`` produces
-    (a ``[T, H, W, C]`` array/tensor) -- pass it to a VLM processor as one entry
-    in ``videos=[...]``.
+    Frames are sampled with ``fps`` if set, else ``num_frames`` uniformly. By
+    default this returns the sampled frame array (``[T, H, W, C]``) for
+    ``videos=[...]``. With ``return_metadata=True`` it returns
+    ``(frames, metadata_dict)`` so Gemma/Qwen can stamp real timestamps instead
+    of guessing ``fps=24``.
 
     ``s3_region`` / ``s3_endpoint_url`` are only consulted for ``s3://`` sources;
     when unset, boto3 uses its default credential/region resolution chain.
@@ -73,6 +118,12 @@ def fetch_video(
         RuntimeError / OSError / TypeError: if the video cannot be fetched or
         decoded. Callers that want to skip bad rows should catch the exception.
     """
+    def _result(decoded):
+        frames, metadata = _unpack_decode(decoded)
+        if return_metadata:
+            return frames, metadata
+        return frames
+
     # HF-style dict wrappers, e.g. {"url": ...} / {"path": ...}.
     if isinstance(src, dict):
         for key in ("video", "path", "url"):
@@ -87,6 +138,7 @@ def fetch_video(
                     s3_region=s3_region,
                     s3_endpoint_url=s3_endpoint_url,
                     backend=backend,
+                    return_metadata=return_metadata,
                 )
         raise ValueError(f"Unsupported video dict with keys {list(src.keys())}")
 
@@ -116,13 +168,13 @@ def fetch_video(
                 with open(path, "wb") as f:
                     f.write(content)
             try:
-                return _decode(path, num_frames=num_frames, fps=fps, backend=backend)
+                return _result(_decode(path, num_frames=num_frames, fps=fps, backend=backend))
             except Exception:
                 # Corrupt cache entry; re-download once, then give up.
                 content = _download()
                 with open(path, "wb") as f:
                     f.write(content)
-                return _decode(path, num_frames=num_frames, fps=fps, backend=backend)
+                return _result(_decode(path, num_frames=num_frames, fps=fps, backend=backend))
 
         # No cache_dir: download to a temp file (load_video needs a path/URL, and
         # this keeps our retry + S3 handling instead of its plain httpx fetch).
@@ -131,7 +183,7 @@ def fetch_video(
         try:
             tmp.write(content)
             tmp.close()
-            return _decode(tmp.name, num_frames=num_frames, fps=fps, backend=backend)
+            return _result(_decode(tmp.name, num_frames=num_frames, fps=fps, backend=backend))
         finally:
             try:
                 os.unlink(tmp.name)
@@ -141,4 +193,4 @@ def fetch_video(
     # Treat as a local filesystem path.
     if not os.path.exists(src):
         raise FileNotFoundError(f"Video file not found: {src}")
-    return _decode(src, num_frames=num_frames, fps=fps, backend=backend)
+    return _result(_decode(src, num_frames=num_frames, fps=fps, backend=backend))

@@ -77,6 +77,44 @@ def test_fetch_video_rejects_unknown_type():
         video_utils.fetch_video(12345)
 
 
+def test_as_video_metadata_dict_keeps_fps_and_frame_indices():
+    class FakeMeta:
+        def __iter__(self):
+            return iter(
+                ["total_num_frames", "fps", "width", "height", "duration", "frames_indices"]
+            )
+
+        def __getitem__(self, key):
+            return {
+                "total_num_frames": 240,
+                "fps": 30.0,
+                "width": 1280,
+                "height": 720,
+                "duration": 8.0,
+                "frames_indices": [0, 8, 16],
+            }[key]
+
+    got = video_utils.as_video_metadata_dict(FakeMeta())
+    assert got["fps"] == 30.0
+    assert got["total_num_frames"] == 240
+    assert got["frames_indices"] == [0, 8, 16]
+
+
+def test_fetch_video_return_metadata_includes_decode_metadata(tmp_path, monkeypatch):
+    monkeypatch.setattr(video_utils, "_fetch_url", lambda url, t, r: b"X")
+
+    def fake_decode(path, *, num_frames, fps, backend):
+        return "frames", {"fps": 24.0, "total_num_frames": 48, "frames_indices": [0, 2, 4]}
+
+    monkeypatch.setattr(video_utils, "_decode", fake_decode)
+    frames, metadata = video_utils.fetch_video(
+        "https://e/x.mp4", num_frames=3, return_metadata=True
+    )
+    assert frames == "frames"
+    assert metadata["fps"] == 24.0
+    assert metadata["frames_indices"] == [0, 2, 4]
+
+
 # --------------------------- collator behavior ----------------------------
 
 def test_video_injecting_proxy_only_injects_on_image_calls():
@@ -90,7 +128,8 @@ def test_video_injecting_proxy_only_injects_on_image_calls():
             return "out"
 
     videos = [["frames"]]
-    proxy = _VideoInjectingProcessor(FakeProc(), videos)
+    metadata = [[{"fps": 30.0, "frames_indices": [0, 10]}]]
+    proxy = _VideoInjectingProcessor(FakeProc(), videos, video_metadata=metadata)
 
     # Prompt/LM call carries images -> videos injected.
     proxy(images=None, text=["t"])
@@ -98,12 +137,41 @@ def test_video_injecting_proxy_only_injects_on_image_calls():
     proxy(text=["c"])
 
     assert seen[0].get("videos") == videos
+    assert seen[0].get("video_metadata") == metadata
+    assert seen[0].get("do_sample_frames") is False
     assert "videos" not in seen[1]
+    assert "video_metadata" not in seen[1]
 
 
 def test_extract_videos_none_when_empty_else_list():
     from trainers.vlm_collator import VideoAwareVLMCollator
 
-    assert VideoAwareVLMCollator._extract_videos([{"images": []}, {"videos": []}]) is None
-    got = VideoAwareVLMCollator._extract_videos([{"videos": ["f"]}, {"videos": []}])
-    assert got == [["f"], []]
+    assert VideoAwareVLMCollator._extract_videos([{"images": []}, {"videos": []}]) == (
+        None,
+        None,
+    )
+    videos, metadata = VideoAwareVLMCollator._extract_videos(
+        [{"videos": ["f"]}, {"videos": []}]
+    )
+    assert videos == [["f"], []]
+    assert metadata is None
+
+
+def test_extract_videos_unpacks_frames_and_metadata():
+    from trainers.vlm_collator import VideoAwareVLMCollator
+
+    videos, metadata = VideoAwareVLMCollator._extract_videos(
+        [
+            {
+                "videos": [
+                    {
+                        "frames": "clip-a",
+                        "video_metadata": {"fps": 24.0, "frames_indices": [0, 8]},
+                    }
+                ]
+            },
+            {"videos": []},
+        ]
+    )
+    assert videos == [["clip-a"], []]
+    assert metadata == [[{"fps": 24.0, "frames_indices": [0, 8]}], []]

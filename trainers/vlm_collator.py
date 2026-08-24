@@ -12,7 +12,7 @@ When a batch carries no videos the base behavior is used verbatim, so the
 image-only path is completely unaffected.
 """
 
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 from trl.trainer.sft_trainer import DataCollatorForVisionLanguageModeling
 
@@ -29,15 +29,26 @@ class _VideoInjectingProcessor:
     prompt/language-modeling call). In prompt-completion mode TRL invokes the
     processor a second time for the completion with ``text`` only -- that call
     must not receive the videos, or their tokens would be counted twice.
+
+    When ``video_metadata`` is present we also pass it through and set
+    ``do_sample_frames=False``. Frames were already sampled by
+    :func:`utils.video_utils.fetch_video`; resampling them against the original
+    clip length would either warn (missing fps) or crash (num_frames > tensor
+    length). The metadata's ``fps`` / ``frames_indices`` let Gemma stamp real
+    timestamps instead of defaulting to 24fps.
     """
 
-    def __init__(self, processor, videos):
+    def __init__(self, processor, videos, video_metadata=None):
         object.__setattr__(self, "_processor", processor)
         object.__setattr__(self, "_videos", videos)
+        object.__setattr__(self, "_video_metadata", video_metadata)
 
     def __call__(self, *args, **kwargs):
         if self._videos is not None and "images" in kwargs and "videos" not in kwargs:
             kwargs["videos"] = self._videos
+            if self._video_metadata is not None and "video_metadata" not in kwargs:
+                kwargs["video_metadata"] = self._video_metadata
+                kwargs.setdefault("do_sample_frames", False)
         return self._processor(*args, **kwargs)
 
     def __getattr__(self, name):
@@ -49,41 +60,62 @@ class VideoAwareVLMCollator(DataCollatorForVisionLanguageModeling):
 
     Examples may carry a ``"videos"`` key alongside ``"images"``: a list (one
     entry per video in the row) of frame arrays as produced by
-    :func:`utils.video_utils.fetch_video`. The corresponding messages are
-    expected to already contain ``{"type": "video"}`` content placeholders (the
-    trainer's transform emits structured content when a row has videos), so the
+    :func:`utils.video_utils.fetch_video`, or ``{"frames", "video_metadata"}``
+    dicts when metadata was requested. The corresponding messages are expected
+    to already contain ``{"type": "video"}`` content placeholders (the trainer's
+    transform emits structured content when a row has videos), so the
     processor's chat template renders the right video tokens.
     """
 
     @staticmethod
-    def _extract_videos(examples: List[dict]) -> Optional[List[Any]]:
+    def _unpack_video_item(item: Any) -> Tuple[Any, Optional[dict]]:
+        if isinstance(item, dict) and "frames" in item:
+            return item["frames"], item.get("video_metadata")
+        return item, None
+
+    @staticmethod
+    def _extract_videos(examples: List[dict]) -> Tuple[Optional[List[Any]], Optional[List[Any]]]:
         """Gather per-example video lists, or ``None`` when the batch has none.
 
         Mirrors TRL's image guard: transformers requires at least one video in
-        the batch or it errors, so an all-empty batch maps to ``None``.
+        the batch or it errors, so an all-empty batch maps to ``None``. When any
+        item carries metadata, a parallel nested metadata list is returned too.
         """
-        videos = [example.get("videos", []) or [] for example in examples]
+        videos = []
+        metadata = []
+        saw_metadata = False
+        for example in examples:
+            row_videos = []
+            row_metadata = []
+            for item in example.get("videos", []) or []:
+                frames, meta = VideoAwareVLMCollator._unpack_video_item(item)
+                row_videos.append(frames)
+                row_metadata.append(meta)
+                if meta is not None:
+                    saw_metadata = True
+            videos.append(row_videos)
+            metadata.append(row_metadata)
         if all(v == [] for v in videos):
-            return None
-        return videos
+            return None, None
+        return videos, (metadata if saw_metadata else None)
 
     def _collate_language_modeling(self, examples: List[dict]) -> dict:
-        videos = self._extract_videos(examples)
+        videos, video_metadata = self._extract_videos(examples)
         if videos is None:
             return super()._collate_language_modeling(examples)
         original = self.processor
-        self.processor = _VideoInjectingProcessor(original, videos)
+        self.processor = _VideoInjectingProcessor(original, videos, video_metadata)
         try:
             return super()._collate_language_modeling(examples)
         finally:
             self.processor = original
 
     def _collate_prompt_completion(self, examples: List[dict]) -> dict:
-        videos = self._extract_videos(examples)
+        videos, video_metadata = self._extract_videos(examples)
         if videos is None:
             return super()._collate_prompt_completion(examples)
         original = self.processor
-        self.processor = _VideoInjectingProcessor(original, videos)
+        self.processor = _VideoInjectingProcessor(original, videos, video_metadata)
         try:
             return super()._collate_prompt_completion(examples)
         finally:

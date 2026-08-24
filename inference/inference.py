@@ -498,7 +498,8 @@ def fetch_example_videos(config, example):
 
     video_columns lists one or more columns; each cell may hold a single URL/path
     or a list of them. Every video found across the columns (in order) is sampled
-    to frames. Returns a list of frame arrays (possibly empty), one per video.
+    to frames. Returns ``(videos, video_metadata)``: a list of frame arrays
+    (possibly empty) and a parallel list of metadata dicts (or None entries).
     """
     sources = collect_media_sources(
         example.get(col)
@@ -506,8 +507,9 @@ def fetch_example_videos(config, example):
     )
 
     videos = []
+    metadata = []
     for s in sources:
-        frames = fetch_video(
+        frames, meta = fetch_video(
             s,
             num_frames=getattr(config, "video_num_frames", 8),
             fps=getattr(config, "video_fps", None),
@@ -517,12 +519,14 @@ def fetch_example_videos(config, example):
             s3_region=getattr(config, "video_s3_region", None),
             s3_endpoint_url=getattr(config, "video_s3_endpoint_url", None),
             backend=getattr(config, "video_backend", "pyav"),
+            return_metadata=True,
         )
         videos.append(frames)
-    return videos
+        metadata.append(meta)
+    return videos, metadata
 
 
-def generate_vlm_response(model, processor, prompt_text: str, images, config, system_text: str = None, videos=None):
+def generate_vlm_response(model, processor, prompt_text: str, images, config, system_text: str = None, videos=None, video_metadata=None):
     """Generate a response from a VLM given a text prompt and image(s)/video(s).
 
     Builds a single user turn containing one image placeholder per image and one
@@ -541,12 +545,16 @@ def generate_vlm_response(model, processor, prompt_text: str, images, config, sy
     messages.append({"role": "user", "content": content})
 
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    inputs = processor(
-        text=[text],
-        images=images if images else None,
-        videos=videos if videos else None,
-        return_tensors="pt",
-    ).to(model.device)
+    processor_kwargs = {
+        "text": [text],
+        "images": images if images else None,
+        "videos": videos if videos else None,
+        "return_tensors": "pt",
+    }
+    if videos and video_metadata:
+        processor_kwargs["video_metadata"] = video_metadata
+        processor_kwargs["do_sample_frames"] = False
+    inputs = processor(**processor_kwargs).to(model.device)
 
     input_token_length = inputs.input_ids.shape[1]
     tokenizer = getattr(processor, "tokenizer", processor)
@@ -726,11 +734,11 @@ def run_inference(config, debug=False):
                 elif is_vlm:
                     # `tokenizer` holds the processor in VLM mode.
                     images = fetch_example_images(config, example)
-                    videos = fetch_example_videos(config, example)
+                    videos, video_metadata = fetch_example_videos(config, example)
                     if messages is not None:
-                        response = generate_vlm_response(model, tokenizer, user_text, images, config, system_text=system_text, videos=videos)
+                        response = generate_vlm_response(model, tokenizer, user_text, images, config, system_text=system_text, videos=videos, video_metadata=video_metadata)
                     else:
-                        response = generate_vlm_response(model, tokenizer, full_prompt, images, config, videos=videos)
+                        response = generate_vlm_response(model, tokenizer, full_prompt, images, config, videos=videos, video_metadata=video_metadata)
                 else:
                     if messages is not None:
                         response = generate_response(model, tokenizer, config=config, messages=messages)

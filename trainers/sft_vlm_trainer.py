@@ -298,7 +298,7 @@ class SFTVLMTrainer(BaseTrainer):
         data = self.config.data
         videos = []
         for s in sources:
-            frames = fetch_video(
+            frames, metadata = fetch_video(
                 s,
                 num_frames=data.video_num_frames,
                 fps=data.video_fps,
@@ -308,8 +308,9 @@ class SFTVLMTrainer(BaseTrainer):
                 s3_region=data.video_s3_region,
                 s3_endpoint_url=data.video_s3_endpoint_url,
                 backend=data.video_backend,
+                return_metadata=True,
             )
-            videos.append(frames)
+            videos.append({"frames": frames, "video_metadata": metadata})
         return videos
 
     @staticmethod

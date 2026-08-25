@@ -227,7 +227,8 @@ class BaseTrainer(ABC):
         download only happens once per node per unique S3 URI.
 
         After this method returns, self.config.model.base_model_name points to
-        a local directory that AutoModelForCausalLM.from_pretrained() can load.
+        a local directory. Full HF checkpoints load from that path directly.
+        PEFT/LoRA adapter dirs are detected later by load_base_model_for_training.
         """
         import hashlib
         import tempfile
@@ -286,17 +287,13 @@ class BaseTrainer(ABC):
         rank switches to offline mode so the subsequent from_pretrained calls are
         pure cache reads (no Hub access left to race on).
 
-        No-op for single-process runs (local_rank == -1) and for local model
-        directories -- including an s3:// model already resolved to a temp dir by
-        _maybe_download_s3_model() -- where no Hub access happens.
+        No-op for single-process runs (local_rank == -1) and for local *full*
+        model directories. A local PEFT adapter dir still needs the Hub base
+        (adapter_config.base_model_name_or_path) warmed, because that is what
+        from_pretrained / AutoProcessor load next.
         """
-        model_name = self.config.model.base_model_name
-
-        # Single process: no peer ranks, nothing to coordinate.
-        if self.local_rank == -1:
-            return
-        # Local directory (incl. an already-downloaded S3 model): no Hub access.
-        if os.path.isdir(model_name):
+        model_name = self._hub_model_id_for_cache_warm()
+        if model_name is None:
             return
 
         import hashlib
@@ -335,6 +332,26 @@ class BaseTrainer(ABC):
         # from_pretrained calls don't re-hit (and race on) the Hub.
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+    def _hub_model_id_for_cache_warm(self) -> Optional[str]:
+        """Hub id that peer ranks will from_pretrained, or None if no Hub warm is needed."""
+        if self.local_rank == -1:
+            return None
+
+        model_name = self.config.model.base_model_name
+        if not os.path.isdir(model_name):
+            return model_name
+
+        adapter_config_path = os.path.join(model_name, "adapter_config.json")
+        if not os.path.exists(adapter_config_path):
+            return None
+
+        from peft import PeftConfig
+
+        hub_id = PeftConfig.from_pretrained(model_name).base_model_name_or_path
+        if not hub_id or os.path.isdir(hub_id):
+            return None
+        return hub_id
 
     def setup_wandb(self):
         """Initialize Weights & Biases logging."""
@@ -631,6 +648,7 @@ class BaseTrainer(ABC):
 
         model_path = self.config.model.base_model_name
         self._peft_adapter_path = None
+        self._peft_base_model_path = None
 
         adapter_config_path = os.path.join(model_path, "adapter_config.json")
         if os.path.isdir(model_path) and os.path.exists(adapter_config_path):
@@ -640,6 +658,7 @@ class BaseTrainer(ABC):
                 "Detected PEFT checkpoint; loading base model from %s", base_model_path
             )
             self._peft_adapter_path = model_path
+            self._peft_base_model_path = base_model_path
             # ignore_mismatched_sizes is not needed when loading the base model clean.
             clean_kwargs = {k: v for k, v in model_kwargs.items() if k != "ignore_mismatched_sizes"}
             return self._auto_model_class.from_pretrained(base_model_path, **clean_kwargs)

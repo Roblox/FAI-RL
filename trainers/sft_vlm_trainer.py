@@ -81,7 +81,12 @@ class SFTVLMTrainer(BaseTrainer):
         # trainers we do NOT add a [PAD] token or resize embeddings -- doing so
         # corrupts a VLM's vision/token embedding alignment. VLM tokenizers
         # already define a pad token; fall back to eos only if missing.
-        self.processor = AutoProcessor.from_pretrained(self.config.model.base_model_name)
+        # PEFT/LoRA checkpoints have tokenizer shards but no config.json model_type.
+        # AutoProcessor must load the original Hub (or full) base, same as the model.
+        processor_name = (
+            getattr(self, "_peft_base_model_path", None) or self.config.model.base_model_name
+        )
+        self.processor = AutoProcessor.from_pretrained(processor_name)
         tokenizer = getattr(self.processor, "tokenizer", self.processor)
         if getattr(tokenizer, "pad_token", None) is None and getattr(tokenizer, "eos_token", None):
             tokenizer.pad_token = tokenizer.eos_token

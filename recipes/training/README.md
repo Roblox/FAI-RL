@@ -204,7 +204,7 @@ model:
 
 **Continuing from a LoRA checkpoint:**
 
-The S3 callback saves LoRA adapter files (`adapter_config.json`, `adapter_model.safetensors`) when `save_only_model: true`. These can be loaded as `base_model_name` for the next training round — HuggingFace PEFT merges the adapter automatically on load.
+The S3 callback saves LoRA adapter files (`adapter_config.json`, `adapter_model.safetensors`) when `save_only_model: true`. These can be loaded as `base_model_name` for the next training round. Trainers detect `adapter_config.json`, load `base_model_name_or_path` from it, then resume the adapter (including `sft_vlm`, which loads AutoProcessor from that same Hub base — adapter dirs have no `config.json` / `model_type`).
 
 ## S3 Dataset Loading
 

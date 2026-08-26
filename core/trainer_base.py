@@ -496,13 +496,17 @@ class BaseTrainer(ABC):
         
         Args:
             model: The model to resize embeddings for.
-            model_name: Optional model name for loading tokenizer. Defaults to config.model.base_model_name.
+            model_name: Optional model name for loading tokenizer. Defaults to
+                the resolved PEFT base model, then config.model.base_model_name.
             
         Returns:
             The configured tokenizer.
         """
         if model_name is None:
-            model_name = self.config.model.base_model_name
+            model_name = (
+                getattr(self, "_peft_base_model_path", None)
+                or self.config.model.base_model_name
+            )
             
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         

@@ -461,10 +461,26 @@ limitations under the License.
 <details>
 <summary>Publishing a New Release</summary>
 
-1. **Update version** in `pyproject.toml`:
+Releases must be published from the repository's
+[GitHub Releases page](https://github.com/Roblox/FAI-RL/releases). Publishing
+a GitHub release triggers `.github/workflows/python-publish.yml`, which builds
+the distributions and uploads them to PyPI.
+
+1. **Update and merge the version** in `pyproject.toml`:
 ```toml
 [project]
 name = "FAI-RL"
 version = "X.Y.Z"  # Increment version
 ```
+
+2. Open [GitHub Releases](https://github.com/Roblox/FAI-RL/releases), select
+   **Draft a new release**, and create tag `vX.Y.Z` from the merged `main`
+   branch.
+3. Use `vX.Y.Z` as the release title, add concise release notes, and select
+   **Publish release**.
+4. Verify the **Upload Python Package** workflow succeeds and that version
+   `X.Y.Z` is available from PyPI before consumers pin or deploy it.
+
+The tag and `pyproject.toml` version must match. PyPI versions are immutable,
+so do not reuse a version after it has been published.
 </details>

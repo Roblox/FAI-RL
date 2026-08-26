@@ -491,18 +491,32 @@ class BaseTrainer(ABC):
         
         return model_kwargs
 
+    def resolved_pretrained_name(self) -> str:
+        """Return the base model path for tokenizer and reference-model loading.
+
+        PEFT adapter directories intentionally have no model ``config.json``.
+        After adapter-aware model loading, ``_peft_base_model_path`` points to
+        the original Hub or full-model base. Non-PEFT loads fall back to the
+        configured model path.
+        """
+        return (
+            getattr(self, "_peft_base_model_path", None)
+            or self.config.model.base_model_name
+        )
+
     def setup_tokenizer_with_model(self, model, model_name: Optional[str] = None):
         """Setup tokenizer and resize model embeddings.
         
         Args:
             model: The model to resize embeddings for.
-            model_name: Optional model name for loading tokenizer. Defaults to config.model.base_model_name.
+            model_name: Optional model name for loading tokenizer. Defaults to
+                the resolved PEFT base model, then config.model.base_model_name.
             
         Returns:
             The configured tokenizer.
         """
         if model_name is None:
-            model_name = self.config.model.base_model_name
+            model_name = self.resolved_pretrained_name()
             
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         

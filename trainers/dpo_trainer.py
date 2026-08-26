@@ -47,7 +47,7 @@ class DPOTrainer(BaseTrainer):
         if not getattr(self.config.model, 'use_lora', False):
             self.logger.info("Loading separate reference model (no LoRA)")
             self.ref_model = AutoModelForCausalLM.from_pretrained(
-                self.config.model.base_model_name,
+                self.resolved_pretrained_name(),
                 **model_kwargs
             )
         else:

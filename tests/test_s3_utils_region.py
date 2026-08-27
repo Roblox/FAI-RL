@@ -9,7 +9,8 @@ upload to a us-east-1 bucket from a us-east-2 pod inherits us-east-2 and
 import subprocess
 import sys
 from pathlib import Path
-from unittest import mock
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -78,16 +79,62 @@ def test_upload_file_region_overrides_ambient_aws_region(tmp_path, monkeypatch):
 def test_download_region_overrides_ambient_aws_region(tmp_path, monkeypatch):
     monkeypatch.setenv("AWS_REGION", "us-east-2")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-2")
+    out = tmp_path / "out"
 
-    captured = _capture_s5cmd_env(
-        monkeypatch,
-        lambda: s3_utils.download_directory_from_s3(
-            "s3://ml-platform-generic/prefix",
-            str(tmp_path / "out"),
-            region="us-east-1",
-            downloader="s5cmd",
-        ),
+    captured = {}
+
+    def fake_run(argv, *args, **kwargs):
+        captured["argv"] = argv
+        captured["env"] = kwargs.get("env")
+        (out / "checkpoint.bin").write_text("weights")
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(s3_utils.shutil, "which", lambda _name: "/usr/bin/s5cmd")
+    monkeypatch.setattr(s3_utils.subprocess, "run", fake_run)
+
+    s3_utils.download_directory_from_s3(
+        "s3://ml-platform-generic/prefix",
+        str(out),
+        region="us-east-1",
+        downloader="s5cmd",
     )
 
     assert captured["env"]["AWS_REGION"] == "us-east-1"
     assert captured["env"]["AWS_DEFAULT_REGION"] == "us-east-1"
+
+
+def test_download_rejects_s5cmd_error_with_zero_exit(tmp_path, monkeypatch):
+    monkeypatch.setattr(s3_utils.shutil, "which", lambda _name: "/usr/bin/s5cmd")
+    monkeypatch.setattr(
+        s3_utils.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            ["s5cmd"],
+            0,
+            stdout="",
+            stderr="ERROR BucketRegionError: bucket is in 'us-east-1'",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="BucketRegionError"):
+        s3_utils.download_directory_from_s3(
+            "s3://ml-platform-generic/prefix",
+            str(tmp_path / "out"),
+            downloader="s5cmd",
+        )
+
+
+def test_download_rejects_empty_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(s3_utils.shutil, "which", lambda _name: "/usr/bin/s5cmd")
+    monkeypatch.setattr(
+        s3_utils.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(["s5cmd"], 0, stdout="", stderr=""),
+    )
+
+    with pytest.raises(RuntimeError, match="downloaded no files"):
+        s3_utils.download_directory_from_s3(
+            "s3://ml-platform-generic/prefix",
+            str(tmp_path / "out"),
+            downloader="s5cmd",
+        )

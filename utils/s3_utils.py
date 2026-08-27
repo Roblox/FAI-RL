@@ -306,9 +306,13 @@ def download_directory_from_s3(
             env["AWS_REGION"] = region
             env["AWS_DEFAULT_REGION"] = region
         result = subprocess.run(argv, env=env, capture_output=True, text=True)
-        if result.returncode != 0:
+        output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+        # s5cmd 2.3.0 `sync` can print an ERROR (notably BucketRegionError) while
+        # returning zero. Treat its structured error output as a failure too.
+        has_error = any(line.lstrip().startswith("ERROR ") for line in output.splitlines())
+        if result.returncode != 0 or has_error:
             raise RuntimeError(
-                f"s5cmd download failed (exit {result.returncode}): {result.stderr.strip()}"
+                f"s5cmd download failed (exit {result.returncode}): {output.strip()}"
             )
     else:
         client = _get_s3_client(region, endpoint_url)
@@ -325,6 +329,10 @@ def download_directory_from_s3(
                 client.download_file(bucket, key, local_file)
                 total += 1
         logger.info("Downloaded %d files from s3://%s/%s", total, bucket, prefix)
+
+    downloaded_files = sum(1 for path in Path(local_dir).rglob("*") if path.is_file())
+    if downloaded_files == 0:
+        raise RuntimeError(f"S3 download from s3://{bucket}/{prefix} downloaded no files")
 
     logger.info("Download complete: s3://%s/%s -> %s", bucket, prefix, local_dir)
 

@@ -17,7 +17,16 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from core.config import ExperimentConfig, ModelConfig, DataConfig, TrainingConfig, WandbConfig, S3Config, DatasetInfo
+from core.config import (
+    DataConfig,
+    DatasetInfo,
+    ExperimentConfig,
+    ModelConfig,
+    RewardAPIConfig,
+    S3Config,
+    TrainingConfig,
+    WandbConfig,
+)
 from trainers.cpt_trainer import CPTTrainer
 from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
@@ -303,13 +312,24 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
         data_config['datasets'] = []
     
     # Create config objects with defaults
-    return ExperimentConfig(
+    config = ExperimentConfig(
         model=ModelConfig(**recipe_dict.get('model', {})),
         data=DataConfig(**data_config),
         training=TrainingConfig(**recipe_dict.get('training', {})),
         wandb=WandbConfig(**recipe_dict.get('wandb', {})),
         s3=S3Config(**recipe_dict.get('s3', {})),
+        reward_api=(
+            RewardAPIConfig(**recipe_dict['reward_api'])
+            if recipe_dict.get('reward_api')
+            else None
+        ),
     )
+    if config.training.algorithm.lower() in {"grpo", "gspo"} and not config.reward_api:
+        raise ValueError(
+            "reward_api configuration is required for GRPO/GSPO. "
+            "Configure an HTTP reward endpoint in the recipe."
+        )
+    return config
 
 
 def main():
@@ -411,6 +431,7 @@ def main():
         "training": config.training.to_dict(),
         "wandb": config.wandb.to_dict(),
         "s3": config.s3.to_dict(),
+        "reward_api": config.reward_api.to_dict() if config.reward_api else None,
     }
     
     training_logger.log_experiment_start(log_dict)

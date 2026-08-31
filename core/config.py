@@ -302,6 +302,45 @@ class TrainingConfig:
 
 
 @dataclass
+class RewardAPIConfig:
+    """HTTP reward service configuration for GRPO and GSPO."""
+    endpoint: str
+    api_key: Optional[str] = None
+    auth_header: str = "Authorization"
+    auth_scheme: str = "Bearer"
+    headers: Dict[str, str] = field(default_factory=dict)
+    extra_body: Dict[str, Any] = field(default_factory=dict)
+    response_field: str = "rewards"
+    timeout_seconds: float = 30.0
+    max_retries: int = 2
+    retry_backoff_seconds: float = 1.0
+    verify_ssl: bool = True
+
+    def __post_init__(self):
+        if not self.endpoint:
+            raise ValueError("reward_api.endpoint is required")
+        validate_api_config(self)
+        if self.timeout_seconds <= 0:
+            raise ValueError("reward_api.timeout_seconds must be greater than zero")
+        if self.max_retries < 0:
+            raise ValueError("reward_api.max_retries cannot be negative")
+        if self.retry_backoff_seconds < 0:
+            raise ValueError("reward_api.retry_backoff_seconds cannot be negative")
+
+    @property
+    def api_endpoint(self) -> str:
+        """Compatibility alias for the shared API configuration validator."""
+        return self.endpoint
+
+    def to_dict(self) -> Dict[str, Any]:
+        values = {
+            key: value for key, value in self.__dict__.items() if not key.startswith('_')
+        }
+        values["api_key"] = "***" if self.api_key else None
+        return values
+
+
+@dataclass
 class WandbConfig:
     """Configuration for Weights & Biases logging."""
     enabled: bool = True
@@ -503,6 +542,7 @@ class ExperimentConfig:
     training: TrainingConfig
     wandb: WandbConfig
     s3: S3Config = field(default_factory=S3Config)
+    reward_api: Optional[RewardAPIConfig] = None
     
     @classmethod
     def from_yaml(cls, config_path: str) -> 'ExperimentConfig':
@@ -523,6 +563,11 @@ class ExperimentConfig:
             training=TrainingConfig(**config_dict['training']),
             wandb=WandbConfig(**config_dict.get('wandb', {})),
             s3=S3Config(**config_dict.get('s3', {})),
+            reward_api=(
+                RewardAPIConfig(**config_dict['reward_api'])
+                if config_dict.get('reward_api')
+                else None
+            ),
         )
     
     @classmethod
@@ -559,6 +604,7 @@ class ExperimentConfig:
             'training': self.training.to_dict(),
             'wandb': self.wandb.to_dict(),
             's3': self.s3.to_dict(),
+            'reward_api': self.reward_api.to_dict() if self.reward_api else None,
         }
         
         with open(output_path, 'w') as f:

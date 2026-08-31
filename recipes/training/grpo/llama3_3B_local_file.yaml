@@ -75,6 +75,12 @@ training:
   # GRPO-specific parameters
   num_generations: 8                                    # Group size for sequence grouping
 
+# External reward scorer (required for GRPO/GSPO)
+reward_api:
+  endpoint: "https://<YOUR_API_ENDPOINT>"
+  timeout_seconds: 30
+  max_retries: 2
+
 # Weights & Biases Integration
 # Optional experiment tracking and monitoring
 wandb:

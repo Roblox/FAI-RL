@@ -88,6 +88,12 @@ training:
   epsilon_high: 4e-4                                    # Policy exploration parameter (upper bound)
   steps_per_generation: 4                               # Minibatch partitioning for rollout data
 
+# External reward scorer (required for GRPO/GSPO)
+reward_api:
+  endpoint: "https://<YOUR_API_ENDPOINT>"               # POST endpoint implementing the reward API contract
+  timeout_seconds: 30
+  max_retries: 2
+
 
 # Weights & Biases Integration
 # Optional experiment tracking and monitoring

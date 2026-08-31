@@ -35,12 +35,7 @@ class APIRewardFunction:
         self.logger = logger or logging.getLogger(__name__)
 
     def _headers(self) -> Dict[str, str]:
-        headers = {"Content-Type": "application/json", **self.config.headers}
-        api_key = self.config.api_key
-        if api_key:
-            value = f"{self.config.auth_scheme} {api_key}".strip()
-            headers[self.config.auth_header] = value
-        return headers
+        return {"Content-Type": "application/json", **self.config.headers}
 
     def __call__(self, prompts, completions, **kwargs) -> List[float]:
         context = {key: value for key, value in kwargs.items() if key != "logger"}

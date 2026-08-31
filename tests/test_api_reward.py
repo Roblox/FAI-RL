@@ -109,10 +109,22 @@ def test_api_reward_logs_safe_batch_summary(monkeypatch, caplog):
     assert "sensitive-completion" not in caplog.text
 
 
-def test_reward_api_redacts_inline_key():
+def test_reward_api_redacts_configured_headers():
     config = RewardAPIConfig(
         endpoint="https://reward.example/score",
-        api_key="secret",
+        headers={"X-Tenant": "customer-care"},
     )
 
-    assert config.to_dict()["api_key"] == "***"
+    serialized = config.to_dict()
+    assert serialized["headers"] == {"X-Tenant": "***"}
+    assert "api_key" not in serialized
+    assert "auth_header" not in serialized
+    assert "auth_scheme" not in serialized
+
+
+def test_reward_api_requires_https_for_headers():
+    with pytest.raises(ValueError, match="must use https"):
+        RewardAPIConfig(
+            endpoint="http://reward.example/score",
+            headers={"X-Tenant": "customer-care"},
+        )

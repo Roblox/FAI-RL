@@ -108,9 +108,6 @@ Configure the scorer in the recipe:
 ```yaml
 reward_api:
   endpoint: "https://reward.example.com/v1/score"
-  api_key: null                       # Optional; null allows unauthenticated calls
-  auth_header: "Authorization"
-  auth_scheme: "Bearer"
   timeout_seconds: 30
   max_retries: 2
   retry_backoff_seconds: 1

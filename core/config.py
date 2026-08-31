@@ -305,9 +305,6 @@ class TrainingConfig:
 class RewardAPIConfig:
     """HTTP reward service configuration for GRPO and GSPO."""
     endpoint: str
-    api_key: Optional[str] = None
-    auth_header: str = "Authorization"
-    auth_scheme: str = "Bearer"
     headers: Dict[str, str] = field(default_factory=dict)
     extra_body: Dict[str, Any] = field(default_factory=dict)
     response_field: str = "rewards"
@@ -320,6 +317,10 @@ class RewardAPIConfig:
         if not self.endpoint:
             raise ValueError("reward_api.endpoint is required")
         validate_api_config(self)
+        if self.headers and not self.endpoint.startswith("https://"):
+            raise ValueError(
+                "reward_api.endpoint must use https when headers are configured"
+            )
         if self.timeout_seconds <= 0:
             raise ValueError("reward_api.timeout_seconds must be greater than zero")
         if self.max_retries < 0:
@@ -336,7 +337,7 @@ class RewardAPIConfig:
         values = {
             key: value for key, value in self.__dict__.items() if not key.startswith('_')
         }
-        values["api_key"] = "***" if self.api_key else None
+        values["headers"] = {key: "***" for key in self.headers}
         return values
 
 

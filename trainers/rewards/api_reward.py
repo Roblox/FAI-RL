@@ -1,5 +1,6 @@
 """HTTP-backed reward function for GRPO and GSPO."""
 
+import logging
 import math
 import time
 from typing import Any, Dict, List
@@ -31,7 +32,7 @@ class APIRewardFunction:
 
     def __init__(self, config: RewardAPIConfig, logger=None):
         self.config = config
-        self.logger = logger
+        self.logger = logger or logging.getLogger(__name__)
 
     def _headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json", **self.config.headers}
@@ -52,8 +53,16 @@ class APIRewardFunction:
 
         last_error = None
         attempts = self.config.max_retries + 1
+        started_at = time.monotonic()
         for attempt in range(attempts):
             try:
+                self.logger.debug(
+                    "Calling reward API endpoint=%s completions=%d attempt=%d/%d",
+                    self.config.endpoint,
+                    len(completions),
+                    attempt + 1,
+                    attempts,
+                )
                 response = requests.post(
                     self.config.endpoint,
                     headers=self._headers(),
@@ -64,20 +73,51 @@ class APIRewardFunction:
                 response.raise_for_status()
                 body = response.json()
                 rewards = body[self.config.response_field]
-                return self._validate_rewards(rewards, len(completions))
+                scores = self._validate_rewards(rewards, len(completions))
+                elapsed_seconds = time.monotonic() - started_at
+                if scores:
+                    self.logger.info(
+                        "Reward API scored %d completions in %.3fs "
+                        "(attempt=%d/%d min=%.4f max=%.4f mean=%.4f)",
+                        len(scores),
+                        elapsed_seconds,
+                        attempt + 1,
+                        attempts,
+                        min(scores),
+                        max(scores),
+                        sum(scores) / len(scores),
+                    )
+                else:
+                    self.logger.info(
+                        "Reward API scored an empty batch in %.3fs (attempt=%d/%d)",
+                        elapsed_seconds,
+                        attempt + 1,
+                        attempts,
+                    )
+                return scores
             except (KeyError, TypeError, ValueError, requests.RequestException) as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
                     break
                 delay = self.config.retry_backoff_seconds * (2**attempt)
-                if self.logger:
-                    self.logger.warning(
-                        "Reward API request failed (%s); retrying in %.1fs",
-                        exc,
-                        delay,
-                    )
+                self.logger.warning(
+                    "Reward API request failed endpoint=%s attempt=%d/%d (%s); "
+                    "retrying in %.1fs",
+                    self.config.endpoint,
+                    attempt + 1,
+                    attempts,
+                    exc,
+                    delay,
+                )
                 time.sleep(delay)
 
+        self.logger.error(
+            "Reward API failed endpoint=%s attempts=%d elapsed_seconds=%.3f error=%s",
+            self.config.endpoint,
+            attempts,
+            time.monotonic() - started_at,
+            last_error,
+        )
         raise RuntimeError(
             f"Reward API failed after {attempts} attempt(s): {last_error}"
         ) from last_error

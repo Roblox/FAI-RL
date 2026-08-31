@@ -1,5 +1,6 @@
 """Tests for the HTTP-backed GRPO/GSPO reward function."""
 
+import logging
 import sys
 from pathlib import Path
 
@@ -87,6 +88,25 @@ def test_api_reward_retries_transient_failure(monkeypatch):
 
     assert reward(["a"], ["x"]) == [0.5]
     assert len(calls) == 2
+
+
+def test_api_reward_logs_safe_batch_summary(monkeypatch, caplog):
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *_args, **_kwargs: _Response({"rewards": [0.25, 0.75]}),
+    )
+    reward = APIRewardFunction(
+        RewardAPIConfig(endpoint="https://reward.example/score")
+    )
+
+    with caplog.at_level(logging.INFO, logger="trainers.rewards.api_reward"):
+        reward(["sensitive-prompt"], ["sensitive-completion", "other"])
+
+    assert "Reward API scored 2 completions" in caplog.text
+    assert "mean=0.5000" in caplog.text
+    assert "sensitive-prompt" not in caplog.text
+    assert "sensitive-completion" not in caplog.text
 
 
 def test_reward_api_redacts_inline_key():

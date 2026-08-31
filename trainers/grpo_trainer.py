@@ -16,7 +16,7 @@ from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
 from utils.dataset_utils import load_training_dataset
-from .rewards.api_reward import APIRewardFunction
+from .rewards.factory import build_reward_function
 
 class GRPOTrainer(BaseTrainer):
     """GRPO (Group Relative Policy Optimization) trainer implementation."""
@@ -183,10 +183,7 @@ class GRPOTrainer(BaseTrainer):
         """Initialize the GRPO trainer."""
         training_args = self.setup_training_args()
 
-        if not self.config.reward_api:
-            raise ValueError("reward_api configuration is required for GRPO")
-        self.logger.info("Using HTTP reward API: %s", self.config.reward_api.endpoint)
-        reward_func = APIRewardFunction(self.config.reward_api, logger=self.logger)
+        reward_func = build_reward_function(self.config, logger=self.logger)
 
         self.trainer = TRLGRPOTrainer(
             model=self.model,

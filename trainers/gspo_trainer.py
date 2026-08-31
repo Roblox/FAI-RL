@@ -18,7 +18,7 @@ from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
 from utils.dataset_utils import load_training_dataset
-from .rewards.api_reward import APIRewardFunction
+from .rewards.factory import build_reward_function
 
 class GSPOTrainer(BaseTrainer):
     """GSPO (Group Sequence Policy Optimization) trainer implementation."""
@@ -194,10 +194,7 @@ class GSPOTrainer(BaseTrainer):
         """Initialize the GSPO trainer."""
         training_args = self.setup_training_args()
 
-        if not self.config.reward_api:
-            raise ValueError("reward_api configuration is required for GSPO")
-        self.logger.info("Using HTTP reward API: %s", self.config.reward_api.endpoint)
-        reward_func = APIRewardFunction(self.config.reward_api, logger=self.logger)
+        reward_func = build_reward_function(self.config, logger=self.logger)
 
         self.trainer = TRLGSPOTrainer(
             model=self.model,

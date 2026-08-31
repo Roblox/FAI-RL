@@ -1,0 +1,4 @@
+{"prompt":"What is 2 + 2? Return the final answer inside <answer> tags.","answer":"4"}
+{"prompt":"What is 3 multiplied by 5? Return the final answer inside <answer> tags.","answer":"15"}
+{"prompt":"What is 10 minus 7? Return the final answer inside <answer> tags.","answer":"3"}
+{"prompt":"What is half of 16? Return the final answer inside <answer> tags.","answer":"8"}

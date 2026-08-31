@@ -230,9 +230,10 @@ FAI-RL provides pre-configured recipes and has been validated with the following
 ### 🔧 Extensible Architecture
 
 **Custom Reward Services:**
-- GRPO and GSPO reward calculation is configured as an HTTP API
+- GRPO and GSPO reward calculation uses a configured HTTP API in production
 - Prompts, completions, and dataset context are scored outside the training code
 - Authentication, retries, timeouts, headers, and response fields are recipe-driven
+- FAI-RL development tests can import a local Python reward callable from YAML
 
 **Dataset Templates:**
 - `GSM8KTemplate` - Math problem formatting with chain-of-thought

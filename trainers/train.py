@@ -21,6 +21,7 @@ from core.config import (
     DataConfig,
     DatasetInfo,
     ExperimentConfig,
+    LocalRewardFunctionConfig,
     ModelConfig,
     RewardAPIConfig,
     S3Config,
@@ -323,12 +324,21 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
             if recipe_dict.get('reward_api')
             else None
         ),
+        local_reward_function=(
+            LocalRewardFunctionConfig(**recipe_dict['local_reward_function'])
+            if recipe_dict.get('local_reward_function')
+            else None
+        ),
     )
-    if config.training.algorithm.lower() in {"grpo", "gspo"} and not config.reward_api:
-        raise ValueError(
-            "reward_api configuration is required for GRPO/GSPO. "
-            "Configure an HTTP reward endpoint in the recipe."
-        )
+    if config.training.algorithm.lower() in {"grpo", "gspo"}:
+        if config.reward_api and config.local_reward_function:
+            raise ValueError(
+                "Configure only one of reward_api or local_reward_function"
+            )
+        if not config.reward_api and not config.local_reward_function:
+            raise ValueError(
+                "GRPO/GSPO requires reward_api or local_reward_function configuration"
+            )
     return config
 
 
@@ -432,6 +442,11 @@ def main():
         "wandb": config.wandb.to_dict(),
         "s3": config.s3.to_dict(),
         "reward_api": config.reward_api.to_dict() if config.reward_api else None,
+        "local_reward_function": (
+            config.local_reward_function.to_dict()
+            if config.local_reward_function
+            else None
+        ),
     }
     
     training_logger.log_experiment_start(log_dict)

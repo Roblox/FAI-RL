@@ -341,6 +341,32 @@ class RewardAPIConfig:
 
 
 @dataclass
+class LocalRewardFunctionConfig:
+    """Local Python reward callable configuration for FAI-RL testing."""
+    function: str
+    kwargs: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        module_name, separator, function_name = self.function.partition(":")
+        if not separator or not module_name or not function_name:
+            raise ValueError(
+                "local_reward_function.function must use 'module.path:function_name'"
+            )
+        reserved = {"prompts", "completions", "logger"}
+        conflicts = reserved.intersection(self.kwargs)
+        if conflicts:
+            raise ValueError(
+                "local_reward_function.kwargs cannot override reserved arguments: "
+                f"{', '.join(sorted(conflicts))}"
+            )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            key: value for key, value in self.__dict__.items() if not key.startswith('_')
+        }
+
+
+@dataclass
 class WandbConfig:
     """Configuration for Weights & Biases logging."""
     enabled: bool = True
@@ -543,6 +569,7 @@ class ExperimentConfig:
     wandb: WandbConfig
     s3: S3Config = field(default_factory=S3Config)
     reward_api: Optional[RewardAPIConfig] = None
+    local_reward_function: Optional[LocalRewardFunctionConfig] = None
     
     @classmethod
     def from_yaml(cls, config_path: str) -> 'ExperimentConfig':
@@ -566,6 +593,11 @@ class ExperimentConfig:
             reward_api=(
                 RewardAPIConfig(**config_dict['reward_api'])
                 if config_dict.get('reward_api')
+                else None
+            ),
+            local_reward_function=(
+                LocalRewardFunctionConfig(**config_dict['local_reward_function'])
+                if config_dict.get('local_reward_function')
                 else None
             ),
         )
@@ -605,6 +637,11 @@ class ExperimentConfig:
             'wandb': self.wandb.to_dict(),
             's3': self.s3.to_dict(),
             'reward_api': self.reward_api.to_dict() if self.reward_api else None,
+            'local_reward_function': (
+                self.local_reward_function.to_dict()
+                if self.local_reward_function
+                else None
+            ),
         }
         
         with open(output_path, 'w') as f:

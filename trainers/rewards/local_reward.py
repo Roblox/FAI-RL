@@ -15,6 +15,11 @@ class LocalRewardFunction:
         self.config = config
         self.logger = logger or logging.getLogger(__name__)
         self.function = self._load_function(config.function)
+        self.__name__ = getattr(
+            self.function,
+            "__name__",
+            config.function.rsplit(":", 1)[-1],
+        )
 
     @staticmethod
     def _load_function(import_path: str) -> Callable:

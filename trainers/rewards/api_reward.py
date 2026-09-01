@@ -33,6 +33,7 @@ class APIRewardFunction:
     def __init__(self, config: RewardAPIConfig, logger=None):
         self.config = config
         self.logger = logger or logging.getLogger(__name__)
+        self.__name__ = "api_reward"
 
     def _headers(self) -> Dict[str, str]:
         return {"Content-Type": "application/json", **self.config.headers}

@@ -38,6 +38,7 @@ def test_api_reward_sends_context_without_requiring_auth(monkeypatch):
     reward = APIRewardFunction(
         RewardAPIConfig(endpoint="https://reward.example/score")
     )
+    assert reward.__name__ == "api_reward"
 
     scores = reward(
         ["prompt-a", "prompt-b"],

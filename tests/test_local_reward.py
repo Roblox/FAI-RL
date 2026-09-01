@@ -23,6 +23,8 @@ def test_local_reward_loads_configured_callable(caplog):
         )
     )
 
+    assert reward.__name__ == "exact_match_reward_func"
+
     with caplog.at_level(logging.INFO, logger="trainers.rewards.local_reward"):
         scores = reward(
             ["sensitive-prompt", "other-prompt"],

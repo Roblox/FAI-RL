@@ -17,10 +17,8 @@ if project_root not in sys.path:
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
-from utils.dataset_utils import is_math_dataset, get_template_for_dataset, load_training_dataset
-from .rewards.accuracy_rewards import exact_match_reward_func, digit_reward_func
-from .rewards.format_rewards import structured_xml_reward_func
-from .rewards.custom_rewards import custom_reward_func
+from utils.dataset_utils import load_training_dataset
+from .rewards.factory import build_reward_function
 
 class GSPOTrainer(BaseTrainer):
     """GSPO (Group Sequence Policy Optimization) trainer implementation."""
@@ -73,33 +71,27 @@ class GSPOTrainer(BaseTrainer):
 
             original_size = len(dataset)
 
-            # Get column names from config with defaults for math datasets
+            # Map the configured source prompt into TRL's expected column while
+            # preserving every other dataset column for the reward API context.
             prompt_col = getattr(dataset_info, "prompt_column", "question")
-            answer_col = getattr(dataset_info, "answer_column", "answer")
+            answer_col = getattr(dataset_info, "answer_column", None)
 
-            # Get appropriate template for this dataset
-            template_class = get_template_for_dataset(dataset_info.name, logger=self.logger)
-            processed_dataset = dataset.map(
-                lambda example: template_class.format_for_training(example, prompt_col, answer_col)
-            )
+            def map_configured_columns(example):
+                mapped = {"prompt": example.get(prompt_col)}
+                if answer_col and answer_col in example:
+                    mapped["answer"] = example.get(answer_col)
+                return mapped
 
-            # Filter out invalid rows where prompt or answer are None or empty
+            processed_dataset = dataset.map(map_configured_columns)
+
+            # A ground-truth answer is not mandatory: the external reward API can
+            # score against any dataset columns included in its context.
             def is_valid_example(example):
-                """Check if example has valid prompt and answer fields."""
+                """Check if an example has a usable configured prompt."""
                 prompt = example.get("prompt")
-                answer = example.get("answer")
-                
-                # Check prompt validity - can be string or list of dicts
-                prompt_valid = False
                 if isinstance(prompt, str):
-                    prompt_valid = prompt.strip() != ""
-                elif isinstance(prompt, list) and len(prompt) > 0:
-                    prompt_valid = True
-                
-                # Check answer validity
-                answer_valid = answer is not None and isinstance(answer, str) and answer.strip() != ""
-                
-                return prompt_valid and answer_valid
+                    return bool(prompt.strip())
+                return isinstance(prompt, list) and len(prompt) > 0
             
             processed_dataset = processed_dataset.filter(is_valid_example)
             
@@ -109,7 +101,7 @@ class GSPOTrainer(BaseTrainer):
             if skipped > 0:
                 self.logger.warning(
                     f"Skipped {skipped} invalid examples from {dataset_info.name} "
-                    f"(missing or empty 'prompt'/'answer' fields)"
+                    f"(missing or empty configured prompt column '{prompt_col}')"
                 )
 
             datasets.append(processed_dataset)
@@ -126,12 +118,22 @@ class GSPOTrainer(BaseTrainer):
         # This is required because GSPO expects prompts to be strings, not message dicts
         def apply_chat_template(example):
             prompt = example['prompt']
-            # If prompt is a list of message dicts, apply chat template
+            # Existing conversational prompts pass through directly. For a plain
+            # prompt, an optional configured system instruction creates a chat.
             if isinstance(prompt, list) and len(prompt) > 0 and isinstance(prompt[0], dict):
                 example['prompt'] = self.tokenizer.apply_chat_template(
                     prompt, 
                     tokenize=False, 
                     add_generation_prompt=True
+                )
+            elif self.config.data.system_prompt:
+                example['prompt'] = self.tokenizer.apply_chat_template(
+                    [
+                        {"role": "system", "content": self.config.data.system_prompt},
+                        {"role": "user", "content": str(prompt)},
+                    ],
+                    tokenize=False,
+                    add_generation_prompt=True,
                 )
             return example
         
@@ -192,39 +194,11 @@ class GSPOTrainer(BaseTrainer):
         """Initialize the GSPO trainer."""
         training_args = self.setup_training_args()
 
-        # Use math-specific reward functions
-        self.logger.info("Using math-specific reward functions")
-        
-        # Create wrapper functions that inject the logger into reward functions
-        def exact_match_with_logger(prompts, completions, answer, **kwargs):
-            kwargs['logger'] = self.logger
-            return exact_match_reward_func(completions, answer, **kwargs)
-        
-        def structured_xml_with_logger(prompts, completions, **kwargs):
-            kwargs['logger'] = self.logger
-            return structured_xml_reward_func(completions, **kwargs)
-        
-        def digit_with_logger(prompts, completions, **kwargs):
-            kwargs['logger'] = self.logger
-            return digit_reward_func(completions, **kwargs)
-        
-        # ========== CUSTOM REWARD FUNCTION ==========
-        # Add your custom reward logic here
-        def custom_with_logger(prompts, completions, **kwargs):
-            kwargs['logger'] = self.logger
-            return custom_reward_func(completions, **kwargs)
-        # ============================================
-        
-        reward_funcs = [
-            exact_match_with_logger,
-            structured_xml_with_logger,
-            digit_with_logger,
-            custom_with_logger,  # Add your custom reward function here
-        ]
+        reward_func = build_reward_function(self.config, logger=self.logger)
 
         self.trainer = TRLGSPOTrainer(
             model=self.model,
-            reward_funcs=reward_funcs,
+            reward_funcs=[reward_func],
             args=training_args,
             train_dataset=self.train_dataset,
             callbacks=self.build_callbacks(),

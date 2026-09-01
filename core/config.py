@@ -302,6 +302,72 @@ class TrainingConfig:
 
 
 @dataclass
+class RewardAPIConfig:
+    """HTTP reward service configuration for GRPO and GSPO."""
+    endpoint: str
+    headers: Dict[str, str] = field(default_factory=dict)
+    extra_body: Dict[str, Any] = field(default_factory=dict)
+    response_field: str = "rewards"
+    timeout_seconds: float = 30.0
+    max_retries: int = 2
+    retry_backoff_seconds: float = 1.0
+    verify_ssl: bool = True
+
+    def __post_init__(self):
+        if not self.endpoint:
+            raise ValueError("reward_api.endpoint is required")
+        validate_api_config(self)
+        if self.headers and not self.endpoint.startswith("https://"):
+            raise ValueError(
+                "reward_api.endpoint must use https when headers are configured"
+            )
+        if self.timeout_seconds <= 0:
+            raise ValueError("reward_api.timeout_seconds must be greater than zero")
+        if self.max_retries < 0:
+            raise ValueError("reward_api.max_retries cannot be negative")
+        if self.retry_backoff_seconds < 0:
+            raise ValueError("reward_api.retry_backoff_seconds cannot be negative")
+
+    @property
+    def api_endpoint(self) -> str:
+        """Compatibility alias for the shared API configuration validator."""
+        return self.endpoint
+
+    def to_dict(self) -> Dict[str, Any]:
+        values = {
+            key: value for key, value in self.__dict__.items() if not key.startswith('_')
+        }
+        values["headers"] = {key: "***" for key in self.headers}
+        return values
+
+
+@dataclass
+class LocalRewardFunctionConfig:
+    """Trusted local Python reward callable configuration for FAI-RL."""
+    function: str
+    kwargs: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        module_name, separator, function_name = self.function.partition(":")
+        if not separator or not module_name or not function_name:
+            raise ValueError(
+                "local_reward_function.function must use 'module.path:function_name'"
+            )
+        reserved = {"prompts", "completions", "logger"}
+        conflicts = reserved.intersection(self.kwargs)
+        if conflicts:
+            raise ValueError(
+                "local_reward_function.kwargs cannot override reserved arguments: "
+                f"{', '.join(sorted(conflicts))}"
+            )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            key: value for key, value in self.__dict__.items() if not key.startswith('_')
+        }
+
+
+@dataclass
 class WandbConfig:
     """Configuration for Weights & Biases logging."""
     enabled: bool = True
@@ -503,6 +569,8 @@ class ExperimentConfig:
     training: TrainingConfig
     wandb: WandbConfig
     s3: S3Config = field(default_factory=S3Config)
+    reward_api: Optional[RewardAPIConfig] = None
+    local_reward_function: Optional[LocalRewardFunctionConfig] = None
     
     @classmethod
     def from_yaml(cls, config_path: str) -> 'ExperimentConfig':
@@ -523,6 +591,16 @@ class ExperimentConfig:
             training=TrainingConfig(**config_dict['training']),
             wandb=WandbConfig(**config_dict.get('wandb', {})),
             s3=S3Config(**config_dict.get('s3', {})),
+            reward_api=(
+                RewardAPIConfig(**config_dict['reward_api'])
+                if config_dict.get('reward_api')
+                else None
+            ),
+            local_reward_function=(
+                LocalRewardFunctionConfig(**config_dict['local_reward_function'])
+                if config_dict.get('local_reward_function')
+                else None
+            ),
         )
     
     @classmethod
@@ -559,6 +637,12 @@ class ExperimentConfig:
             'training': self.training.to_dict(),
             'wandb': self.wandb.to_dict(),
             's3': self.s3.to_dict(),
+            'reward_api': self.reward_api.to_dict() if self.reward_api else None,
+            'local_reward_function': (
+                self.local_reward_function.to_dict()
+                if self.local_reward_function
+                else None
+            ),
         }
         
         with open(output_path, 'w') as f:

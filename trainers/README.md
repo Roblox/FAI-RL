@@ -86,7 +86,8 @@ Replace the following values for your specific use case:
   - **CPT**: Use `text_column` (raw text, no chat template)
   - **SFT**: Use `prompt_column` and `answer_column`
   - **DPO**: Use `prompt_column`, `chosen_column`, and `rejected_column`
-  - **GRPO/GSPO**: Use `prompt_column` and `answer_column`
+  - **GRPO/GSPO**: `prompt_column` is required. `answer_column` is optional;
+    all dataset columns are forwarded to the configured reward function as scoring context.
 - `training.algorithm` → choose from: `cpt`, `sft`, `sft_vlm`, `dpo`, `grpo`, `gspo`
 - `training.output_dir` → your desired model output directory
 - `wandb.*` → your Weights & Biases configuration (or set `enabled: false` to disable)
@@ -95,7 +96,82 @@ Replace the following values for your specific use case:
 - **CPT**: Domain adaptation via next-token prediction on raw text; requires a `text_column` in dataset; no system prompt or chat template applied
 - **SFT**: Best for initial instruction tuning; requires `prompt_column` and `answer_column` in dataset
 - **DPO**: Preference-based method; requires `prompt_column`, `chosen_column`, and `rejected_column`
-- **GRPO/GSPO**: Math/reasoning task optimization; requires `prompt_column` and `answer_column`
+- **GRPO/GSPO**: Requires `prompt_column`, an optional `answer_column` or other
+  scoring context, and exactly one of `reward_api` or `local_reward_function`.
+  HTTP rewards are the production path; local Python functions are intended only
+  for FAI-RL development and testing.
+
+### GRPO/GSPO Reward API
+
+Configure the scorer in the recipe:
+
+```yaml
+reward_api:
+  endpoint: "https://reward.example.com/v1/score"
+  timeout_seconds: 30
+  max_retries: 2
+  retry_backoff_seconds: 1
+  verify_ssl: true
+  headers: {}
+  extra_body: {}
+  response_field: "rewards"
+```
+
+Each training worker sends one POST per reward batch:
+
+```json
+{
+  "prompts": ["..."],
+  "completions": ["..."],
+  "context": {
+    "answer": ["..."]
+  }
+}
+```
+
+All unused dataset columns passed through TRL are included in `context`, so the
+service can implement arbitrary task-specific scoring. It must return one finite
+number per completion:
+
+```json
+{"rewards": [1.0]}
+```
+
+The service should be stateless or idempotent and sized for requests from every
+distributed training worker. HTTP errors, invalid JSON, missing rewards, and
+score-count mismatches fail training after the configured retries.
+
+### Local Reward Function (FAI-RL Testing Only)
+
+For local tests, a recipe can import a Python callable instead of making HTTP
+requests:
+
+```yaml
+local_reward_function:
+  function: "trainers.rewards.accuracy_rewards:exact_match_reward_func"
+  kwargs: {}
+```
+
+The runnable smoke-test recipe and dataset are:
+
+```bash
+fai-rl-train \
+  --recipe recipes/training/grpo/llama3_3B_local_reward.yaml \
+  --num-gpus 1
+```
+
+Do not configure `reward_api` in the same recipe. The callable is loaded from
+`module.path:function_name` and receives:
+
+```python
+def reward_function(prompts, completions, **kwargs) -> list[float]:
+    ...
+```
+
+Dataset context columns are included in `kwargs`; configured `kwargs` are also
+passed to the callable. It must return one finite numeric reward per completion.
+Local imports execute trusted Python code in every training worker and are not
+an ML Platform integration or production deployment mechanism.
 
 **Memory Optimization Tips:**
 - Reduce `per_device_train_batch_size` if you encounter OOM errors
@@ -149,8 +225,8 @@ Relative paths are resolved from the directory where `fai-rl-train` is launched.
 | **SFT** | `prompt`, `response` |
 | **CPT** | `text` |
 | **DPO** | `prompt`, `chosen`, `rejected` |
-| **GRPO** | `prompt`, `answer` |
-| **GSPO** | `prompt`, `answer` |
+| **GRPO** | `prompt` (plus any reward context columns) |
+| **GSPO** | `prompt` (plus any reward context columns) |
 
 **Example — SFT from a local JSONL file**
 

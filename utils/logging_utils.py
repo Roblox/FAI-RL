@@ -307,6 +307,8 @@ class TrainingLogger:
         self.logger.info("="*50)
 
         for section, values in config.items():
+            if values is None:
+                continue
             self.logger.info(f"{section.upper()}:")
             for k, v in values.items():
                 self.logger.info(f"  {k}: {v}")

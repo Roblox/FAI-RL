@@ -229,10 +229,11 @@ FAI-RL provides pre-configured recipes and has been validated with the following
 
 ### 🔧 Extensible Architecture
 
-**Custom Reward Functions:**
-- `exact_match_reward_func` - Accuracy-based rewards for verifiable tasks
-- `structured_xml_reward_func` - Format-based rewards for structured outputs
-- Easy to add your custom reward function
+**Custom Reward Services:**
+- GRPO and GSPO reward calculation uses a configured HTTP API in production
+- Prompts, completions, and dataset context are scored outside the training code
+- Retries, timeouts, headers, and response fields are recipe-driven
+- FAI-RL development tests can import a local Python reward callable from YAML
 
 **Dataset Templates:**
 - `GSM8KTemplate` - Math problem formatting with chain-of-thought

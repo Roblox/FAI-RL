@@ -343,7 +343,7 @@ class RewardAPIConfig:
 
 @dataclass
 class LocalRewardFunctionConfig:
-    """Local Python reward callable configuration for FAI-RL testing."""
+    """Trusted local Python reward callable configuration for FAI-RL."""
     function: str
     kwargs: Dict[str, Any] = field(default_factory=dict)
 

@@ -41,9 +41,10 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pydantic._intern
 warnings.filterwarnings("ignore", message=".*'repr' attribute.*has no effect.*")
 warnings.filterwarnings("ignore", message=".*'frozen' attribute.*has no effect.*")
 from pathlib import Path
-from peft import PeftModel, PeftConfig
+from peft import PeftConfig
 
 from core.config import ExperimentConfig
+from core.peft_lora import peft_model_from_pretrained
 from utils.config_validation import validate_api_config
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 from utils.logging_utils import setup_logging, SafeLogger
@@ -303,7 +304,7 @@ def load_model_and_tokenizer(config):
         
         # Now load the PEFT adapter
         print("Loading PEFT adapter...")
-        model = PeftModel.from_pretrained(model, model_identifier)
+        model = peft_model_from_pretrained(model, model_identifier)
         
         # Merge adapter weights for faster inference
         print("Merging adapter weights...")
@@ -432,7 +433,7 @@ def load_vlm_model_and_processor(config):
         model = AutoModelForImageTextToText.from_pretrained(base_model_name, **model_load_kwargs)
 
         print("Loading PEFT adapter...")
-        model = PeftModel.from_pretrained(model, model_identifier)
+        model = peft_model_from_pretrained(model, model_identifier)
 
         print("Merging adapter weights...")
         model = model.merge_and_unload()

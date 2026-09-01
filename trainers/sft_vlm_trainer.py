@@ -98,11 +98,10 @@ class SFTVLMTrainer(BaseTrainer):
             frozen_tower_attr = self._freeze_vision_tower(self.model)
 
         # Keep LoRA out of the (frozen) vision tower. target_modules like q_proj
-        # match by name across the whole model, so without this PEFT tries to
-        # adapt the vision tower's attention -- whose projections are custom
-        # module types (e.g. Gemma4's Gemma4ClippableLinear) that PEFT can't wrap,
-        # raising "Target module ... is not supported". A regex string exclusion
-        # is required because a list only suffix-matches leaf names, not a subtree.
+        # match by name across the whole model, including the tower. FAI-RL can
+        # wrap Gemma4ClippableLinear, so exclusion is what actually keeps the
+        # frozen tower unadapted -- not a PEFT type error. A regex string is
+        # required because a list only suffix-matches leaf names, not a subtree.
         if (
             getattr(self.config.model, "use_lora", False)
             and frozen_tower_attr is not None

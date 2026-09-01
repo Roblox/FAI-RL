@@ -42,10 +42,9 @@ class ModelConfig:
     lora_target_modules: Optional[List[str]] = None
     # Module name patterns to exclude from LoRA injection even if they match
     # lora_target_modules. Needed for VLMs, where the (frozen) vision tower has
-    # attention projections named like the language model's (q_proj/k_proj/...)
-    # but wrapped in custom module types PEFT can't adapt. The sft_vlm trainer
-    # auto-populates this with the vision tower when freeze_vision_tower is set
-    # and no explicit list is given.
+    # attention projections named like the language model's (q_proj/k_proj/...).
+    # The sft_vlm trainer auto-populates this with the vision tower when
+    # freeze_vision_tower is set and no explicit list is given.
     #
     # A list matches leaf module names (suffix match); a single string is treated
     # by PEFT as a regex full-matched against the whole module path, which is what

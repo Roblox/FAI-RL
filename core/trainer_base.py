@@ -131,6 +131,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 
 from .config import ExperimentConfig
+from .peft_lora import peft_model_from_pretrained, register_clippable_linear_lora
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
@@ -699,9 +700,8 @@ class BaseTrainer(ABC):
 
         peft_adapter_path = getattr(self, '_peft_adapter_path', None)
         if peft_adapter_path is not None:
-            from peft import PeftModel
             self.logger.info("Loading existing PEFT adapter from %s", peft_adapter_path)
-            model = PeftModel.from_pretrained(model, peft_adapter_path, is_trainable=True)
+            model = peft_model_from_pretrained(model, peft_adapter_path, is_trainable=True)
             trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
             total_params = sum(p.numel() for p in model.parameters())
             self.logger.info(
@@ -739,14 +739,17 @@ class BaseTrainer(ABC):
         )
         # exclude_modules keeps target-module name matching (e.g. q_proj) from
         # leaking into submodules we must not adapt -- notably a VLM's frozen
-        # vision tower, whose attention projections share those names but are
-        # custom module types PEFT cannot wrap. Only pass it when set so we stay
-        # compatible with peft versions lacking the field.
+        # vision tower, whose attention projections share those names. Only pass
+        # it when set so we stay compatible with peft versions lacking the field.
         exclude_modules = getattr(self.config.model, "lora_exclude_modules", None)
         if exclude_modules:
             lora_kwargs["exclude_modules"] = exclude_modules
         lora_config = LoraConfig(**lora_kwargs)
-        
+        # Gemma4ClippableLinear (E-series language + vision/audio towers) is an
+        # nn.Module wrapping inner .linear. Register it so q_proj/etc. still
+        # match; PEFT adapts the inner linear instead of raising.
+        register_clippable_linear_lora(lora_config)
+
         # Apply LoRA to model
         model = get_peft_model(model, lora_config)
         

@@ -177,6 +177,20 @@ class GRPOTrainer(BaseTrainer):
             # GRPO specific parameters
             num_generations=self.config.training.num_generations,
             max_completion_length=self.config.data.max_length - self.config.data.max_prompt_length,
+            # KL regularization toward the reference policy. Previously not
+            # forwarded at all, so GRPO always ran at TRL's default beta=0.0
+            # (no KL term) and training.beta was silently inert. With no anchor,
+            # the policy free-runs toward whatever the shaping rewards favor --
+            # on GSM8K it collapses to emitting bare digits inside empty <think>
+            # tags, which scores full format+digit reward while abandoning
+            # chain-of-thought.
+            #
+            # epsilon / epsilon_high / steps_per_generation are deliberately NOT
+            # forwarded here: their defaults in TrainingConfig (3e-4 / 4e-4 / 4)
+            # are the GSPO paper's values, and applying them to GRPO would
+            # silently tighten clipping from TRL's 0.2 to 3e-4. They stay
+            # GSPO-only until GRPO gets its own defaults.
+            beta=float(self.config.training.beta),
         )
 
     def setup_trainer(self):

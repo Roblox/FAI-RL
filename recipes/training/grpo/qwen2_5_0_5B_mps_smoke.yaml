@@ -1,0 +1,94 @@
+# GRPO / RLVR smoke test sized for a single Apple Silicon Mac (MPS).
+#
+# MEASURED on an M3 Max / 64 GB (torch 2.13.0, transformers 5.8.0, trl 1.2.0):
+#   10 steps = 99 s wall clock (~10 s/step), 1.38 GB MPS allocated.
+#   Step time tracks ACTUAL completion length, not the cap: it fell 16 s -> 5 s
+#   over 10 steps as the policy learned to emit short well-formed answers.
+#   1 epoch over 64 rows = 32 optimizer steps (2 unique prompts/step) ~= 5.5 min.
+#
+# Memory is nowhere near the limit — the constraint is rollout generation
+# throughput, since GRPO samples num_generations completions per prompt through
+# plain HF `generate` (no vLLM on MPS). Scale by steps, not by dataset size.
+#
+# Run:
+#   python trainers/train.py --recipe recipes/training/grpo/qwen2_5_0_5B_mps_smoke.yaml --num-gpus 1
+
+model:
+  base_model_name: "Qwen/Qwen2.5-0.5B-Instruct"   # ~1 GB download, open weights, has a chat template
+  torch_dtype: "float16"                           # MPS prefers fp16; fall back to float32 if you see NaN losses
+  low_cpu_mem_usage: true
+  load_in_8bit: false                              # bitsandbytes is CUDA-only; the launcher force-disables these on MPS
+  load_in_4bit: false
+  use_flash_attention: false                       # flash-attn is CUDA-only
+
+  use_lora: true
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  lora_target_modules:
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_bias: "none"
+
+data:
+  datasets:
+    # HF slice syntax passes straight through to load_dataset()
+    # (utils/dataset_utils.py:106), so this only downloads/keeps 64 rows.
+    - name: "openai/gsm8k"
+      subset: "main"
+      split: "train[:64]"
+      prompt_column: "question"
+      answer_column: "answer"
+
+  # max_completion_length = max_length - max_prompt_length = 512.
+  # Measured: raising this cap from 256 -> 512 cost nothing (105 s vs 99 s for
+  # 10 steps) because the policy generates ~50-120 tokens anyway. At 256 the cap
+  # clipped 12-37% of completions early on, and a clipped completion never emits
+  # </answer>, so it silently forfeits the format reward. Keep the headroom.
+  max_length: 1024
+  max_prompt_length: 512                           # GSM8K template prompt is ~200 tokens incl. system + 1-shot
+  remove_unused_columns: false                     # must stay false: the reward fn needs the `answer` column
+
+training:
+  algorithm: "grpo"
+  output_dir: "models/qwen2_5-0_5B-grpo-mps-smoke"
+
+  num_generations: 4                               # group size; keep global batch divisible by this
+  # KL coefficient toward the reference policy. Non-zero is essential here: at
+  # beta=0.0 this exact run drives held-out GSM8K accuracy DOWN from 44% to 17%
+  # by learning to emit bare digits in empty <think> tags. See scripts/ab_eval_grpo.py.
+  beta: 0.04
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2                   # global batch 8 -> 2 unique prompts per optimizer step
+  learning_rate: 1.0e-4
+  num_train_epochs: 1
+  # ~10 s/step measured. 10 steps (~100 s) is already enough to watch the XML
+  # format reward climb 0.03 -> ~0.50 (its ceiling). For a longer ablation:
+  # 128 steps ~= 22 min, and bump the slice above to train[:256] to stay 1 epoch.
+  max_steps: 10
+  warmup_steps: 2                                  # stock recipe's 50 would exceed max_steps entirely
+
+  logging_steps: 1
+  save_steps: 1000                                 # effectively "final save only" for a 10-step run
+  eval_steps: 1000
+
+  bf16: false                                      # bf16 is auto-switched to fp16 on MPS (utils/device_utils.py)
+  fp16: true                                       # auto-disabled if torch < 2.8.0 (GradScaler+MPS requirement)
+  gradient_checkpointing: false                    # pure slowdown here; you have the memory
+
+  dataloader_num_workers: 0
+  dataloader_pin_memory: false
+  dataloader_drop_last: true
+  save_only_model: true
+  prediction_loss_only: true
+
+wandb:
+  enabled: false
+
+s3:
+  enabled: false

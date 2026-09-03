@@ -42,6 +42,13 @@ class SFTTrainer(BaseTrainer):
         # Setup tokenizer and resize embeddings using base class method
         self.tokenizer = self.setup_tokenizer_with_model(self.model)
 
+        # The text collator supplies neither pixels nor audio features. Gemma 4
+        # E-series still loads both encoders, so freeze and LoRA-exclude them
+        # before adapter injection to keep plain DDP from seeing unused adapters.
+        self.prepare_model_for_modalities(
+            self.model, use_vision=False, use_audio=False
+        )
+
         # Apply LoRA if enabled (including QLoRA) using base class method
         self.model = self.apply_lora_to_model(self.model, TaskType.CAUSAL_LM, quantization_config)
 

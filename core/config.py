@@ -41,10 +41,10 @@ class ModelConfig:
     lora_dropout: float = 0.05
     lora_target_modules: Optional[List[str]] = None
     # Module name patterns to exclude from LoRA injection even if they match
-    # lora_target_modules. Needed for VLMs, where the (frozen) vision tower has
-    # attention projections named like the language model's (q_proj/k_proj/...).
-    # The sft_vlm trainer auto-populates this with the vision tower when
-    # freeze_vision_tower is set and no explicit list is given.
+    # lora_target_modules. Needed for multimodal backbones, where unused/frozen
+    # vision and audio towers can have projections named like the language
+    # model's (q_proj/k_proj/...). SFT and DPO trainers merge unused encoder
+    # subtrees into this setting before adapter injection.
     #
     # A list matches leaf module names (suffix match); a single string is treated
     # by PEFT as a regex full-matched against the whole module path, which is what
@@ -52,10 +52,9 @@ class ModelConfig:
     lora_exclude_modules: Optional[Union[str, List[str]]] = None
     lora_bias: str = "none"
 
-    # Multimodal (vision-language) configuration. Only used by the sft_vlm
-    # algorithm. When True, the vision encoder is frozen and only the language
-    # model / projector (and LoRA adapters, if enabled) are trained -- the
-    # standard recipe for VLM SFT.
+    # Multimodal (vision-language) configuration. When True in sft_vlm, the
+    # vision encoder is frozen even when the collator feeds images/videos. Text
+    # SFT/DPO always freeze unused vision and audio encoders independently.
     freeze_vision_tower: bool = True
 
     def to_dict(self) -> Dict[str, Any]:

@@ -66,6 +66,28 @@ class _PlainLinearLM(nn.Module):
     prepare_inputs_for_generation = _prepare_inputs_for_generation
 
 
+class _Gemma4LikeMultimodal(nn.Module):
+    """Tiny Gemma 4 E-series-shaped model used to exercise modality pruning."""
+
+    def __init__(self, hidden=8):
+        super().__init__()
+        cfg = _ClipCfg()
+        self.model = nn.Module()
+        self.model.language_model = nn.Module()
+        self.model.language_model.q_proj = Gemma4ClippableLinear(cfg, hidden, hidden)
+        self.model.vision_tower = nn.Module()
+        self.model.vision_tower.q_proj = Gemma4ClippableLinear(cfg, hidden, hidden)
+        self.model.embed_vision = nn.Linear(hidden, hidden, bias=False)
+        self.model.audio_tower = nn.Module()
+        self.model.audio_tower.q_proj = Gemma4ClippableLinear(cfg, hidden, hidden)
+        self.model.embed_audio = nn.Linear(hidden, hidden, bias=False)
+
+    def forward(self, x):
+        return self.model.language_model.q_proj(x)
+
+    prepare_inputs_for_generation = _prepare_inputs_for_generation
+
+
 def _lora_config(**extra):
     kwargs = dict(
         r=4,
@@ -169,6 +191,79 @@ def test_plain_nn_linear_q_proj_unchanged():
     assert lora_params
     assert all(p.requires_grad for p in lora_params)
     assert not q_proj.get_base_layer().weight.requires_grad
+
+
+def test_text_only_qwen_like_model_is_unchanged_by_modality_prep():
+    """Qwen3-8B-class CausalLMs have no vision/audio towers; freeze is a no-op."""
+    trainer = _trainer_for_lora()
+    model = _PlainLinearLM()
+    before = {n: p.requires_grad for n, p in model.named_parameters()}
+
+    trainer.prepare_model_for_modalities(model, use_vision=False, use_audio=False)
+
+    after = {n: p.requires_grad for n, p in model.named_parameters()}
+    assert after == before
+    assert trainer.config.model.lora_exclude_modules is None
+
+    peft_model = trainer.apply_lora_to_model(model)
+    q_proj = peft_model.base_model.q_proj
+    assert isinstance(q_proj, BaseTunerLayer)
+    assert isinstance(q_proj.get_base_layer(), nn.Linear)
+
+
+def test_text_only_freezes_and_excludes_gemma4_vision_and_audio():
+    trainer = _trainer_for_lora()
+    model = _Gemma4LikeMultimodal()
+
+    trainer.prepare_model_for_modalities(model, use_vision=False, use_audio=False)
+
+    assert not any(p.requires_grad for p in model.model.vision_tower.parameters())
+    assert not any(p.requires_grad for p in model.model.embed_vision.parameters())
+    assert not any(p.requires_grad for p in model.model.audio_tower.parameters())
+    assert not any(p.requires_grad for p in model.model.embed_audio.parameters())
+    assert all(p.requires_grad for p in model.model.language_model.parameters())
+
+    peft_model = trainer.apply_lora_to_model(model)
+    base = peft_model.base_model.model.model
+    assert isinstance(base.language_model.q_proj, BaseTunerLayer)
+    assert isinstance(base.vision_tower.q_proj, Gemma4ClippableLinear)
+    assert isinstance(base.audio_tower.q_proj, Gemma4ClippableLinear)
+    assert not any(
+        ("vision_tower" in name or "audio_tower" in name) and "lora_" in name
+        for name, _ in peft_model.named_parameters()
+    )
+
+
+def test_image_only_keeps_vision_trainable_but_freezes_and_excludes_audio():
+    trainer = _trainer_for_lora()
+    model = _Gemma4LikeMultimodal()
+
+    trainer.prepare_model_for_modalities(model, use_vision=True, use_audio=False)
+
+    assert all(p.requires_grad for p in model.model.vision_tower.parameters())
+    assert all(p.requires_grad for p in model.model.embed_vision.parameters())
+    assert not any(p.requires_grad for p in model.model.audio_tower.parameters())
+    assert not any(p.requires_grad for p in model.model.embed_audio.parameters())
+
+    peft_model = trainer.apply_lora_to_model(model)
+    base = peft_model.base_model.model.model
+    assert isinstance(base.language_model.q_proj, BaseTunerLayer)
+    assert isinstance(base.vision_tower.q_proj, BaseTunerLayer)
+    assert isinstance(base.audio_tower.q_proj, Gemma4ClippableLinear)
+
+
+def test_image_only_respects_explicit_freeze_vision_recipe():
+    trainer = _trainer_for_lora()
+    model = _Gemma4LikeMultimodal()
+
+    trainer.prepare_model_for_modalities(
+        model, use_vision=True, use_audio=False, freeze_vision=True
+    )
+
+    assert not any(p.requires_grad for p in model.model.vision_tower.parameters())
+    assert all(p.requires_grad for p in model.model.embed_vision.parameters())
+    assert not any(p.requires_grad for p in model.model.audio_tower.parameters())
+    assert not any(p.requires_grad for p in model.model.embed_audio.parameters())
 
 
 def test_qlora_loaded_in_4bit_is_forwarded_to_inner_linear(monkeypatch):

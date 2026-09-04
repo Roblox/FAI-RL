@@ -37,6 +37,13 @@ class CPTTrainer(BaseTrainer):
         self.model = self.load_base_model_for_training(model_kwargs)
 
         self.tokenizer = self.setup_tokenizer_with_model(self.model)
+
+        # CPT feeds raw text only -- no pixels or audio features. Gemma 4
+        # E-series still loads both encoders, so freeze and LoRA-exclude them
+        # before adapter injection to keep plain DDP from seeing unused adapters.
+        self.prepare_model_for_modalities(
+            self.model, use_vision=False, use_audio=False
+        )
         self.model = self.apply_lora_to_model(self.model, TaskType.CAUSAL_LM, quantization_config)
         self.disable_cache_for_gradient_checkpointing(self.model)
 

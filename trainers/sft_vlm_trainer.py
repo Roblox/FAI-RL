@@ -502,7 +502,14 @@ class SFTVLMTrainer(BaseTrainer):
 
     @property
     def _has_vision_columns(self) -> bool:
-        """True when this run's VLM collator will receive images or videos."""
+        """True when this run's VLM collator will receive images or videos.
+
+        Assumption: a declared image/video column means those inputs are
+        actually fed this run. If a recipe lists an image column but every cell
+        is empty (so the collator effectively runs text-only), vision still
+        looks "in use" here and the tower is kept trainable. We do not inspect
+        per-batch contents or freeze/unfreeze mid-run to catch that case.
+        """
         return any(
             getattr(ds, "image_columns", None) or getattr(ds, "video_columns", None)
             for ds in self.config.data.datasets

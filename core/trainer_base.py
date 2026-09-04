@@ -775,8 +775,31 @@ class BaseTrainer(ABC):
                     model, self._AUDIO_UNUSED_ATTRS, "audio"
                 )
             )
+        # Remember the frozen leaf attrs so a later PEFT-adapter resume can
+        # re-freeze the same subtrees (the exclusion regex only governs fresh
+        # LoRA injection, not adapters reloaded from a checkpoint).
+        self._frozen_encoder_attrs = sorted(
+            {path.rsplit(".", 1)[-1] for path in frozen_paths}
+        )
         self._add_lora_subtree_exclusions(frozen_paths)
         return model
+
+    def _refreeze_frozen_encoder_subtrees(self, model) -> None:
+        """Re-freeze encoder subtrees after resuming a PEFT adapter.
+
+        ``prepare_model_for_modalities`` froze the base towers and set an
+        exclude_modules regex, but that regex only governs *fresh* LoRA
+        injection via ``get_peft_model``. Resuming with
+        ``peft_model_from_pretrained(..., is_trainable=True)`` reloads whatever
+        adapters the checkpoint holds -- including any inside the towers from a
+        pre-fix run -- and marks them trainable, reproducing the DDP
+        unused-parameter failure. Freezing the same subtrees again drops those
+        reloaded adapters back out of the gradient graph.
+        """
+        attrs = getattr(self, "_frozen_encoder_attrs", None)
+        if not attrs:
+            return
+        self._freeze_named_encoder_subtrees(model, attrs, "resumed")
 
     def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM,
                             quantization_config: Optional[BitsAndBytesConfig] = None):
@@ -800,6 +823,10 @@ class BaseTrainer(ABC):
         if peft_adapter_path is not None:
             self.logger.info("Loading existing PEFT adapter from %s", peft_adapter_path)
             model = peft_model_from_pretrained(model, peft_adapter_path, is_trainable=True)
+            # A checkpoint from before the modality fix may carry adapters inside
+            # the frozen vision/audio towers; re-freeze them so DDP does not see
+            # trainable-but-unused parameters.
+            self._refreeze_frozen_encoder_subtrees(model)
             trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
             total_params = sum(p.numel() for p in model.parameters())
             self.logger.info(

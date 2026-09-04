@@ -266,6 +266,45 @@ def test_image_only_respects_explicit_freeze_vision_recipe():
     assert not any(p.requires_grad for p in model.model.embed_audio.parameters())
 
 
+def test_resume_refreezes_adapters_left_inside_encoder_towers(monkeypatch):
+    """A pre-fix checkpoint can carry LoRA adapters inside the vision/audio
+    towers. Resuming it with is_trainable=True would re-enable those unused
+    adapters and crash DDP; the resume path must re-freeze the towers."""
+    # Build an "old checkpoint": LoRA injected with NO exclusion, so trainable
+    # adapters land in every q_proj -- including the towers.
+    cfg = _lora_config()
+    register_clippable_linear_lora(cfg)
+    old_ckpt = get_peft_model(_Gemma4LikeMultimodal(), cfg)
+    assert any(
+        ("vision_tower" in n or "audio_tower" in n) and "lora_" in n and p.requires_grad
+        for n, p in old_ckpt.named_parameters()
+    ), "fixture should start with trainable tower adapters"
+
+    trainer = _trainer_for_lora()
+    trainer._peft_adapter_path = "unused-adapter-dir"
+    monkeypatch.setattr(
+        "core.trainer_base.peft_model_from_pretrained",
+        lambda model, path, **kwargs: old_ckpt,
+    )
+
+    # The freeze pass records which encoder subtrees to keep frozen on resume.
+    base = _Gemma4LikeMultimodal()
+    trainer.prepare_model_for_modalities(base, use_vision=False, use_audio=False)
+
+    resumed = trainer.apply_lora_to_model(base)
+
+    tower_adapters = [
+        p for n, p in resumed.named_parameters()
+        if ("vision_tower" in n or "audio_tower" in n) and "lora_" in n
+    ]
+    language_adapters = [
+        p for n, p in resumed.named_parameters()
+        if "language_model" in n and "lora_" in n
+    ]
+    assert tower_adapters and not any(p.requires_grad for p in tower_adapters)
+    assert language_adapters and all(p.requires_grad for p in language_adapters)
+
+
 def test_qlora_loaded_in_4bit_is_forwarded_to_inner_linear(monkeypatch):
     """QLoRA dispatch sees the inner nn.Linear/Linear4bit, not the clip wrapper."""
     from peft.tuners.lora.model import LoraModel

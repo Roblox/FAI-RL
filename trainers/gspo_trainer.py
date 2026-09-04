@@ -49,6 +49,14 @@ class GSPOTrainer(BaseTrainer):
         # Setup tokenizer and resize embeddings using base class method
         self.tokenizer = self.setup_tokenizer_with_model(self.model)
 
+        # GSPO trains on text prompts/completions only -- no image or audio
+        # inputs. Freeze and LoRA-exclude Gemma 4 E-series' unused vision/audio
+        # encoders before adapter injection so plain DDP does not see unused
+        # adapters.
+        self.prepare_model_for_modalities(
+            self.model, use_vision=False, use_audio=False
+        )
+
         # Apply LoRA if enabled (including QLoRA) using base class method
         self.model = self.apply_lora_to_model(self.model, TaskType.CAUSAL_LM, quantization_config)
 

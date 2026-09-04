@@ -5,6 +5,8 @@ import torch.nn as nn
 
 from trainers.cpt_trainer import CPTTrainer
 from trainers.dpo_trainer import DPOTrainer
+from trainers.grpo_trainer import GRPOTrainer
+from trainers.gspo_trainer import GSPOTrainer
 from trainers.sft_trainer import SFTTrainer
 from trainers.sft_vlm_trainer import SFTVLMTrainer
 
@@ -44,6 +46,49 @@ def test_text_sft_prepares_text_only_modalities_before_lora():
 
 def test_cpt_prepares_text_only_modalities_before_lora():
     trainer = _text_trainer_setup(CPTTrainer)
+    calls = []
+    trainer.prepare_model_for_modalities = lambda model, **kwargs: calls.append(
+        ("modalities", kwargs)
+    )
+    trainer.apply_lora_to_model = lambda model, *args, **kwargs: (
+        calls.append(("lora", kwargs)) or model
+    )
+
+    trainer.setup_model()
+
+    assert calls[0] == (
+        "modalities",
+        {"use_vision": False, "use_audio": False},
+    )
+    assert calls[1][0] == "lora"
+
+
+def test_grpo_prepares_text_only_modalities_before_lora():
+    trainer = _text_trainer_setup(GRPOTrainer)
+    calls = []
+    trainer.prepare_model_for_modalities = lambda model, **kwargs: calls.append(
+        ("modalities", kwargs)
+    )
+    trainer.apply_lora_to_model = lambda model, *args, **kwargs: (
+        calls.append(("lora", kwargs)) or model
+    )
+
+    trainer.setup_model()
+
+    assert calls[0] == (
+        "modalities",
+        {"use_vision": False, "use_audio": False},
+    )
+    assert calls[1][0] == "lora"
+
+
+def test_gspo_prepares_text_only_modalities_before_lora(monkeypatch):
+    # GSPO loads via AutoModelForCausalLM directly (not load_base_model_for_training).
+    monkeypatch.setattr(
+        "trainers.gspo_trainer.AutoModelForCausalLM.from_pretrained",
+        lambda *_args, **_kwargs: nn.Module(),
+    )
+    trainer = _text_trainer_setup(GSPOTrainer)
     calls = []
     trainer.prepare_model_for_modalities = lambda model, **kwargs: calls.append(
         ("modalities", kwargs)

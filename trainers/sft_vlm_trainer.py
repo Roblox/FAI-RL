@@ -19,12 +19,6 @@ from utils.video_utils import fetch_video
 from trainers.vlm_collator import VideoAwareVLMCollator
 
 
-# Submodule attribute names commonly used for the vision encoder across VLM
-# architectures (Qwen-VL exposes it as `.visual`; LLaVA/others as
-# `.vision_tower`/`.vision_model`). We freeze whichever is present.
-_VISION_TOWER_ATTRS = ("visual", "vision_tower", "vision_model")
-
-
 class SFTVLMTrainer(BaseTrainer):
     """Multimodal SFT trainer for vision-language models (image + text).
 
@@ -91,27 +85,16 @@ class SFTVLMTrainer(BaseTrainer):
         if getattr(tokenizer, "pad_token", None) is None and getattr(tokenizer, "eos_token", None):
             tokenizer.pad_token = tokenizer.eos_token
 
-        # Optionally freeze the vision encoder (standard for VLM SFT; also avoids
-        # training the ViT under full fine-tuning).
-        frozen_tower_attr = None
-        if getattr(self.config.model, "freeze_vision_tower", True):
-            frozen_tower_attr = self._freeze_vision_tower(self.model)
-
-        # Keep LoRA out of the (frozen) vision tower. target_modules like q_proj
-        # match by name across the whole model, including the tower. FAI-RL can
-        # wrap Gemma4ClippableLinear, so exclusion is what actually keeps the
-        # frozen tower unadapted -- not a PEFT type error. A regex string is
-        # required because a list only suffix-matches leaf names, not a subtree.
-        if (
-            getattr(self.config.model, "use_lora", False)
-            and frozen_tower_attr is not None
-            and not getattr(self.config.model, "lora_exclude_modules", None)
-        ):
-            self.config.model.lora_exclude_modules = rf"(.*\.)?{frozen_tower_attr}\..*"
-            self.logger.info(
-                "Excluding frozen vision tower from LoRA injection: "
-                f"lora_exclude_modules={self.config.model.lora_exclude_modules!r}"
-            )
+        # This collator feeds image/video inputs but has no audio path. Freeze
+        # every encoder it will not use before LoRA injection. The explicit
+        # freeze_vision_tower recipe setting still overrides an active vision
+        # modality, preserving the standard frozen-ViT recipe.
+        self.prepare_model_for_modalities(
+            self.model,
+            use_vision=self._has_vision_columns,
+            use_audio=False,
+            freeze_vision=getattr(self.config.model, "freeze_vision_tower", True),
+        )
 
         # Apply LoRA/QLoRA if enabled (reuses BaseTrainer helper).
         self.model = self.apply_lora_to_model(self.model, TaskType.CAUSAL_LM, quantization_config)
@@ -119,30 +102,6 @@ class SFTVLMTrainer(BaseTrainer):
         self.disable_cache_for_gradient_checkpointing(self.model)
 
         self.logger.info("VLM and processor loaded successfully")
-
-    def _freeze_vision_tower(self, model):
-        """Freeze the vision encoder submodule if one can be located.
-
-        Returns the attribute name of the frozen tower (e.g. "vision_tower"), or
-        None if no known vision submodule was found. Callers use the name to keep
-        LoRA from being injected into the frozen tower.
-        """
-        # PEFT may wrap the model; reach through to the underlying module.
-        base = getattr(model, "base_model", model)
-        base = getattr(base, "model", base)
-        for root in (model, base):
-            for attr in _VISION_TOWER_ATTRS:
-                tower = getattr(root, attr, None)
-                if tower is not None and hasattr(tower, "parameters"):
-                    for p in tower.parameters():
-                        p.requires_grad_(False)
-                    self.logger.info(f"Froze vision tower: {attr}")
-                    return attr
-        self.logger.warning(
-            "freeze_vision_tower=true but no known vision submodule "
-            f"({', '.join(_VISION_TOWER_ATTRS)}) was found; nothing frozen."
-        )
-        return None
 
     # ------------------------------ data ------------------------------------
 
@@ -539,6 +498,21 @@ class SFTVLMTrainer(BaseTrainer):
             # vision collator computes loss only on the assistant completion. Flat
             # mode leaves this False (loss over the whole sequence).
             completion_only_loss=True if self._split_mode else None,
+        )
+
+    @property
+    def _has_vision_columns(self) -> bool:
+        """True when this run's VLM collator will receive images or videos.
+
+        Assumption: a declared image/video column means those inputs are
+        actually fed this run. If a recipe lists an image column but every cell
+        is empty (so the collator effectively runs text-only), vision still
+        looks "in use" here and the tower is kept trainable. We do not inspect
+        per-batch contents or freeze/unfreeze mid-run to catch that case.
+        """
+        return any(
+            getattr(ds, "image_columns", None) or getattr(ds, "video_columns", None)
+            for ds in self.config.data.datasets
         )
 
     @property

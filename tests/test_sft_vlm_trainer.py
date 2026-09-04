@@ -99,7 +99,8 @@ def test_setup_model_loads_processor_from_peft_base_not_adapter_dir(tmp_path, mo
             base_model_name=str(adapter_dir),
             freeze_vision_tower=False,
             use_lora=False,
-        )
+        ),
+        data=SimpleNamespace(datasets=[]),
     )
 
     def fake_load(_kwargs):
@@ -110,6 +111,7 @@ def test_setup_model_loads_processor_from_peft_base_not_adapter_dir(tmp_path, mo
     trainer.create_quantization_config = lambda: None
     trainer.prepare_model_kwargs = lambda _q: {}
     trainer.load_base_model_for_training = fake_load
+    trainer.prepare_model_for_modalities = lambda model, **kwargs: model
     trainer.apply_lora_to_model = lambda model, *args, **kwargs: model
     trainer.disable_cache_for_gradient_checkpointing = lambda _model: None
 

@@ -61,6 +61,13 @@ class DPOTrainer(BaseTrainer):
         if self.ref_model is not None:
             self.ref_model.resize_token_embeddings(len(self.tokenizer))
 
+        # DPO's text collator does not feed either multimodal encoder. Prepare
+        # the main model before LoRA so Gemma 4 E-series does not receive
+        # trainable adapters in towers that cannot contribute to the loss.
+        self.prepare_model_for_modalities(
+            self.model, use_vision=False, use_audio=False
+        )
+
         # Apply LoRA if enabled (including QLoRA) using base class method
         # Note: Only apply LoRA to the main model, not the reference model
         # The reference model should remain frozen as a baseline

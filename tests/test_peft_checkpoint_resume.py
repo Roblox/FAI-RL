@@ -146,6 +146,7 @@ def test_dpo_reference_model_loads_from_peft_base(monkeypatch):
     trainer.create_quantization_config = lambda: None
     trainer.prepare_model_kwargs = lambda _quantization: {}
     trainer.load_base_model_for_training = fake_load
+    trainer.prepare_model_for_modalities = lambda model, **kwargs: model
     trainer.apply_lora_to_model = lambda model, *args, **kwargs: model
     trainer.disable_cache_for_gradient_checkpointing = lambda _model: None
 

@@ -185,7 +185,7 @@ class SFTTrainer(BaseTrainer):
         if self.config.training.gradient_checkpointing:
             gradient_checkpointing_kwargs = {"use_reentrant": False}
         
-        return SFTConfig(
+        return SFTConfig(**self.training_args_with_early_stopping(
             output_dir=self.config.training.output_dir,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
             gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
@@ -213,8 +213,7 @@ class SFTTrainer(BaseTrainer):
             # loss is computed only on the assistant completion. (Flat mode leaves
             # this at TRL's default of False -> loss over the whole sequence.)
             completion_only_loss=True if self.config.data.split_mode else None,
-            **self.early_stopping_training_kwargs(),
-        )
+        ))
 
     def setup_trainer(self):
         """Initialize the SFT trainer."""

@@ -1,8 +1,11 @@
 """Tests for early-stopping helpers (no model load)."""
 
+import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -70,6 +73,100 @@ def test_training_args_keep_aligned_save_steps():
     t = SimpleNamespace(eval_steps=50, save_steps=100, metric_for_best_model="eval_loss")
     kwargs = training_args_for_early_stopping(t)
     assert kwargs["save_steps"] == 100
+
+
+def test_training_args_drop_load_best_when_deepspeed_saves_model_only():
+    t = SimpleNamespace(eval_steps=50, save_steps=100, metric_for_best_model="eval_loss")
+    kwargs = training_args_for_early_stopping(
+        t,
+        base_kwargs={"deepspeed": "configs/deepspeed/zero3_config.json", "save_only_model": True},
+    )
+    assert kwargs["load_best_model_at_end"] is False
+    assert kwargs["eval_strategy"] == "steps"
+
+
+def test_training_args_keep_load_best_without_deepspeed():
+    t = SimpleNamespace(eval_steps=50, save_steps=100, metric_for_best_model="eval_loss")
+    kwargs = training_args_for_early_stopping(t, base_kwargs={"save_only_model": True})
+    assert kwargs["load_best_model_at_end"] is True
+
+
+def _stub_trainer(trainer_cls, **training_overrides):
+    """A trainer instance with only the fields ``setup_training_args`` reads."""
+    from core.config import DataConfig, TrainingConfig
+
+    trainer = object.__new__(trainer_cls)
+    trainer.logger = logging.getLogger("test")
+    trainer.config = SimpleNamespace(
+        training=TrainingConfig(output_dir="out", **training_overrides),
+        data=DataConfig(),
+        wandb=SimpleNamespace(enabled=False),
+    )
+    trainer._split_mode = False
+    return trainer
+
+
+def _supervised_trainer_classes():
+    from trainers.cpt_trainer import CPTTrainer
+    from trainers.dpo_trainer import DPOTrainer
+    from trainers.sft_trainer import SFTTrainer
+    from trainers.sft_vlm_trainer import SFTVLMTrainer
+
+    return {
+        "sft": SFTTrainer,
+        "cpt": CPTTrainer,
+        "dpo": DPOTrainer,
+        "sft_vlm": SFTVLMTrainer,
+    }
+
+
+@pytest.mark.parametrize("algorithm", ["sft", "cpt", "dpo", "sft_vlm"])
+def test_setup_training_args_applies_early_stopping_overrides(algorithm):
+    """Early stopping must override eval/save steps, not collide with them.
+
+    Passing both the recipe values and the early-stopping overrides to the TRL
+    config raises ``TypeError: got multiple values for keyword argument``.
+    """
+    trainer_cls = _supervised_trainer_classes()[algorithm]
+    trainer = _stub_trainer(trainer_cls, early_stopping=True, eval_steps=50, save_steps=120)
+
+    args = trainer.setup_training_args()
+
+    assert args.eval_strategy == "steps"
+    assert args.eval_steps == 50
+    assert args.save_steps == 150
+    assert args.load_best_model_at_end is True
+    assert args.metric_for_best_model == "eval_loss"
+
+
+@pytest.mark.parametrize("algorithm", ["sft", "cpt", "dpo", "sft_vlm"])
+def test_setup_training_args_without_early_stopping_keeps_recipe_steps(algorithm):
+    trainer_cls = _supervised_trainer_classes()[algorithm]
+    trainer = _stub_trainer(trainer_cls, early_stopping=False, eval_steps=50, save_steps=120)
+
+    args = trainer.setup_training_args()
+
+    assert args.save_steps == 120
+    assert args.load_best_model_at_end is False
+
+
+def test_deepspeed_dpo_keeps_save_only_model_over_load_best():
+    """DeepSpeed refuses to reload a best checkpoint saved without optimizer state."""
+    # TrainingArguments rejects deepspeed= unless the (CUDA-only) package is installed.
+    pytest.importorskip("deepspeed")
+    from trainers.dpo_trainer import DPOTrainer
+
+    trainer = _stub_trainer(
+        DPOTrainer,
+        early_stopping=True,
+        save_only_model=True,
+        deepspeed_config="configs/deepspeed/zero3_config.json",
+    )
+
+    args = trainer.setup_training_args()
+
+    assert args.save_only_model is True
+    assert args.load_best_model_at_end is False
 
 
 def test_sft_recipe_loads_early_stopping_defaults():

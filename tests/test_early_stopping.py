@@ -21,7 +21,7 @@ class _FakeDataset:
 
     def train_test_split(self, test_size, seed, shuffle):
         self.last_kwargs = {"test_size": test_size, "seed": seed, "shuffle": shuffle}
-        eval_n = test_size if isinstance(test_size, int) else max(1, int(round(self._n * test_size)))
+        eval_n = test_size if isinstance(test_size, int) else max(1, round(self._n * test_size))
         return {
             "train": _FakeDataset(self._n - eval_n),
             "test": _FakeDataset(eval_n),
@@ -78,8 +78,17 @@ def test_sft_recipe_loads_early_stopping_defaults():
     config = ExperimentConfig.from_yaml(
         str(REPO_ROOT / "recipes" / "training" / "sft" / "llama3_3B_lora.yaml")
     )
-    assert config.training.early_stopping is False
+    assert config.training.early_stopping is True
     assert config.training.early_stopping_patience == 3
     assert config.training.early_stopping_threshold == 0.0
     assert config.training.eval_split_ratio == 0.1
     assert config.training.metric_for_best_model == "eval_loss"
+
+
+def test_supported_recipes_enable_early_stopping():
+    import yaml
+
+    for algorithm in ("sft", "sft_vlm", "cpt", "dpo"):
+        for recipe in (REPO_ROOT / "recipes" / "training" / algorithm).glob("*.yaml"):
+            config = yaml.safe_load(recipe.read_text())
+            assert config["training"]["early_stopping"] is True, recipe

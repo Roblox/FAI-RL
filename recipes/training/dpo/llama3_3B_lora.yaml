@@ -64,7 +64,7 @@ training:
   logging_steps: 5                                      # Log training metrics every N steps
   save_steps: 100                                       # Save model checkpoint every N steps
   eval_steps: 100                                       # Evaluate model every N steps (optional, used by DPO/GRPO/GSPO/SFT)
-  early_stopping: false                                 # Hold out eval_split_ratio of train; stop when eval_loss plateaus
+  early_stopping: true                                 # Hold out eval_split_ratio of train; stop when eval_loss plateaus
   early_stopping_patience: 3                            # Evals with no improvement before stop
   early_stopping_threshold: 0.0                         # Minimum eval_loss delta to reset patience
   eval_split_ratio: 0.1                                 # Fraction of mapped train rows held out for eval

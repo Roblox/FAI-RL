@@ -480,7 +480,8 @@ version = "X.Y.Z"  # Increment version
 3. Use `vX.Y.Z` as the release title, add concise release notes, and select
    **Publish release**.
 4. Verify the **Upload Python Package** workflow succeeds and that version
-   `X.Y.Z` is available from PyPI before consumers pin or deploy it.
+   `X.Y.Z` is available from [PyPI](https://pypi.org/project/FAI-RL/) before
+   consumers pin or deploy it.
 
 The tag and `pyproject.toml` version must match. PyPI versions are immutable,
 so do not reuse a version after it has been published.

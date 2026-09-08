@@ -222,6 +222,19 @@ data:
 
 The file is downloaded to a temporary path at training startup, loaded into the HuggingFace Arrow cache, and then deleted. Multiple S3 datasets (or a mix of S3, local, and Hub) can be listed and will be concatenated before training.
 
+## Early stopping
+
+SFT, CPT, DPO, and sft_vlm recipes include HuggingFace early stopping knobs under `training:`. They are **on by default**: `eval_split_ratio` of the mapped train set is held out, and training stops when `eval_loss` does not improve for `early_stopping_patience` evals (every `eval_steps`). Set `early_stopping: false` to train on the full dataset without early stopping. GRPO/GSPO ignore these keys.
+
+```yaml
+training:
+  eval_steps: 50
+  early_stopping: true
+  early_stopping_patience: 3
+  early_stopping_threshold: 0.0
+  eval_split_ratio: 0.1
+```
+
 ## Naming Convention
 
 ```

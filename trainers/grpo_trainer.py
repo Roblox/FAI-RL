@@ -21,6 +21,8 @@ from .rewards.factory import build_reward_function
 class GRPOTrainer(BaseTrainer):
     """GRPO (Group Relative Policy Optimization) trainer implementation."""
 
+    supports_early_stopping = False
+
     def __init__(self, config: ExperimentConfig, logger: Optional[object] = None):
         super().__init__(config, logger=logger)
         self.trainer = None

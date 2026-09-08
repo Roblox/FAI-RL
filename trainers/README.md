@@ -296,6 +296,10 @@ The file is downloaded to a temporary path at training startup, loaded into the 
 - Set `save_steps` based on dataset size (e.g., every 10% of total steps)
 - Keep `save_only_model: true` to save disk space
 - Use `eval_steps` to monitor validation performance periodically
+- SFT/CPT/DPO/sft_vlm enable early stopping by default, holding out
+  `eval_split_ratio` of the train set and stopping when `eval_loss` does not
+  improve for `early_stopping_patience` evals. Set `early_stopping: false` to
+  disable it. GRPO/GSPO ignore the flag.
 
 ### Dataset Preparation
 - Ensure column names in config match your dataset

@@ -172,6 +172,7 @@ class SFTTrainer(BaseTrainer):
             self.logger.warning(f"Total examples skipped across all datasets: {total_skipped}")
         
         self.logger.info(f"Total dataset loaded with {total_examples} valid examples from {len(datasets)} datasets")
+        self.train_dataset, self.eval_dataset = self.apply_eval_holdout(self.train_dataset)
 
     def setup_training_args(self) -> SFTConfig:
         """Create SFT training configuration."""
@@ -212,6 +213,7 @@ class SFTTrainer(BaseTrainer):
             # loss is computed only on the assistant completion. (Flat mode leaves
             # this at TRL's default of False -> loss over the whole sequence.)
             completion_only_loss=True if self.config.data.split_mode else None,
+            **self.early_stopping_training_kwargs(),
         )
 
     def setup_trainer(self):
@@ -224,6 +226,7 @@ class SFTTrainer(BaseTrainer):
             processing_class=self.tokenizer,
             train_dataset=self.train_dataset,
             callbacks=self.build_callbacks(),
+            **self.trainer_eval_kwargs(),
         )
 
         self.logger.info("SFT trainer initialized")

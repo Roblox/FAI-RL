@@ -454,7 +454,10 @@ class SFTVLMTrainer(BaseTrainer):
         )
 
         # Lazy: images are fetched/decoded to PIL only when rows are accessed.
-        self.train_dataset = combined.with_transform(self._make_transform())
+        transform = self._make_transform()
+        train_raw, eval_raw = self.apply_eval_holdout(combined)
+        self.train_dataset = train_raw.with_transform(transform)
+        self.eval_dataset = eval_raw.with_transform(transform) if eval_raw is not None else None
 
     # ---------------------------- training ----------------------------------
 
@@ -498,6 +501,7 @@ class SFTVLMTrainer(BaseTrainer):
             # vision collator computes loss only on the assistant completion. Flat
             # mode leaves this False (loss over the whole sequence).
             completion_only_loss=True if self._split_mode else None,
+            **self.early_stopping_training_kwargs(),
         )
 
     @property
@@ -548,6 +552,7 @@ class SFTVLMTrainer(BaseTrainer):
             train_dataset=self.train_dataset,
             data_collator=data_collator,
             callbacks=self.build_callbacks(),
+            **self.trainer_eval_kwargs(),
         )
 
         self.logger.info("SFT VLM trainer initialized")

@@ -108,6 +108,7 @@ class CPTTrainer(BaseTrainer):
             self.logger.warning(f"Total examples skipped across all datasets: {total_skipped}")
 
         self.logger.info(f"Total dataset loaded with {total_examples} valid examples from {len(datasets)} datasets")
+        self.train_dataset, self.eval_dataset = self.apply_eval_holdout(self.train_dataset)
 
     def setup_training_args(self) -> SFTConfig:
         """Create CPT training configuration."""
@@ -141,6 +142,7 @@ class CPTTrainer(BaseTrainer):
             ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
             max_length=self.config.data.max_length,
             dataset_num_proc=self.config.data.dataset_num_proc,
+            **self.early_stopping_training_kwargs(),
         )
 
     def setup_trainer(self):
@@ -153,6 +155,7 @@ class CPTTrainer(BaseTrainer):
             processing_class=self.tokenizer,
             train_dataset=self.train_dataset,
             callbacks=self.build_callbacks(),
+            **self.trainer_eval_kwargs(),
         )
 
         self.logger.info("CPT trainer initialized")

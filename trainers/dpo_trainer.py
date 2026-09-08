@@ -156,6 +156,7 @@ class DPOTrainer(BaseTrainer):
             self.logger.warning(f"Total examples skipped across all datasets: {total_skipped}")
         
         self.logger.info(f"Total dataset loaded with {total_examples} valid examples from {len(datasets)} datasets")
+        self.train_dataset, self.eval_dataset = self.apply_eval_holdout(self.train_dataset)
 
     def setup_training_args(self) -> DPOConfig:
         """Create DPO training configuration."""
@@ -193,6 +194,7 @@ class DPOTrainer(BaseTrainer):
             prediction_loss_only=self.config.training.prediction_loss_only,
             report_to=report_to,
             ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
+            **self.early_stopping_training_kwargs(),
         )
 
     def setup_trainer(self):
@@ -206,6 +208,7 @@ class DPOTrainer(BaseTrainer):
             processing_class=self.tokenizer,
             train_dataset=self.train_dataset,
             callbacks=self.build_callbacks(),
+            **self.trainer_eval_kwargs(),
         )
 
         self.logger.info("DPO trainer initialized")

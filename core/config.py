@@ -266,6 +266,16 @@ class TrainingConfig:
     logging_steps: int = 10
     save_steps: int = 500
     eval_steps: int = 500
+
+    # Early stopping (SFT / CPT / DPO / sft_vlm). Holds out eval_split_ratio of
+    # the mapped train set and stops when eval_loss does not improve for
+    # early_stopping_patience evals. Ignored by GRPO/GSPO. Off by default so
+    # existing recipes stay unchanged.
+    early_stopping: bool = False
+    early_stopping_patience: int = 3
+    early_stopping_threshold: float = 0.0
+    eval_split_ratio: float = 0.1
+    metric_for_best_model: str = "eval_loss"
     
     # Optimization
     bf16: bool = True

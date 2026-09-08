@@ -226,6 +226,50 @@ class BaseTrainer(ABC):
         if is_cuda_available():
             os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
+        # Populated by apply_eval_holdout when training.early_stopping is on.
+        self.eval_dataset = None
+
+    # Supervised trainers (SFT/CPT/DPO/sft_vlm) can hold out eval loss.
+    # GRPO/GSPO override this: eval would generate completions.
+    supports_early_stopping = True
+
+    def apply_eval_holdout(self, dataset):
+        """Hold out an eval split when early stopping is enabled.
+
+        Returns ``(train_dataset, eval_dataset_or_None)``. Call this after the
+        trainer has mapped/filtered rows so eval uses the same features as train.
+        """
+        t = self.config.training
+        if not getattr(t, "early_stopping", False):
+            return dataset, None
+        if not self.supports_early_stopping:
+            self.logger.warning(
+                "early_stopping is not supported for this algorithm; ignoring"
+            )
+            return dataset, None
+        from utils.early_stopping import hold_out_eval_dataset
+
+        train_ds, eval_ds = hold_out_eval_dataset(
+            dataset, t.eval_split_ratio, logger=self.logger
+        )
+        self.eval_dataset = eval_ds
+        return train_ds, eval_ds
+
+    def early_stopping_training_kwargs(self) -> dict:
+        """Extra TRL/HF TrainingArguments fields for early stopping."""
+        t = self.config.training
+        if not getattr(t, "early_stopping", False) or not self.supports_early_stopping:
+            return {}
+        from utils.early_stopping import training_args_for_early_stopping
+
+        return training_args_for_early_stopping(t, logger=self.logger)
+
+    def trainer_eval_kwargs(self) -> dict:
+        """``eval_dataset=...`` for the TRL trainer constructor, if held out."""
+        if getattr(self, "eval_dataset", None) is None:
+            return {}
+        return {"eval_dataset": self.eval_dataset}
+
     def _maybe_download_s3_model(self) -> None:
         """Download the base model from S3 if base_model_name is an s3:// URI.
 
@@ -938,6 +982,18 @@ class BaseTrainer(ABC):
             self.logger.info(
                 "Debug diagnostics enabled (INFO); set FAI_RL_DISABLE_DEBUG_CALLBACK=1 to disable."
             )
+        if self.supports_early_stopping:
+            from utils.early_stopping import build_early_stopping_callback
+
+            es_cb = build_early_stopping_callback(self.config.training)
+            if es_cb is not None:
+                callbacks.append(es_cb)
+                self.logger.info(
+                    "Early stopping enabled (patience=%s, threshold=%s, eval_split_ratio=%s)",
+                    self.config.training.early_stopping_patience,
+                    self.config.training.early_stopping_threshold,
+                    self.config.training.eval_split_ratio,
+                )
         return callbacks
 
     @abstractmethod

@@ -118,7 +118,7 @@ class CPTTrainer(BaseTrainer):
         if self.config.training.gradient_checkpointing:
             gradient_checkpointing_kwargs = {"use_reentrant": False}
 
-        return SFTConfig(
+        return SFTConfig(**self.training_args_with_early_stopping(
             output_dir=self.config.training.output_dir,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
             gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
@@ -142,8 +142,7 @@ class CPTTrainer(BaseTrainer):
             ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
             max_length=self.config.data.max_length,
             dataset_num_proc=self.config.data.dataset_num_proc,
-            **self.early_stopping_training_kwargs(),
-        )
+        ))
 
     def setup_trainer(self):
         """Initialize the CPT trainer."""

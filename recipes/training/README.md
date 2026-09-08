@@ -226,6 +226,8 @@ The file is downloaded to a temporary path at training startup, loaded into the 
 
 SFT, CPT, DPO, and sft_vlm recipes include HuggingFace early stopping knobs under `training:`. They are **on by default**: `eval_split_ratio` of the mapped train set is held out, and training stops when `eval_loss` does not improve for `early_stopping_patience` evals (every `eval_steps`). Set `early_stopping: false` to train on the full dataset without early stopping. GRPO/GSPO ignore these keys.
 
+Early stopping takes over `eval_steps` and `save_steps`: `save_steps` is rounded up to a multiple of `eval_steps` so the best checkpoint can be reloaded at the end. The exception is `save_only_model: true` together with `deepspeed_config`, which DeepSpeed cannot reload from — training still stops early, but the final model is the last checkpoint rather than the best one.
+
 ```yaml
 training:
   eval_steps: 50

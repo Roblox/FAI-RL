@@ -38,15 +38,30 @@ def hold_out_eval_dataset(dataset, ratio: float, seed: int = 42, logger=None):
     return train_ds, eval_ds
 
 
-def training_args_for_early_stopping(training, logger=None) -> dict[str, Any]:
+def training_args_for_early_stopping(training, base_kwargs=None, logger=None) -> dict[str, Any]:
     """Extra ``TrainingArguments`` / TRL config kwargs when early stopping is on.
 
-    ``load_best_model_at_end`` requires matching save/eval strategies and
-    ``save_steps`` to be a multiple of ``eval_steps``.
+    These override the recipe's eval/save settings, so callers must merge them
+    over their own kwargs rather than pass both to the config constructor.
+    ``base_kwargs`` is what the trainer would otherwise pass, used to decide
+    whether the best checkpoint can be reloaded.
     """
+    base_kwargs = base_kwargs or {}
+    # DeepSpeed and FSDP cannot reload a checkpoint saved without optimizer
+    # state, and transformers raises before the first step rather than at the
+    # end. Early stopping itself only needs eval_strategy + metric_for_best_model.
+    load_best = not (base_kwargs.get("deepspeed") and base_kwargs.get("save_only_model"))
+    if not load_best and logger is not None:
+        logger.warning(
+            "save_only_model is set with DeepSpeed; training will stop early but "
+            "the final model is the last checkpoint, not the best one"
+        )
+
     eval_steps = max(1, int(training.eval_steps))
     save_steps = max(1, int(training.save_steps))
-    if save_steps % eval_steps != 0:
+    if load_best and save_steps % eval_steps != 0:
+        # load_best_model_at_end requires matching save/eval strategies and
+        # save_steps to be a multiple of eval_steps.
         adjusted = ((save_steps + eval_steps - 1) // eval_steps) * eval_steps
         if logger is not None:
             logger.warning(
@@ -64,7 +79,7 @@ def training_args_for_early_stopping(training, logger=None) -> dict[str, Any]:
         "save_strategy": "steps",
         "eval_steps": eval_steps,
         "save_steps": save_steps,
-        "load_best_model_at_end": True,
+        "load_best_model_at_end": load_best,
         "metric_for_best_model": metric,
         "greater_is_better": greater,
     }

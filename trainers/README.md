@@ -300,6 +300,9 @@ The file is downloaded to a temporary path at training startup, loaded into the 
   `eval_split_ratio` of the train set and stopping when `eval_loss` does not
   improve for `early_stopping_patience` evals. Set `early_stopping: false` to
   disable it. GRPO/GSPO ignore the flag.
+- Early stopping overrides `eval_steps`/`save_steps` and reloads the best
+  checkpoint, except under `save_only_model: true` with `deepspeed_config`,
+  where DeepSpeed cannot reload it and the last checkpoint is kept instead.
 
 ### Dataset Preparation
 - Ensure column names in config match your dataset

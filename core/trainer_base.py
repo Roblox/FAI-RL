@@ -255,14 +255,26 @@ class BaseTrainer(ABC):
         self.eval_dataset = eval_ds
         return train_ds, eval_ds
 
-    def early_stopping_training_kwargs(self) -> dict:
+    def early_stopping_training_kwargs(self, base_kwargs=None) -> dict:
         """Extra TRL/HF TrainingArguments fields for early stopping."""
         t = self.config.training
         if not getattr(t, "early_stopping", False) or not self.supports_early_stopping:
             return {}
         from utils.early_stopping import training_args_for_early_stopping
 
-        return training_args_for_early_stopping(t, logger=self.logger)
+        return training_args_for_early_stopping(
+            t, base_kwargs=base_kwargs, logger=self.logger
+        )
+
+    def training_args_with_early_stopping(self, **kwargs) -> dict:
+        """Recipe training-arg kwargs with early-stopping overrides applied.
+
+        Early stopping owns the eval/save strategy and steps, so a trainer must
+        route its kwargs through here instead of splatting the overrides
+        alongside them: the config constructor rejects a repeated keyword.
+        """
+        kwargs.update(self.early_stopping_training_kwargs(base_kwargs=kwargs))
+        return kwargs
 
     def trainer_eval_kwargs(self) -> dict:
         """``eval_dataset=...`` for the TRL trainer constructor, if held out."""

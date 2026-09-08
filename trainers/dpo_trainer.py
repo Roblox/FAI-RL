@@ -169,7 +169,7 @@ class DPOTrainer(BaseTrainer):
         if self.config.training.gradient_checkpointing:
             gradient_checkpointing_kwargs = {"use_reentrant": False}
 
-        return DPOConfig(
+        return DPOConfig(**self.training_args_with_early_stopping(
             output_dir=self.config.training.output_dir,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
             gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
@@ -194,8 +194,7 @@ class DPOTrainer(BaseTrainer):
             prediction_loss_only=self.config.training.prediction_loss_only,
             report_to=report_to,
             ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
-            **self.early_stopping_training_kwargs(),
-        )
+        ))
 
     def setup_trainer(self):
         """Initialize the DPO trainer."""

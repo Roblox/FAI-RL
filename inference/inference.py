@@ -6,6 +6,7 @@ import argparse
 import torch
 import os
 import json, csv
+import math
 import sys
 
 # Disable fast tokenizer conversion to avoid tiktoken issues
@@ -64,21 +65,36 @@ def has_template_placeholders(template):
     """Check if a template string contains placeholders like {variable}."""
     return '{' in template and '}' in template
 
+def _blank_if_missing(value):
+    """Render a blank cell as an empty string for prompt formatting.
+
+    Datasets represent an empty cell as None (Arrow/HuggingFace) or NaN
+    (pandas). Without this, str.format() would inject the literal text "None"
+    or "nan" into the prompt. Non-missing values (including lists such as MMLU
+    choices) are returned unchanged.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+
+    return value
 
 def format_template_prompt(template, example, config):
     """
     Format prompt template with example data, handling special cases like multiple choice.
-    
+
     Args:
         template: Template string with placeholders
         example: Dataset example dictionary
         config: Configuration object
-    
+
     Returns:
         Formatted prompt string
     """
-    # Create a copy of the example for formatting
-    format_dict = example.copy()
+    # Copy the example for formatting, rendering blank cells as "" so the
+    # template never injects the literal text "None"/"nan".
+    format_dict = {key: _blank_if_missing(value) for key, value in example.items()}
     
     # Handle multiple choice formatting if needed (for MMLU dataset)
     if hasattr(config, 'dataset_name') and config.dataset_name == "cais/mmlu":

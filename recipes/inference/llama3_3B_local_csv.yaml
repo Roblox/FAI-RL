@@ -1,6 +1,6 @@
-# Inference Configuration for Local Fine-tuned Model with Local CSV Dataset
-# This config runs inference on a local fine-tuned model checkpoint with a local CSV file.
-# Use this when you have a CSV file with your test data locally.
+# Inference Configuration for Local Fine-tuned Model with a Local File Dataset
+# Local files are loaded by extension (.jsonl, .json, .csv, .parquet), matching training.
+# Relative paths are resolved from the directory where inference is launched.
 
 inference:
   # Model Configuration - Single Checkpoints
@@ -10,11 +10,11 @@ inference:
   # Path to save inference results (CSV format with input columns + response column)
   output_file: "outputs/llama3-3B-inst-sft-lora-v1-infer-local-csv.csv"
   
-  # Dataset Configuration for Local CSV File
-  # Simply provide the path to your local CSV file (with .csv extension)
-  # The CSV should have the columns specified in dataset_columns below
-  dataset_name: "data/example_test_data.csv"  # Path to local CSV file (relative or absolute)
-  dataset_split: ""                           # Not used for CSV files, can leave empty
+  # Dataset Configuration for a local file
+  # Path ending in .jsonl / .json / .csv / .parquet (relative or absolute).
+  # The file should have the columns specified in dataset_columns below.
+  dataset_name: "data/example_test_data.csv"
+  dataset_split: ""                           # Used for Hub ids only; ignored for local files
   dataset_columns: ["persona", "prompt"]      # Columns from your CSV to use as input
   response_column: "response"                 # Name of column to store model responses (default: "response")
   

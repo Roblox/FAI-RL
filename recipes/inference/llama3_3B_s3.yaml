@@ -22,8 +22,9 @@ inference:
   output_file: "outputs/llama3-3B-inst-sft-lora-v1-infer-s3.csv"
 
   # Dataset Configuration
+  # Hub id, local file (.jsonl/.json/.csv/.parquet), or s3:// URI (extension selects the loader).
   dataset_name: "your-org/your-inference-dataset"
-  dataset_split: "test"
+  dataset_split: "test"                       # used for Hub ids; ignored for local/S3 files
   dataset_columns: ["persona", "prompt"]
   response_column: "response"
 

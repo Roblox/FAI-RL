@@ -78,16 +78,41 @@ def _load_from_s3(s3_uri: str, dataset_info):
         os.unlink(tmp_path)
 
 
-def load_training_dataset(dataset_info):
+def dataset_info_from_named_config(config):
+    """Adapt inference/eval config fields to the DatasetInfo-like shape trainers use.
+
+    Training recipes use ``name`` / ``split`` / ``subset``. Inference and eval
+    recipes use ``dataset_name`` / ``dataset_split`` / ``dataset_subset``.
+    Objects that already expose ``name`` (including DatasetInfo) are returned as-is.
+    """
+    from types import SimpleNamespace
+
+    if getattr(config, "name", None) is not None and not hasattr(config, "dataset_name"):
+        return config
+
+    return SimpleNamespace(
+        name=config.dataset_name,
+        split=getattr(config, "dataset_split", None) or "train",
+        subset=getattr(config, "dataset_subset", None),
+        s3_region=getattr(config, "s3_region", None),
+        s3_endpoint_url=getattr(config, "s3_endpoint_url", None),
+    )
+
+
+def load_raw_dataset(dataset_info):
     """Load a dataset from S3, a local file, or the HuggingFace Hub.
 
     S3 paths (s3://bucket/key) are downloaded to a temp file and then loaded.
     Local files are detected by extension (.jsonl, .json, .csv, .parquet).
     Relative paths are resolved from the current working directory.
     Hub datasets honour dataset_info.subset and dataset_info.split as before.
+
+    Also accepts inference/eval configs that use dataset_name / dataset_split /
+    dataset_subset instead of name / split / subset.
     """
     from datasets import load_dataset
 
+    dataset_info = dataset_info_from_named_config(dataset_info)
     name = dataset_info.name
 
     if name.startswith("s3://"):

@@ -19,7 +19,7 @@ fai-rl-inference --recipe recipes/inference/llama3_vanilla_3B.yaml
 # Run inference using an API endpoint (OpenAI, hosted LLM, etc.)
 fai-rl-inference --recipe recipes/inference/llama3_3B_api.yaml
 
-# Run inference with a local CSV file as the dataset
+# Run inference with a local file as the dataset (.jsonl / .json / .csv / .parquet)
 fai-rl-inference --recipe recipes/inference/llama3_3B_local_csv.yaml
 
 # Run inference with debug mode for detailed logging
@@ -56,6 +56,28 @@ By default, `system_prompt` is a single **flat** template that becomes the entir
 Both are `str.format()` templates keyed by `dataset_columns` (e.g. `user_prompt: "{prompt}"`), exactly like the flat `system_prompt`. In chat mode the model's chat template is applied with `add_generation_prompt=True`, so system/user roles are honored (rather than concatenated as raw text). This works across all three paths: local text, VLM (system turn prepended before the image+text user turn), and API (OpenAI/default → `system` message; Anthropic → top-level `system` field; Gemini → `system_instruction`).
 
 Leave `user_prompt` unset to keep the legacy flat `system_prompt` behavior — existing recipes are unaffected. See `recipes/inference/llama3_3B_chat.yaml`.
+
+### Dataset sources
+
+Inference uses the same dataset loader as training. Set `inference.dataset_name` to a HuggingFace Hub id, a local file path, or an `s3://` URI — the file extension selects the loader.
+
+**Supported file formats**
+
+| Extension | Format |
+|-----------|--------|
+| `.jsonl` | Newline-delimited JSON (recommended) |
+| `.json` | JSON array |
+| `.csv` | Comma-separated values |
+| `.parquet` | Apache Parquet |
+
+Relative paths are resolved from the directory where `fai-rl-inference` is launched. A missing local file raises `FileNotFoundError` (it is not treated as a Hub id). Hub datasets still use `dataset_name` plus `dataset_split` (and optional `dataset_subset`).
+
+```yaml
+inference:
+  dataset_name: "data/eval.jsonl"   # or s3://bucket/eval.jsonl, or org/hub-dataset
+  dataset_split: "test"             # used for Hub ids; ignored for local/S3 files
+  dataset_columns: ["question", "response"]
+```
 
 > **Running with Local Code**: If running directly from the repository, use `python inference/inference.py` instead of `fai-rl-inference`:
 > ```bash

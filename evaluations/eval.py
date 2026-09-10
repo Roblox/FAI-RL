@@ -13,16 +13,7 @@ import warnings
 import subprocess
 import datetime
 from typing import Dict, List, Tuple, Any, Optional, Union
-try:
-    # Prefer the HuggingFace 'datasets' library. If a conflicting local module existed
-    # (e.g., a folder named 'datasets'), it could shadow the external package. That
-    # folder has been renamed to 'eval_datasets' to avoid ImportError.
-    from datasets import load_dataset  # type: ignore
-except Exception as _import_err:  # pragma: no cover
-    raise ImportError(
-        f"Failed to import 'load_dataset' from HuggingFace datasets library: {_import_err}. "
-        "Ensure 'datasets' is installed (pip install datasets) and no local 'datasets' package shadows it."
-    )
+from types import SimpleNamespace
 import numpy as np
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
@@ -39,6 +30,7 @@ if project_root not in sys.path:
 from core.config import ExperimentConfig, EvaluationConfig
 from inference.inference import run_inference, load_model_and_tokenizer, generate_response
 from utils.api_utils import generate_response_by_api
+from utils.dataset_utils import load_raw_dataset
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 from utils.logging_utils import setup_logging, SafeLogger
 
@@ -108,22 +100,19 @@ def load_evaluation_dataset(dataset_name: str, split: str = "test", subset: Opti
     if subset:
         print(f"Dataset subset: {subset}")
     print(f"Split: {split}")
-    
-    # Load dataset with or without subset
-    if subset:
-        dataset = load_dataset(dataset_name, subset)
-    else:
-        dataset = load_dataset(dataset_name)
-    
-    # Get the appropriate split
-    data_split = dataset[split] if split in dataset else dataset[list(dataset.keys())[0]]
-    
-    # Convert to DataFrame for easier processing
-    df = pd.DataFrame(data_split)
-    print(f"Loaded {len(df)} examples from evaluation dataset")
-    
-    return df
 
+    # Same loader as training/inference: local/S3 files by extension, Hub ids + split.
+    data_split = load_raw_dataset(
+        SimpleNamespace(
+            dataset_name=dataset_name,
+            dataset_split=split,
+            dataset_subset=subset,
+        )
+    )
+    df = data_split.to_pandas() if hasattr(data_split, "to_pandas") else pd.DataFrame(data_split)
+    print(f"Loaded {len(df)} examples from evaluation dataset")
+
+    return df
 
 def run_inference_for_evaluation(config: Union[ExperimentConfig, EvaluationConfig], debug: bool = False) -> pd.DataFrame:
     """

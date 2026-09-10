@@ -6,6 +6,7 @@ import argparse
 import torch
 import os
 import json, csv
+import math
 import sys
 
 # Disable fast tokenizer conversion to avoid tiktoken issues
@@ -30,7 +31,6 @@ from transformers import (
     AutoProcessor,
     AutoModelForImageTextToText,
 )
-from datasets import load_dataset
 from utils.api_utils import generate_response_by_api
 from utils.image_utils import fetch_image
 from utils.media_utils import collect_media_sources
@@ -48,7 +48,7 @@ from core.peft_lora import peft_model_from_pretrained
 from utils.config_validation import validate_api_config
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 from utils.logging_utils import setup_logging, SafeLogger
-from utils.dataset_utils import format_multiple_choice_for_inference
+from utils.dataset_utils import format_multiple_choice_for_inference, load_raw_dataset
 from utils.device_utils import (
     get_device_type,
     get_optimal_dtype,
@@ -65,21 +65,36 @@ def has_template_placeholders(template):
     """Check if a template string contains placeholders like {variable}."""
     return '{' in template and '}' in template
 
+def _blank_if_missing(value):
+    """Render a blank cell as an empty string for prompt formatting.
+
+    Datasets represent an empty cell as None (Arrow/HuggingFace) or NaN
+    (pandas). Without this, str.format() would inject the literal text "None"
+    or "nan" into the prompt. Non-missing values (including lists such as MMLU
+    choices) are returned unchanged.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+
+    return value
 
 def format_template_prompt(template, example, config):
     """
     Format prompt template with example data, handling special cases like multiple choice.
-    
+
     Args:
         template: Template string with placeholders
         example: Dataset example dictionary
         config: Configuration object
-    
+
     Returns:
         Formatted prompt string
     """
-    # Create a copy of the example for formatting
-    format_dict = example.copy()
+    # Copy the example for formatting, rendering blank cells as "" so the
+    # template never injects the literal text "None"/"nan".
+    format_dict = {key: _blank_if_missing(value) for key, value in example.items()}
     
     # Handle multiple choice formatting if needed (for MMLU dataset)
     if hasattr(config, 'dataset_name') and config.dataset_name == "cais/mmlu":
@@ -607,55 +622,11 @@ def run_inference(config, debug=False):
     # Track if we're running multi-checkpoint inference
     is_multi_checkpoint = len(checkpoint_paths) > 1
 
-    # Load dataset once (shared across all checkpoints)
+    # Load dataset once (shared across all checkpoints). Same loader as training:
+    # local/S3 files by extension (.jsonl, .json, .csv, .parquet); Hub ids + split.
     print(f"Loading dataset: {config.dataset_name}")
-    
-    # S3-hosted dataset file (csv): download to a temp path, load it, then delete it.
-    if config.dataset_name.startswith('s3://'):
-        from utils.s3_utils import download_file_from_s3
-        print(f"Detected S3 URI, downloading dataset: {config.dataset_name}")
-        _s3_dataset_tmp = download_file_from_s3(
-            config.dataset_name,
-            region=getattr(config, 's3_region', None),
-            endpoint_url=getattr(config, 's3_endpoint_url', None),
-        )
-        try:
-            df = pd.read_csv(_s3_dataset_tmp)
-        finally:
-            os.unlink(_s3_dataset_tmp)
-        print(f"Loaded {len(df)} rows from S3 dataset file")
-
-        # Convert DataFrame to list of dicts (similar to HuggingFace dataset format)
-        data_split = df.to_dict('records')
-    # Check if dataset_name has CSV extension - if so, load from local file
-    elif config.dataset_name.endswith('.csv'):
-        print(f"Detected CSV file, loading from local path: {config.dataset_name}")
-        
-        # Handle relative and absolute paths
-        dataset_path = config.dataset_name
-        if not os.path.isabs(dataset_path):
-            dataset_path = os.path.join(os.getcwd(), dataset_path)
-        
-        # Check if file exists
-        if not os.path.exists(dataset_path):
-            raise FileNotFoundError(f"CSV file not found: {dataset_path}")
-        
-        # Load CSV using pandas
-        df = pd.read_csv(dataset_path)
-        print(f"Loaded {len(df)} rows from CSV file")
-        
-        # Convert DataFrame to list of dicts (similar to HuggingFace dataset format)
-        data_split = df.to_dict('records')
-    else:
-        # Load from HuggingFace
-        if hasattr(config, 'dataset_subset') and config.dataset_subset:
-            dataset = load_dataset(config.dataset_name, config.dataset_subset)
-        else:
-            dataset = load_dataset(config.dataset_name)
-        
-        # Get the appropriate split
-        data_split = dataset[config.dataset_split] if config.dataset_split in dataset else dataset[list(dataset.keys())[0]]
-    
+    data_split = load_raw_dataset(config)
+    print(f"Loaded {len(data_split)} rows")
     print(f"Processing {len(data_split)} examples from the dataset...")
     
     # Process all checkpoints

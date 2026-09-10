@@ -444,6 +444,7 @@ class InferenceConfig:
     
     # Dataset configuration
     dataset_name: str = "Roblox/FAI-RL-inference-dataset"
+    dataset_subset: Optional[str] = None
     dataset_split: str = "test"
     output_file: str = "outputs/inference_results.json"
     system_prompt: str = ""

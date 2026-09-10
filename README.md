@@ -371,7 +371,7 @@ s3:
 
 ### How It Works
 
-1. **Intermediate checkpoints** -- When the trainer saves a checkpoint (every `training.save_steps` steps), the S3 callback uploads the entire checkpoint directory to `s3://<bucket>/<prefix>/checkpoint-<step>/` in a background thread.
+1. **Intermediate checkpoints** -- When the trainer saves a checkpoint (every `training.save_steps` steps), the S3 callback writes `eval_metrics.json` (held-out `eval_loss` for that step) into the checkpoint directory, uploads a compact `checkpoint_eval.json` index next to the checkpoint dirs, then uploads the entire checkpoint directory to `s3://<bucket>/<prefix>/checkpoint-<step>/` in a background thread.
 2. **Final model** -- At the end of training, the output directory is uploaded to `s3://<bucket>/<prefix>/final/`.
 3. **Non-blocking** -- All uploads happen on daemon threads. Training continues while files are being transferred. At the end of training, the callback waits for any remaining uploads to finish before the process exits.
 
@@ -385,9 +385,11 @@ s3://your-s3-bucket/
     ├── checkpoint-100/
     │   ├── adapter_config.json
     │   ├── adapter_model.safetensors
+    │   ├── eval_metrics.json          # eval_loss at this step
     │   └── ...
     ├── checkpoint-200/
     │   └── ...
+    ├── checkpoint_eval.json           # all checkpoint eval_loss scores
     └── final/
         ├── adapter_config.json
         ├── adapter_model.safetensors

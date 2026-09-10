@@ -1,7 +1,9 @@
+import json
 import os
 import shlex
 import shutil
 import subprocess
+import tempfile
 import threading
 from pathlib import Path
 from typing import Optional
@@ -115,6 +117,43 @@ def upload_directory_to_s3(
         logger.info("Deleted local directory %s after upload", local_dir)
 
 
+def eval_metrics_from_trainer_state(state: TrainerState) -> dict:
+    """Compact eval snapshot for this save step.
+
+    HuggingFace already writes eval_loss into checkpoint trainer_state.json;
+    this sidecar (and the job-level index) is a small file the portal can
+    list without parsing the growing log_history.
+    """
+    step = int(getattr(state, "global_step", 0) or 0)
+    metrics: dict = {"step": step}
+    history = list(getattr(state, "log_history", None) or [])
+    for entry in reversed(history):
+        if not isinstance(entry, dict) or "eval_loss" not in entry:
+            continue
+        try:
+            metrics["eval_loss"] = float(entry["eval_loss"])
+        except (TypeError, ValueError):
+            pass
+        if entry.get("step") == step:
+            break
+    best = getattr(state, "best_metric", None)
+    if best is not None:
+        try:
+            metrics["best_metric"] = float(best)
+        except (TypeError, ValueError):
+            pass
+    best_step = getattr(state, "best_global_step", None)
+    if best_step is not None:
+        try:
+            metrics["best_global_step"] = int(best_step)
+        except (TypeError, ValueError):
+            pass
+    best_ckpt = getattr(state, "best_model_checkpoint", None)
+    if best_ckpt:
+        metrics["best_model_checkpoint"] = str(best_ckpt)
+    return metrics
+
+
 class S3UploadCallback(TrainerCallback):
     """HuggingFace TrainerCallback that uploads checkpoints to S3.
 
@@ -149,6 +188,8 @@ class S3UploadCallback(TrainerCallback):
         # failed upload pass as success.
         self._upload_errors: list[BaseException] = []
         self._errors_lock = threading.Lock()
+        # step -> eval_loss, rewritten to prefix/checkpoint_eval.json each save.
+        self._eval_index: dict[str, float] = {}
 
     def _run_upload(self, **kwargs):
         """Thread target that runs the upload and records any failure."""
@@ -208,6 +249,47 @@ class S3UploadCallback(TrainerCallback):
                 f"{len(errors)} S3 upload(s) failed; first error: {errors[0]}"
             ) from errors[0]
 
+    def _write_eval_artifacts(self, checkpoint_dir: str, state: TrainerState) -> None:
+        """Write eval_metrics.json into the checkpoint and a job-level index."""
+        metrics = eval_metrics_from_trainer_state(state)
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        sidecar = os.path.join(checkpoint_dir, "eval_metrics.json")
+        try:
+            with open(sidecar, "w", encoding="utf-8") as fh:
+                json.dump(metrics, fh, indent=2)
+        except OSError as exc:
+            logger.warning("Failed to write %s: %s", sidecar, exc)
+        loss = metrics.get("eval_loss")
+        if isinstance(loss, (int, float)):
+            self._eval_index[str(int(state.global_step))] = float(loss)
+        payload = {
+            "eval_loss": dict(self._eval_index),
+            "best_global_step": metrics.get("best_global_step"),
+            "best_metric": metrics.get("best_metric"),
+        }
+        index_key = f"{self.prefix}/checkpoint_eval.json" if self.prefix else "checkpoint_eval.json"
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2)
+                tmp_path = fh.name
+            upload_file_to_s3(
+                tmp_path,
+                self.bucket,
+                index_key,
+                region=self.region,
+                endpoint_url=self.endpoint_url,
+                uploader=self.uploader,
+            )
+        except Exception as exc:  # noqa: BLE001 - index is best-effort
+            logger.warning("Failed to upload checkpoint_eval.json: %s", exc)
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
     # -- Trainer hooks --
 
     def on_save(
@@ -228,6 +310,8 @@ class S3UploadCallback(TrainerCallback):
             args.output_dir, f"checkpoint-{state.global_step}"
         )
         s3_dest = f"{self.prefix}/checkpoint-{state.global_step}" if self.prefix else f"checkpoint-{state.global_step}"
+
+        self._write_eval_artifacts(checkpoint_dir, state)
 
         logger.info(
             "Scheduling S3 upload for checkpoint step %d -> s3://%s/%s",

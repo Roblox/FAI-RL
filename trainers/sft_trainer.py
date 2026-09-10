@@ -188,6 +188,7 @@ class SFTTrainer(BaseTrainer):
         return SFTConfig(**self.training_args_with_early_stopping(
             output_dir=self.config.training.output_dir,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
+            per_device_eval_batch_size=self.config.training.per_device_eval_batch_size,
             gradient_accumulation_steps=self.config.training.gradient_accumulation_steps,
             learning_rate=self.config.training.learning_rate,
             num_train_epochs=self.config.training.num_train_epochs,

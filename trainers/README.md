@@ -313,9 +313,10 @@ The file is downloaded to a temporary path at training startup, loaded into the 
 
 ### Out of Memory (OOM) Errors
 1. Reduce `per_device_train_batch_size`
-2. Enable `gradient_checkpointing: true`
-3. Switch to QLoRA: set `load_in_4bit: true` and configure LoRA
-4. Reduce `max_length` or `max_prompt_length`
+2. Reduce `per_device_eval_batch_size` if the failure occurs during evaluation
+3. Enable `gradient_checkpointing: true`
+4. Switch to QLoRA: set `load_in_4bit: true` and configure LoRA
+5. Reduce `max_length` or `max_prompt_length`
 
 ### Slow Training
 1. Increase `dataloader_num_workers` (e.g., 4-8)

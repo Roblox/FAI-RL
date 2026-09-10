@@ -150,6 +150,20 @@ def test_setup_training_args_without_early_stopping_keeps_recipe_steps(algorithm
     assert args.load_best_model_at_end is False
 
 
+@pytest.mark.parametrize("algorithm", ["sft", "cpt", "dpo", "sft_vlm"])
+def test_setup_training_args_uses_recipe_eval_batch_size(algorithm):
+    trainer_cls = _supervised_trainer_classes()[algorithm]
+    trainer = _stub_trainer(
+        trainer_cls,
+        early_stopping=True,
+        per_device_eval_batch_size=2,
+    )
+
+    args = trainer.setup_training_args()
+
+    assert args.per_device_eval_batch_size == 2
+
+
 def test_deepspeed_dpo_keeps_save_only_model_over_load_best():
     """DeepSpeed refuses to reload a best checkpoint saved without optimizer state."""
     # TrainingArguments rejects deepspeed= unless the (CUDA-only) package is installed.
@@ -175,6 +189,7 @@ def test_sft_recipe_loads_early_stopping_defaults():
     config = ExperimentConfig.from_yaml(
         str(REPO_ROOT / "recipes" / "training" / "sft" / "llama3_3B_lora.yaml")
     )
+    assert config.training.per_device_eval_batch_size == 1
     assert config.training.early_stopping is True
     assert config.training.early_stopping_patience == 3
     assert config.training.early_stopping_threshold == 0.0

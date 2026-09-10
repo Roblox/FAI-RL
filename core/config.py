@@ -245,6 +245,7 @@ class TrainingConfig:
     
     # Training hyperparameters
     per_device_train_batch_size: int = 1
+    per_device_eval_batch_size: int = 1
     gradient_accumulation_steps: int = 16
     learning_rate: float = 1e-6
     num_train_epochs: int = 3

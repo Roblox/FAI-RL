@@ -91,6 +91,60 @@ def test_training_args_keep_load_best_without_deepspeed():
     assert kwargs["load_best_model_at_end"] is True
 
 
+def test_training_config_can_enable_evaluation_without_early_stopping():
+    from core.config import TrainingConfig
+
+    config = TrainingConfig(
+        output_dir="out",
+        eval_enabled=True,
+        early_stopping=False,
+    )
+
+    assert config.eval_enabled is True
+    assert config.early_stopping is False
+
+
+def test_training_config_defaults_evaluation_to_early_stopping_for_compatibility():
+    from core.config import TrainingConfig
+
+    assert TrainingConfig(output_dir="out", early_stopping=True).eval_enabled is True
+    assert TrainingConfig(output_dir="out", early_stopping=False).eval_enabled is False
+
+
+def test_training_config_rejects_early_stopping_without_evaluation():
+    from core.config import TrainingConfig
+
+    with pytest.raises(ValueError, match="early_stopping requires eval_enabled"):
+        TrainingConfig(
+            output_dir="out",
+            eval_enabled=False,
+            early_stopping=True,
+        )
+
+
+def test_eval_holdout_runs_without_early_stopping():
+    from core.trainer_base import BaseTrainer
+
+    trainer = SimpleNamespace(
+        config=SimpleNamespace(
+            training=SimpleNamespace(
+                eval_enabled=True,
+                early_stopping=False,
+                eval_split_ratio=0.2,
+            )
+        ),
+        supports_early_stopping=True,
+        logger=logging.getLogger("test"),
+        eval_dataset=None,
+    )
+
+    train, evaluation = BaseTrainer.apply_eval_holdout(trainer, _FakeDataset(10))
+
+    assert len(train) == 8
+    assert len(evaluation) == 2
+    assert trainer.eval_dataset is evaluation
+
+
 def _stub_trainer(trainer_cls, **training_overrides):
     """A trainer instance with only the fields ``setup_training_args`` reads."""
     from core.config import DataConfig, TrainingConfig
@@ -147,6 +201,25 @@ def test_setup_training_args_without_early_stopping_keeps_recipe_steps(algorithm
     args = trainer.setup_training_args()
 
     assert args.save_steps == 120
+    assert args.load_best_model_at_end is False
+
+
+@pytest.mark.parametrize("algorithm", ["sft", "cpt", "dpo", "sft_vlm"])
+def test_setup_training_args_evaluates_without_early_stopping(algorithm):
+    trainer_cls = _supervised_trainer_classes()[algorithm]
+    trainer = _stub_trainer(
+        trainer_cls,
+        eval_enabled=True,
+        early_stopping=False,
+        eval_steps=50,
+        save_steps=100,
+    )
+
+    args = trainer.setup_training_args()
+
+    assert args.eval_strategy == "steps"
+    assert args.eval_steps == 50
+    assert args.save_steps == 100
     assert args.load_best_model_at_end is False
 
 

@@ -263,6 +263,7 @@ def test_sft_recipe_loads_early_stopping_defaults():
         str(REPO_ROOT / "recipes" / "training" / "sft" / "llama3_3B_lora.yaml")
     )
     assert config.training.per_device_eval_batch_size == 1
+    assert config.training.eval_enabled is True
     assert config.training.early_stopping is True
     assert config.training.early_stopping_patience == 3
     assert config.training.early_stopping_threshold == 0.0
@@ -276,4 +277,5 @@ def test_supported_recipes_enable_early_stopping():
     for algorithm in ("sft", "sft_vlm", "cpt", "dpo"):
         for recipe in (REPO_ROOT / "recipes" / "training" / algorithm).glob("*.yaml"):
             config = yaml.safe_load(recipe.read_text())
+            assert config["training"]["eval_enabled"] is True, recipe
             assert config["training"]["early_stopping"] is True, recipe

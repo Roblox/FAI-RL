@@ -1,8 +1,8 @@
-"""HuggingFace early-stopping helpers for FAI-RL trainers.
+"""HuggingFace evaluation and early-stopping helpers for FAI-RL trainers.
 
-Early stopping watches eval loss on a held-out slice of the (already mapped)
-training set and stops when it stops improving. GRPO/GSPO do not use this path:
-their eval would generate completions and is not wired here.
+Evaluation measures loss on a held-out slice of the already-mapped training
+set. Early stopping can additionally stop when that loss stops improving.
+GRPO/GSPO do not use this path: their eval would generate completions.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from typing import Any
 
 
 def hold_out_eval_dataset(dataset, ratio: float, seed: int = 42, logger=None):
-    """Split ``dataset`` into train/eval for early stopping.
+    """Split ``dataset`` into train/eval for periodic evaluation.
 
     ``ratio`` is the fraction held out for eval (exclusive of 0 and 1). At least
     one row is kept on each side.
@@ -23,14 +23,14 @@ def hold_out_eval_dataset(dataset, ratio: float, seed: int = 42, logger=None):
     n = len(dataset)
     if n < 2:
         raise ValueError(
-            "early stopping needs at least 2 examples to hold out an eval set"
+            "evaluation needs at least 2 examples to hold out an eval set"
         )
     eval_n = max(1, min(n - 1, round(n * ratio)))
     split = dataset.train_test_split(test_size=eval_n, seed=seed, shuffle=True)
     train_ds, eval_ds = split["train"], split["test"]
     if logger is not None:
         logger.info(
-            "Early stopping: held out %s eval examples (%.1f%% of %s) from train",
+            "Evaluation: held out %s eval examples (%.1f%% of %s) from train",
             len(eval_ds),
             100.0 * len(eval_ds) / n,
             n,
@@ -39,14 +39,19 @@ def hold_out_eval_dataset(dataset, ratio: float, seed: int = 42, logger=None):
 
 
 def training_args_for_early_stopping(training, base_kwargs=None, logger=None) -> dict[str, Any]:
-    """Extra ``TrainingArguments`` / TRL config kwargs when early stopping is on.
+    """Extra ``TrainingArguments`` / TRL kwargs when evaluation is on.
 
-    These override the recipe's eval/save settings, so callers must merge them
-    over their own kwargs rather than pass both to the config constructor.
-    ``base_kwargs`` is what the trainer would otherwise pass, used to decide
-    whether the best checkpoint can be reloaded.
+    With early stopping off, only periodic evaluation is enabled. With it on,
+    save/eval strategies are aligned and best-checkpoint tracking is configured.
     """
     base_kwargs = base_kwargs or {}
+    eval_steps = max(1, int(training.eval_steps))
+    if not getattr(training, "early_stopping", True):
+        return {
+            "eval_strategy": "steps",
+            "eval_steps": eval_steps,
+        }
+
     # DeepSpeed and FSDP cannot reload a checkpoint saved without optimizer
     # state, and transformers raises before the first step rather than at the
     # end. Early stopping itself only needs eval_strategy + metric_for_best_model.
@@ -57,7 +62,6 @@ def training_args_for_early_stopping(training, base_kwargs=None, logger=None) ->
             "the final model is the last checkpoint, not the best one"
         )
 
-    eval_steps = max(1, int(training.eval_steps))
     save_steps = max(1, int(training.save_steps))
     if load_best and save_steps % eval_steps != 0:
         # load_best_model_at_end requires matching save/eval strategies and

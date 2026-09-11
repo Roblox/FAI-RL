@@ -222,15 +222,16 @@ data:
 
 The file is downloaded to a temporary path at training startup, loaded into the HuggingFace Arrow cache, and then deleted. Multiple S3 datasets (or a mix of S3, local, and Hub) can be listed and will be concatenated before training.
 
-## Early stopping
+## Evaluation and early stopping
 
-SFT, CPT, DPO, and sft_vlm recipes include HuggingFace early stopping knobs under `training:`. They are **on by default**: `eval_split_ratio` of the mapped train set is held out, and training stops when `eval_loss` does not improve for `early_stopping_patience` evals (every `eval_steps`). Set `early_stopping: false` to train on the full dataset without early stopping. GRPO/GSPO ignore these keys.
+SFT, CPT, DPO, and sft_vlm can hold out `eval_split_ratio` of the mapped train set and log `eval_loss` every `eval_steps`. `eval_enabled` controls that evaluation independently from `early_stopping`, which only decides whether regressions stop training. Set `eval_enabled: true` and `early_stopping: false` to retain checkpoint loss without stopping early. GRPO/GSPO ignore these keys.
 
-Early stopping takes over `eval_steps` and `save_steps`: `save_steps` is rounded up to a multiple of `eval_steps` so the best checkpoint can be reloaded at the end. The exception is `save_only_model: true` together with `deepspeed_config`, which DeepSpeed cannot reload from — training still stops early, but the final model is the last checkpoint rather than the best one.
+For backward compatibility, omitting `eval_enabled` makes it mirror `early_stopping`; existing recipes therefore retain their behavior. When early stopping is enabled, `save_steps` is rounded up to a multiple of `eval_steps` so the best checkpoint can be reloaded at the end. The exception is `save_only_model: true` together with `deepspeed_config`, which DeepSpeed cannot reload from — training still stops early, but the final model is the last checkpoint rather than the best one.
 
 ```yaml
 training:
   eval_steps: 50
+  eval_enabled: true
   early_stopping: true
   early_stopping_patience: 3
   early_stopping_threshold: 0.0

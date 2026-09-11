@@ -296,10 +296,11 @@ The file is downloaded to a temporary path at training startup, loaded into the 
 - Set `save_steps` based on dataset size (e.g., every 10% of total steps)
 - Keep `save_only_model: true` to save disk space
 - Use `eval_steps` to monitor validation performance periodically
-- SFT/CPT/DPO/sft_vlm enable early stopping by default, holding out
-  `eval_split_ratio` of the train set and stopping when `eval_loss` does not
-  improve for `early_stopping_patience` evals. Set `early_stopping: false` to
-  disable it. GRPO/GSPO ignore the flag.
+- SFT/CPT/DPO/sft_vlm can set `eval_enabled: true` to hold out
+  `eval_split_ratio` of the train set and log `eval_loss`. Set
+  `early_stopping: false` to keep evaluating without stopping on regressions.
+  Omitting `eval_enabled` makes it mirror `early_stopping` for compatibility.
+  GRPO/GSPO ignore these flags.
 - Early stopping overrides `eval_steps`/`save_steps` and reloads the best
   checkpoint, except under `save_only_model: true` with `deepspeed_config`,
   where DeepSpeed cannot reload it and the last checkpoint is kept instead.

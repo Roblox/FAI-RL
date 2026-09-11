@@ -268,10 +268,12 @@ class TrainingConfig:
     save_steps: int = 500
     eval_steps: int = 500
 
-    # Early stopping (SFT / CPT / DPO / sft_vlm). Holds out eval_split_ratio of
-    # the mapped train set and stops when eval_loss does not improve for
-    # early_stopping_patience evals. Ignored by GRPO/GSPO. Enabled by default
-    # for supervised trainers; set false to use the full dataset for training.
+    # Evaluation and early stopping (SFT / CPT / DPO / sft_vlm).
+    # eval_enabled holds out eval_split_ratio of the mapped train set and logs
+    # eval_loss every eval_steps. early_stopping independently controls whether
+    # regressions stop training. None preserves legacy recipes by mirroring
+    # early_stopping: old ``early_stopping: false`` recipes still use all rows.
+    eval_enabled: Optional[bool] = None
     early_stopping: bool = True
     early_stopping_patience: int = 3
     early_stopping_threshold: float = 0.0
@@ -305,6 +307,12 @@ class TrainingConfig:
     # Miscellaneous
     save_only_model: bool = True
     prediction_loss_only: bool = True
+
+    def __post_init__(self):
+        if self.eval_enabled is None:
+            self.eval_enabled = self.early_stopping
+        if self.early_stopping and not self.eval_enabled:
+            raise ValueError("training.early_stopping requires eval_enabled: true")
     
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}

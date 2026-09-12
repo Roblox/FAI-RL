@@ -488,3 +488,15 @@ version = "X.Y.Z"  # Increment version
 The tag and `pyproject.toml` version must match. PyPI versions are immutable,
 so do not reuse a version after it has been published.
 </details>
+
+## Developer diagnostics
+
+Run `fai-rl-doctor` to check your environment before training. Training also
+validates datasets before loading model weights, prints a concise startup
+summary, and supports opt-in recovery with `fai-rl-train --recipe recipe.yaml
+--auto-resume`.
+
+See [Common Problems & Fixes](docs/developer-debugging.md#common-problems--fixes),
+[Debugging Training Failures](docs/developer-debugging.md#debugging-training-failures),
+and [Before Opening an Issue](docs/developer-debugging.md#before-opening-an-issue)
+for sample doctor output, checkpoint requirements, and CPU test commands.

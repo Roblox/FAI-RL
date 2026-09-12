@@ -15,7 +15,7 @@ if project_root not in sys.path:
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
-from utils.dataset_utils import load_raw_dataset
+from utils.training_summary import run_trainer
 from .rewards.factory import build_reward_function
 
 class GRPOTrainer(BaseTrainer):
@@ -72,7 +72,7 @@ class GRPOTrainer(BaseTrainer):
             subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
             self.logger.info(f"Loading dataset: {dataset_info.name}{subset_info} (split: {dataset_info.split})")
 
-            dataset = load_raw_dataset(dataset_info)
+            dataset = self.load_training_dataset(dataset_info)
 
             original_size = len(dataset)
 
@@ -215,7 +215,7 @@ class GRPOTrainer(BaseTrainer):
         self.setup_trainer()
 
         # Train the model
-        self.trainer.train()
+        run_trainer(self)
 
         # Final save
         self.trainer.save_model(self.config.training.output_dir)

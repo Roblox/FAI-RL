@@ -255,9 +255,11 @@ class TrainingConfig:
     # GRPO/GSPO specific parameters (optional for other algorithms)
     num_generations: int = 8                    # Number of generations for GRPO/GSPO
     
+    # Shared GRPO/GSPO parameter
+    beta: float = 0.0                           # KL regularization coefficient
+
     # GSPO specific parameters (optional for other algorithms)
     # Reference: https://swift.readthedocs.io/en/v3.7/Instruction/GRPO/AdvancedResearch/GSPO.html
-    beta: float = 0.0                           # zero kl regularization  
     epsilon: float = 3e-4                       # from paper section 5.1
     epsilon_high: float = 4e-4                  # from paper section 5.1
     steps_per_generation: int = 4               # each batch of rollout data is partitioned into four minibatches for gradient updates

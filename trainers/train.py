@@ -28,15 +28,8 @@ from core.config import (
     TrainingConfig,
     WandbConfig,
 )
-from trainers.cpt_trainer import CPTTrainer
-from trainers.dpo_trainer import DPOTrainer
-from trainers.grpo_trainer import GRPOTrainer
-from trainers.gspo_trainer import GSPOTrainer
-from trainers.sft_trainer import SFTTrainer
-from trainers.sft_vlm_trainer import SFTVLMTrainer
 from utils.logging_utils import TrainingLogger, log_system_info, setup_logging
 from utils.recipe_overrides import apply_overrides_to_recipe, parse_value, set_nested_value, load_recipe_from_yaml
-from utils.device_utils import get_device_type, supports_deepspeed, is_mps_available
 
 # Module-level logger for the launcher / pre-trainer status messages.
 # setup_logging() attaches a RankFilter, so INFO/DEBUG records are dropped
@@ -169,7 +162,6 @@ def get_algorithm_from_recipe(recipe_path, overrides):
 def launch_distributed_training(args):
     """Launch training with the appropriate distributed launcher."""
     script_path = os.path.abspath(__file__)
-    device_type = get_device_type()
     
     # Build base command arguments (don't pass --num-gpus and --nohup, launcher handles GPU allocation)
     cmd_args = []
@@ -187,6 +179,7 @@ def launch_distributed_training(args):
         cmd = [sys.executable, script_path] + cmd_args
     else:
         # Multi-GPU training - check platform support
+        from utils.device_utils import supports_deepspeed, is_mps_available
         if is_mps_available():
             logger.warning("Multi-GPU training is not supported on Apple Silicon (MPS); running single-device instead.")
             cmd = [sys.executable, script_path] + cmd_args
@@ -345,6 +338,9 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
 def main():
     """Main training function."""
     args = parse_args()
+    config = load_recipe_with_overrides(args)
+    from utils.dataset_validation import preflight_datasets
+    preflight_datasets(config, logger)
 
     # Handle nohup or multi-GPU launch (if not already in distributed mode)
     if not is_distributed_launch():
@@ -361,6 +357,7 @@ def main():
         # `launch_distributed_training` never ran here, so honor the recipe's
         # training.deepspeed_config ourselves if it's set and supported.
         if 'DEEPSPEED_CONFIG' not in os.environ:
+            from utils.device_utils import supports_deepspeed
             world_size = int(os.environ.get('WORLD_SIZE', 1))
             uses_quantization = check_uses_quantization(args.recipe) if args.recipe else False
             if world_size > 1 and not uses_quantization:
@@ -406,8 +403,6 @@ def main():
             )
         logger.info("Running single-GPU training...")
 
-    # Load recipe from file and/or CLI arguments
-    config = load_recipe_with_overrides(args)
     
     # Get deepspeed config from environment variable (auto-set by launcher)
     if 'DEEPSPEED_CONFIG' in os.environ:
@@ -455,6 +450,12 @@ def main():
 
     try:
         # Create trainer based on algorithm and run training
+        from trainers.cpt_trainer import CPTTrainer
+        from trainers.dpo_trainer import DPOTrainer
+        from trainers.grpo_trainer import GRPOTrainer
+        from trainers.gspo_trainer import GSPOTrainer
+        from trainers.sft_trainer import SFTTrainer
+        from trainers.sft_vlm_trainer import SFTVLMTrainer
         if algorithm == "cpt":
             trainer_class = CPTTrainer
         elif algorithm == "dpo":

@@ -179,6 +179,11 @@ class BaseTrainer(ABC):
             base_logger = setup_logging(self.__class__.__name__)
             self.logger = SafeLogger(base_logger)
         
+        from utils.dataset_validation import preflight_datasets
+        # Programmatic callers may leave TrainingConfig.algorithm unset.
+        algorithm = self.__class__.__name__.lower().replace("trainer", "").replace("sftvlm", "sft_vlm")
+        preflight_datasets(self.config, self.logger, algorithm=algorithm)
+
         # Detect device type and adapt configuration for platform compatibility
         self.device_type = get_device_type()
         self.logger.info(f"Detected device type: {self.device_type.upper()}")
@@ -205,6 +210,10 @@ class BaseTrainer(ABC):
         # race (which returns None for files like preprocessor_config.json and
         # crashes non-zero ranks). No-op single-process / local dir / s3 path.
         self._warm_hub_cache_rank0_first()
+
+        # Honor the existing rank-coordinated cache warm before processor reads.
+        from utils.dataset_validation import validate_chat_templates
+        validate_chat_templates(self.config, self.logger)
 
         # Set device for distributed training
         if self.local_rank != -1:
@@ -1011,6 +1020,16 @@ class BaseTrainer(ABC):
     def setup_model(self):
         """Setup model and tokenizer. Must be implemented by subclasses."""
         pass
+
+    def load_training_dataset(self, dataset_info):
+        """Reuse validated raw data without downloading or scanning it twice."""
+        cached = getattr(self.config, "_preflight_datasets", None)
+        if cached is not None:
+            for info, dataset in zip(self.config.data.datasets, cached):
+                if info is dataset_info:
+                    return dataset
+        from utils.dataset_utils import load_raw_dataset
+        return load_raw_dataset(dataset_info)
 
     @abstractmethod
     def setup_data(self):

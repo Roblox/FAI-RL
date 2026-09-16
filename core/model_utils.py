@@ -17,6 +17,7 @@ from utils.device_utils import (
     supports_quantization,
     resolve_transformers_attn_implementation,
 )
+from utils.tokenizer_utils import prepare_tokenizer_with_model
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +122,7 @@ def load_model_and_tokenizer(
     # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-    # Set pad token if not present
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-        logger.info("Set pad_token to eos_token")
+    tokenizer = prepare_tokenizer_with_model(tokenizer, model, logger=logger)
 
     logger.info(f"Model loaded successfully. Parameters: {model.num_parameters():,}")
 

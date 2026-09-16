@@ -26,6 +26,14 @@ class ConcreteTrainer(BaseTrainer):
         pass
 
 
+def _fake_embedding_model(rows=128):
+    embeddings = SimpleNamespace(weight=SimpleNamespace(shape=(rows, 16)))
+    return SimpleNamespace(
+        get_input_embeddings=lambda: embeddings,
+        resize_token_embeddings=lambda _size: None,
+    )
+
+
 def test_tokenizer_loads_from_peft_base_not_adapter_dir(monkeypatch):
     """Adapter checkpoints have no config.json, so tokenizers must use the Hub base."""
     captured = {}
@@ -52,7 +60,7 @@ def test_tokenizer_loads_from_peft_base_not_adapter_dir(monkeypatch):
         model=SimpleNamespace(base_model_name="/tmp/fai-rl-model-adapter")
     )
     trainer._peft_base_model_path = "Qwen/Qwen3.8-27B"
-    model = SimpleNamespace(resize_token_embeddings=lambda _size: None)
+    model = _fake_embedding_model()
 
     trainer.setup_tokenizer_with_model(model)
 
@@ -82,7 +90,7 @@ def test_explicit_tokenizer_model_name_overrides_peft_base(monkeypatch):
     trainer = object.__new__(ConcreteTrainer)
     trainer.config = SimpleNamespace(model=SimpleNamespace(base_model_name="catalog/model"))
     trainer._peft_base_model_path = "adapter/base"
-    model = SimpleNamespace(resize_token_embeddings=lambda _size: None)
+    model = _fake_embedding_model()
 
     trainer.setup_tokenizer_with_model(model, model_name="explicit/tokenizer")
 
@@ -112,8 +120,17 @@ def test_dpo_reference_model_loads_from_peft_base(monkeypatch):
             return 128
 
     class FakeModel:
-        def resize_token_embeddings(self, _size):
-            pass
+        def __init__(self):
+            self.embeddings = SimpleNamespace(
+                weight=SimpleNamespace(shape=(128, 16))
+            )
+            self.resize_calls = []
+
+        def get_input_embeddings(self):
+            return self.embeddings
+
+        def resize_token_embeddings(self, size):
+            self.resize_calls.append(size)
 
     monkeypatch.setattr(
         "core.trainer_base.AutoTokenizer.from_pretrained",
@@ -122,7 +139,9 @@ def test_dpo_reference_model_loads_from_peft_base(monkeypatch):
 
     def fake_model_from_pretrained(name, *args, **kwargs):
         captured["reference_model_name"] = name
-        return FakeModel()
+        model = FakeModel()
+        captured["reference_model"] = model
+        return model
 
     monkeypatch.setattr(
         "trainers.dpo_trainer.AutoModelForCausalLM.from_pretrained",
@@ -153,3 +172,4 @@ def test_dpo_reference_model_loads_from_peft_base(monkeypatch):
     trainer.setup_model()
 
     assert captured["reference_model_name"] == "Qwen/Qwen3.8-27B"
+    assert captured["reference_model"].resize_calls == []

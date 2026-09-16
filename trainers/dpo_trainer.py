@@ -15,6 +15,7 @@ from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
 from utils.dataset_utils import load_raw_dataset
+from utils.tokenizer_utils import grow_token_embeddings_if_needed
 
 
 class DPOTrainer(BaseTrainer):
@@ -57,9 +58,14 @@ class DPOTrainer(BaseTrainer):
         # Setup tokenizer and resize embeddings using base class method
         self.tokenizer = self.setup_tokenizer_with_model(self.model)
 
-        # Resize embeddings for reference model if loaded
+        # Keep the reference architecture aligned without truncating models
+        # whose published embedding matrix is padded beyond the tokenizer size.
         if self.ref_model is not None:
-            self.ref_model.resize_token_embeddings(len(self.tokenizer))
+            grow_token_embeddings_if_needed(
+                self.ref_model,
+                self.tokenizer,
+                logger=self.logger,
+            )
 
         # DPO's text collator does not feed either multimodal encoder. Prepare
         # the main model before LoRA so Gemma 4 E-series does not receive

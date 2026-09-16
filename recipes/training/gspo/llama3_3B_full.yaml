@@ -69,7 +69,7 @@ training:
                                     
   # GSPO-specific parameters (only used when algorithm: "gspo")
   # Reference: https://swift.readthedocs.io/en/v3.7/Instruction/GRPO/AdvancedResearch/GSPO.html
-  beta: 0                                               # KL regularization strength (0 = no KL penalty)
+  beta: 0.0                                             # KL regularization strength (0 = no KL penalty)
   epsilon: 3e-4                                         # Policy exploration parameter (lower bound)
   epsilon_high: 4e-4                                    # Policy exploration parameter (upper bound)
   steps_per_generation: 4                               # Minibatch partitioning for rollout data

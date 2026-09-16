@@ -140,6 +140,7 @@ if project_root not in sys.path:
 
 from utils.logging_utils import setup_logging, SafeLogger
 from utils.s3_utils import build_s3_callback, download_directory_from_s3
+from utils.tokenizer_utils import prepare_tokenizer_with_model
 from utils.device_utils import (
     get_device_type,
     is_cuda_available,
@@ -573,7 +574,7 @@ class BaseTrainer(ABC):
         )
 
     def setup_tokenizer_with_model(self, model, model_name: Optional[str] = None):
-        """Setup tokenizer and resize model embeddings.
+        """Set up a tokenizer and safely align the model embeddings.
         
         Args:
             model: The model to resize embeddings for.
@@ -587,17 +588,12 @@ class BaseTrainer(ABC):
             model_name = self.resolved_pretrained_name()
             
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        
-        # Set pad token if not present
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        tokenizer.padding_side = "left"
-        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-        
-        # Resize embeddings
-        model.resize_token_embeddings(len(tokenizer))
-        
-        return tokenizer
+        return prepare_tokenizer_with_model(
+            tokenizer,
+            model,
+            adapter_path=getattr(self, "_peft_adapter_path", None),
+            logger=getattr(self, "logger", None),
+        )
 
     @staticmethod
     def _deepspeed_zero_stage(ds_config: Any) -> Optional[int]:

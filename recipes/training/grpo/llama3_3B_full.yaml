@@ -66,6 +66,7 @@ training:
 
   # GRPO-specific parameters
   num_generations: 8                                    # Group size for sequence grouping
+  beta: 0.0                                              # KL disabled by default; tune for the reward scale
 
 # External reward scorer (required for GRPO/GSPO)
 reward_api:

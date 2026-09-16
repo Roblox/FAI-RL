@@ -49,6 +49,7 @@ from utils.config_validation import validate_api_config
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
 from utils.logging_utils import setup_logging, SafeLogger
 from utils.dataset_utils import format_multiple_choice_for_inference, load_raw_dataset
+from utils.tokenizer_utils import prepare_tokenizer_with_model
 from utils.device_utils import (
     get_device_type,
     get_optimal_dtype,
@@ -296,26 +297,21 @@ def load_model_and_tokenizer(config):
                 trust_remote_code=True
             )
         
-        # Set the pad token if it's not already set
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        
-        # Add the special pad token to match training setup
-        if "[PAD]" not in tokenizer.get_vocab():
-            tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-            print(f"Added [PAD] token to tokenizer. New vocab size: {len(tokenizer)}")
-        
         # Load base model first WITHOUT adapter
         print("Loading base model...")
         model = AutoModelForCausalLM.from_pretrained(
             base_model_name,
             **model_load_kwargs,
         )
-        
-        # Resize embeddings to match tokenizer BEFORE loading adapter
-        if model.get_input_embeddings().weight.shape[0] != len(tokenizer):
-            print(f"Resizing model embeddings from {model.get_input_embeddings().weight.shape[0]} to {len(tokenizer)}")
-            model.resize_token_embeddings(len(tokenizer))
+
+        # Match the same padding/embedding policy used during training. Legacy
+        # adapters that stored resized embeddings are handled explicitly.
+        tokenizer = prepare_tokenizer_with_model(
+            tokenizer,
+            model,
+            adapter_path=model_identifier,
+            logger=logger,
+        )
         
         # Now load the PEFT adapter
         print("Loading PEFT adapter...")
@@ -339,14 +335,16 @@ def load_model_and_tokenizer(config):
                 trust_remote_code=True
             )
         
-        # Set the pad token if it's not already set
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        
         # Load the model
         model = AutoModelForCausalLM.from_pretrained(
             model_identifier,
             **model_load_kwargs,
+        )
+
+        tokenizer = prepare_tokenizer_with_model(
+            tokenizer,
+            model,
+            logger=logger,
         )
     
     model.eval()  # Set the model to inference mode

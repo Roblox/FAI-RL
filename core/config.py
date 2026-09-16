@@ -595,11 +595,13 @@ class ExperimentConfig:
     @classmethod
     def from_yaml(cls, config_path: str) -> 'ExperimentConfig':
         """Load configuration from YAML file."""
-        with open(config_path, 'r') as f:
-            config_dict = yaml.safe_load(f)
+        from utils.recipe_overrides import load_recipe_from_yaml
+        from utils.config_validation import validate_training_recipe
+        config_dict = load_recipe_from_yaml(config_path)
+        validate_training_recipe(config_dict)
         
         # Handle datasets configuration
-        data_config = config_dict['data'].copy()
+        data_config = config_dict.get('data', {}).copy()
         if 'datasets' in data_config:
             data_config['datasets'] = [
                 DatasetInfo(**ds) for ds in data_config['datasets']
@@ -626,8 +628,12 @@ class ExperimentConfig:
     @classmethod
     def load_inference_config(cls, config_path: str) -> 'InferenceConfig':
         """Load inference configuration from YAML file."""
-        with open(config_path, 'r') as f:
-            config_dict = yaml.safe_load(f)
+        from utils.recipe_overrides import load_recipe_from_yaml
+        from utils.config_validation import validate_config_section
+        config_dict = load_recipe_from_yaml(config_path)
+        if 'inference' not in config_dict:
+            raise ValueError('Invalid config: "inference" section is required.')
+        validate_config_section(config_dict['inference'], InferenceConfig, 'inference')
         
         config = InferenceConfig(**config_dict['inference'])
         
@@ -639,8 +645,12 @@ class ExperimentConfig:
     @classmethod
     def load_eval_config(cls, config_path: str) -> 'EvaluationConfig':
         """Load evaluation configuration from YAML file."""
-        with open(config_path, 'r') as f:
-            config_dict = yaml.safe_load(f)
+        from utils.recipe_overrides import load_recipe_from_yaml
+        from utils.config_validation import validate_config_section
+        config_dict = load_recipe_from_yaml(config_path)
+        if 'evaluation' not in config_dict:
+            raise ValueError('Invalid config: "evaluation" section is required.')
+        validate_config_section(config_dict['evaluation'], EvaluationConfig, 'evaluation')
         
         config = EvaluationConfig(**config_dict['evaluation'])
         

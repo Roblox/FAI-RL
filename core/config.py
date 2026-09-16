@@ -308,6 +308,8 @@ class TrainingConfig:
 
     # Miscellaneous
     save_only_model: bool = True
+    # Explicit Trainer-state resume; base_model_name weight loading is unchanged.
+    resume_from_checkpoint: Optional[str] = None
     prediction_loss_only: bool = True
 
     def __post_init__(self):

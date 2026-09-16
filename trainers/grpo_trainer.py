@@ -216,7 +216,7 @@ class GRPOTrainer(BaseTrainer):
         self.setup_trainer()
 
         # Train the model
-        self.trainer.train()
+        self.train_with_resume()
 
         # Final save
         self.trainer.save_model(self.config.training.output_dir)

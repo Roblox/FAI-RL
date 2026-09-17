@@ -356,7 +356,28 @@ def load_model_and_tokenizer(config):
     return model, tokenizer
 
 
-def generate_response(model, tokenizer, prompt: str = None, config=None, messages=None):
+def _generation_confidence(model, outputs):
+    """Return the geometric mean probability of the generated tokens."""
+    transition_scores = model.compute_transition_scores(
+        outputs.sequences,
+        outputs.scores,
+        getattr(outputs, "beam_indices", None),
+        normalize_logits=True,
+    )
+    if transition_scores.numel() == 0:
+        return 0.0
+    confidence = math.exp(transition_scores[0].float().mean().item())
+    return min(max(confidence, 0.0), 1.0)
+
+
+def generate_response(
+    model,
+    tokenizer,
+    prompt: str = None,
+    config=None,
+    messages=None,
+    include_confidence=False,
+):
     """
     Generates a response from the model given a prompt.
 
@@ -389,15 +410,19 @@ def generate_response(model, tokenizer, prompt: str = None, config=None, message
             do_sample=config.do_sample,
             temperature=config.temperature,
             top_p=config.top_p,
-            pad_token_id=tokenizer.pad_token_id
+            pad_token_id=tokenizer.pad_token_id,
+            return_dict_in_generate=True,
+            output_scores=True,
         )
     
     # Slice off the prompt tokens
-    generated_tokens = outputs[0][input_token_length:]
+    generated_tokens = outputs.sequences[0][input_token_length:]
     
     # Decode only the new tokens
     response_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
 
+    if include_confidence:
+        return response_text, _generation_confidence(model, outputs)
     return response_text
 
 
@@ -540,7 +565,17 @@ def fetch_example_videos(config, example):
     return videos, metadata
 
 
-def generate_vlm_response(model, processor, prompt_text: str, images, config, system_text: str = None, videos=None, video_metadata=None):
+def generate_vlm_response(
+    model,
+    processor,
+    prompt_text: str,
+    images,
+    config,
+    system_text: str = None,
+    videos=None,
+    video_metadata=None,
+    include_confidence=False,
+):
     """Generate a response from a VLM given a text prompt and image(s)/video(s).
 
     Builds a single user turn containing one image placeholder per image and one
@@ -581,10 +616,15 @@ def generate_vlm_response(model, processor, prompt_text: str, images, config, sy
             temperature=config.temperature,
             top_p=config.top_p,
             pad_token_id=tokenizer.pad_token_id,
+            return_dict_in_generate=True,
+            output_scores=True,
         )
 
-    generated_tokens = outputs[0][input_token_length:]
-    return tokenizer.decode(generated_tokens, skip_special_tokens=True)
+    generated_tokens = outputs.sequences[0][input_token_length:]
+    response_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+    if include_confidence:
+        return response_text, _generation_confidence(model, outputs)
+    return response_text
 
 
 def run_inference(config, debug=False):
@@ -681,6 +721,7 @@ def run_inference(config, debug=False):
 
             # Generate response
             try:
+                confidence = None
                 if debug:
                     print(f"\n{'='*50}")
                     print(f"DEBUG - Example {i+1}")
@@ -706,14 +747,45 @@ def run_inference(config, debug=False):
                     images = fetch_example_images(config, example)
                     videos, video_metadata = fetch_example_videos(config, example)
                     if messages is not None:
-                        response = generate_vlm_response(model, tokenizer, user_text, images, config, system_text=system_text, videos=videos, video_metadata=video_metadata)
+                        response, confidence = generate_vlm_response(
+                            model,
+                            tokenizer,
+                            user_text,
+                            images,
+                            config,
+                            system_text=system_text,
+                            videos=videos,
+                            video_metadata=video_metadata,
+                            include_confidence=True,
+                        )
                     else:
-                        response = generate_vlm_response(model, tokenizer, full_prompt, images, config, videos=videos, video_metadata=video_metadata)
+                        response, confidence = generate_vlm_response(
+                            model,
+                            tokenizer,
+                            full_prompt,
+                            images,
+                            config,
+                            videos=videos,
+                            video_metadata=video_metadata,
+                            include_confidence=True,
+                        )
                 else:
                     if messages is not None:
-                        response = generate_response(model, tokenizer, config=config, messages=messages)
+                        response, confidence = generate_response(
+                            model,
+                            tokenizer,
+                            config=config,
+                            messages=messages,
+                            include_confidence=True,
+                        )
                     else:
-                        response = generate_response(model, tokenizer, full_prompt, config)
+                        response, confidence = generate_response(
+                            model,
+                            tokenizer,
+                            full_prompt,
+                            config,
+                            include_confidence=True,
+                        )
 
                 if debug:
                     print("Response (truncated):")
@@ -742,6 +814,8 @@ def run_inference(config, debug=False):
                 # Add response column after dataset columns
                 response_col = getattr(config, 'response_column', 'response')
                 result[response_col] = response
+                confidence_col = getattr(config, 'confidence_column', 'confidence')
+                result[confidence_col] = confidence
                 
                 checkpoint_results.append(result)
                 

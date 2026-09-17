@@ -15,7 +15,6 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from core.config import ExperimentConfig
-from utils.training_summary import log_training_summary
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
 from utils.dataset_utils import load_raw_dataset
@@ -215,7 +214,6 @@ class GSPOTrainer(BaseTrainer):
             callbacks=self.build_callbacks(),
         )
 
-        log_training_summary(self.config, self.trainer, self.train_dataset, self.logger)
         self.logger.info("GSPO trainer initialized")
 
     def train(self):

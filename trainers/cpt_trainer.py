@@ -10,7 +10,6 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from core.config import ExperimentConfig
-from utils.training_summary import log_training_summary
 from core.trainer_base import BaseTrainer
 from utils.dataset_utils import load_raw_dataset
 
@@ -159,7 +158,6 @@ class CPTTrainer(BaseTrainer):
             **self.trainer_eval_kwargs(),
         )
 
-        log_training_summary(self.config, self.trainer, self.train_dataset, self.logger)
         self.logger.info("CPT trainer initialized")
 
     def train(self):

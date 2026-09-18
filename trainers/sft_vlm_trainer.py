@@ -13,7 +13,6 @@ if project_root not in sys.path:
 
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
-from utils.dataset_utils import load_raw_dataset
 from utils.image_utils import fetch_image
 from utils.video_utils import fetch_video
 from trainers.vlm_collator import VideoAwareVLMCollator
@@ -406,7 +405,7 @@ class SFTVLMTrainer(BaseTrainer):
             self.logger.info(
                 f"Loading dataset: {dataset_info.name}{subset_info} (split: {dataset_info.split})"
             )
-            raw = load_raw_dataset(dataset_info)
+            raw = self.load_training_dataset(dataset_info)
             original_size = len(raw)
 
             ds = self._normalize_dataset(raw, dataset_info)

@@ -168,7 +168,7 @@ class CPTTrainer(BaseTrainer):
         self.setup_data()
         self.setup_trainer()
 
-        self.trainer.train()
+        self.train_with_resume()
 
         self.trainer.save_model(self.config.training.output_dir)
         self.logger.info("CPT training completed successfully")

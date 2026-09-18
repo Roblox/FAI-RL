@@ -281,6 +281,9 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
     if args.overrides:
         recipe_dict = apply_overrides_to_recipe(recipe_dict, args.overrides)
     
+    from utils.config_validation import validate_training_recipe
+    validate_training_recipe(recipe_dict)
+
     # Ensure required fields have at least some value
     if not recipe_dict.get('model', {}).get('base_model_name'):
         raise ValueError(

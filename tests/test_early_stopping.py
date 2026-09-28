@@ -151,6 +151,9 @@ def _stub_trainer(trainer_cls, **training_overrides):
 
     trainer = object.__new__(trainer_cls)
     trainer.logger = logging.getLogger("test")
+    # These scheduling tests bypass BaseTrainer's device adaptation. Avoid
+    # requesting GPU BF16 in the stub so they also run on CPU-only hosts.
+    training_overrides.setdefault("bf16", False)
     trainer.config = SimpleNamespace(
         training=TrainingConfig(output_dir="out", **training_overrides),
         data=DataConfig(),

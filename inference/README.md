@@ -118,6 +118,7 @@ The CSV file contains the following columns:
 - **Input columns**: All columns specified in `dataset_columns` (e.g., `persona`, `prompt`)
 - **Checkpoint column** (multi-checkpoint only): Identifies which checkpoint generated each response (column name specified by `checkpoint_column`, default is `checkpoint`)
 - **Response column**: The model's generated response (column name specified by `response_column`, default is `response`)
+- **Confidence column**: Geometric mean of the generated-token probabilities, from 0 to 1 (column name specified by `confidence_column`, default is `confidence`). API inference leaves this value blank when the endpoint does not return token probabilities.
 - **Metadata**: Generation parameters used (temperature, top_p, max_new_tokens)
 
 ### Multi-Checkpoint Inference
@@ -125,10 +126,10 @@ The CSV file contains the following columns:
 When running inference on multiple checkpoints, all results are combined into a single CSV file with an additional `checkpoint` column:
 
 ```csv
-persona,prompt,checkpoint,response
-"helpful assistant","What is AI?","models/checkpoint-100","AI is artificial intelligence..."
-"helpful assistant","What is AI?","models/checkpoint-200","AI stands for artificial..."
-"helpful assistant","What is AI?","models/checkpoint-300","Artificial Intelligence is..."
+persona,prompt,checkpoint,response,confidence
+"helpful assistant","What is AI?","models/checkpoint-100","AI is artificial intelligence...",0.87
+"helpful assistant","What is AI?","models/checkpoint-200","AI stands for artificial...",0.81
+"helpful assistant","What is AI?","models/checkpoint-300","Artificial Intelligence is...",0.79
 ```
 
 ## 🐛 Troubleshooting

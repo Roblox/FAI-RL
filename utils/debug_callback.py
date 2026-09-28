@@ -101,6 +101,7 @@ class DebugCallback(TrainerCallback):
 
         self._log_distributed(args)
         self._log_arch(model)
+        self._log_static_memory(model)
         self._log_tokenizer(processing_class)
         self._log_optimizer(optimizer, lr_scheduler)
         self._log_first_batches(train_dataloader, processing_class, model, args)
@@ -159,6 +160,30 @@ class DebugCallback(TrainerCallback):
                     )
         except Exception as e:
             self._d(f"(arch info failed: {e})")
+
+    def _log_static_memory(self, model: Any) -> None:
+        """Estimate unsharded parameter storage plus FP32 gradients/Adam moments."""
+        if model is None:
+            return
+        try:
+            weight_bytes = 0
+            trainable = 0
+            for parameter in model.parameters():
+                # ZeRO-3 parameters can be empty locally; ds_numel is global.
+                count = getattr(parameter, "ds_numel", parameter.numel())
+                weight_bytes += count * parameter.element_size()
+                if parameter.requires_grad:
+                    trainable += count
+            # Assume one FP32 gradient and two FP32 Adam moments per trainable element.
+            estimated_gib = (weight_bytes + trainable * 12) / 1024**3
+            self._d(
+                f"Estimated static training memory: {estimated_gib:.2f} GiB "
+                "(unsharded weights + FP32 gradients/Adam moments; excludes activations, "
+                "master weights, buffers/quantization metadata, reference models, "
+                "rollout/KV caches and allocator overhead; sharding/offload affect per-GPU usage)"
+            )
+        except Exception as e:
+            self._d(f"(static memory estimate unavailable: {e})")
 
     def _log_tokenizer(self, processing_class):
         if processing_class is None:

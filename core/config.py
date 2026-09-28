@@ -473,6 +473,7 @@ class InferenceConfig:
     # Dataset column configuration
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     response_column: str = "response"
+    confidence_column: str = "confidence"  # Geometric mean generated-token probability
     checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint inference
 
     # Multimodal (VLM) inference. Setting image_columns enables VLM mode: it names

@@ -83,6 +83,9 @@ Examples:
         help="Recipe overrides in key=value format (e.g., model.base_model_name='meta-llama/Llama-3.2-3B-Instruct')"
     )
 
+    parser.add_argument("--auto-resume", action="store_true",
+                        help="Resume the newest complete checkpoint in training.output_dir")
+
     # Use parse_known_args to allow distributed launchers to pass additional args like --local_rank
     args, unknown = parser.parse_known_args()
     
@@ -173,6 +176,8 @@ def launch_distributed_training(args):
     
     # Build base command arguments (don't pass --num-gpus and --nohup, launcher handles GPU allocation)
     cmd_args = []
+    if getattr(args, "auto_resume", False):
+        cmd_args.append("--auto-resume")
     
     # Add recipe file if provided
     if args.recipe:
@@ -415,6 +420,9 @@ def main():
     else:
         config.training.deepspeed_config = None
 
+    from utils.checkpoint_utils import select_resume_checkpoint
+    select_resume_checkpoint(config.training, args.auto_resume, logger)
+
     # Get algorithm from config
     algorithm = config.training.algorithm.lower()
 
@@ -476,8 +484,19 @@ def main():
 
         training_logger.logger.info(f"{algorithm.upper()} training completed successfully!")
 
-    except Exception as e:
+    except (Exception, KeyboardInterrupt) as e:
         training_logger.logger.error(f"Training failed with error: {str(e)}")
+        from utils.checkpoint_utils import find_latest_checkpoint
+        checkpoint = find_latest_checkpoint(config.training.output_dir)
+        if checkpoint:
+            training_logger.logger.error(
+                "Recovery checkpoint: %s. Re-run the same command with --auto-resume.", checkpoint
+            )
+        else:
+            training_logger.logger.error(
+                "No complete recovery checkpoint found. For future runs, set "
+                "training.save_only_model=false and choose training.save_steps for periodic recovery."
+            )
         raise
 
     finally:

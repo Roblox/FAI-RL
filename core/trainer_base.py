@@ -1022,6 +1022,13 @@ class BaseTrainer(ABC):
         """Setup the specific trainer. Must be implemented by subclasses."""
         pass
 
+    def train_with_resume(self):
+        """Delegate to HF/TRL, passing a resume path only when explicitly selected."""
+        checkpoint = getattr(self.config.training, "resume_from_checkpoint", None)
+        if checkpoint:
+            return self.trainer.train(resume_from_checkpoint=checkpoint)
+        return self.trainer.train()
+
     @abstractmethod
     def train(self):
         """Run training. Must be implemented by subclasses."""

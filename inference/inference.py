@@ -495,6 +495,14 @@ def _generation_confidence(model, outputs):
     return min(max(confidence, 0.0), 1.0)
 
 
+def _chat_template_kwargs(config):
+    """Return explicitly configured, model-specific chat-template controls."""
+    enable_thinking = getattr(config, "enable_thinking", None)
+    if enable_thinking is None:
+        return {}
+    return {"enable_thinking": enable_thinking}
+
+
 def generate_response(
     model,
     tokenizer,
@@ -520,6 +528,7 @@ def generate_response(
             tokenize=True,
             return_tensors="pt",
             return_dict=True,
+            **_chat_template_kwargs(config),
         ).to(model.device)
     else:
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -718,7 +727,12 @@ def generate_vlm_response(
         messages.append({"role": "system", "content": [{"type": "text", "text": system_text}]})
     messages.append({"role": "user", "content": content})
 
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    text = processor.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        **_chat_template_kwargs(config),
+    )
     processor_kwargs = {
         "text": [text],
         "images": images if images else None,

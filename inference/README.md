@@ -117,6 +117,18 @@ fai-rl-inference --recipe recipes/inference/llama3_3B.yaml \
   inference.do_sample=false
 ```
 
+Hybrid reasoning models can explicitly enable or disable thinking while
+rendering local text or VLM chat prompts:
+
+```yaml
+inference:
+  user_prompt: "{question}"
+  enable_thinking: false
+```
+
+Omit `enable_thinking` to preserve the model chat template's default. Templates
+that do not implement this option ignore it.
+
 ## 📊 Output
 
 ### Output Files

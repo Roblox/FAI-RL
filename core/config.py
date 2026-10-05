@@ -523,6 +523,10 @@ class InferenceConfig:
     top_p: float = 0.9
     max_new_tokens: int = 200
     do_sample: bool = True
+    # Optional chat-template switch used by hybrid reasoning models such as
+    # Qwen. None preserves the model/template default and avoids passing a
+    # model-specific kwarg to existing templates.
+    enable_thinking: Optional[bool] = None
 
     @property
     def split_mode(self) -> bool:

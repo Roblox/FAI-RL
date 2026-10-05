@@ -5,13 +5,16 @@
 # Use this after training with recipes/training/sft_vlm/gemma_4_31b_it_lora.yaml.
 # For a recipe that feeds multiple images per row, see qwen2_5_vl_3b_multi_image.yaml.
 #
-# The 31B model is too large for one GPU; the inference engine loads it with
-# device_map="auto", which automatically shards the weights across all visible
-# GPUs. Expose the GPUs you want it to use and run from the repo root:
+# For higher throughput when the model fits on each GPU (for example, B200),
+# use data-parallel inference. Each GPU loads a complete model replica and
+# processes a disjoint dataset shard:
 #
-#   CUDA_VISIBLE_DEVICES=0,1,2,3 fai-rl-inference \
+#   fai-rl-inference --num-gpus 8 \
 #     --recipe recipes/inference/gemma_4_31b_it.yaml
 #   # or: python inference/inference.py --recipe recipes/inference/gemma_4_31b_it.yaml
+#
+# Without --num-gpus, device_map="auto" can instead shard a model across the
+# visible GPUs when the complete model does not fit on one GPU.
 inference:
   # Local fine-tuned checkpoint (LoRA adapter + processor) or a vanilla VLM hub id.
   model_paths:

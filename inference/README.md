@@ -30,7 +30,23 @@ fai-rl-inference --recipe recipes/inference/llama3_3B.yaml --nohup
 
 # Run multimodal (image + text) inference on a fine-tuned VLM checkpoint
 CUDA_VISIBLE_DEVICES=0 fai-rl-inference --recipe recipes/inference/qwen2_5_vl_3b.yaml
+
+# Run data-parallel inference with one model replica per GPU
+fai-rl-inference --recipe recipes/inference/qwen3_vl_30b_a3b.yaml --num-gpus 8
 ```
+
+### Multi-GPU Inference
+
+Use `--num-gpus N` when the model fits on one GPU and you want higher dataset
+throughput. The launcher starts `N` torchrun workers, pins one complete model
+replica to each GPU, assigns disjoint dataset rows to each worker, and merges the
+temporary rank outputs into the configured `output_file` in original row order.
+The job must allocate and expose at least `N` CUDA devices.
+
+This is data parallelism, not tensor parallelism: each GPU must have enough
+memory for the complete model. Without `--num-gpus`, inference remains a
+single-process run and `device_map="auto"` may shard a model across visible GPUs
+only when needed for model capacity.
 
 ### Multimodal (VLM) Inference
 
@@ -100,6 +116,18 @@ fai-rl-inference --recipe recipes/inference/llama3_3B.yaml \
   inference.max_new_tokens=512 \
   inference.do_sample=false
 ```
+
+Hybrid reasoning models can explicitly enable or disable thinking while
+rendering local text or VLM chat prompts:
+
+```yaml
+inference:
+  user_prompt: "{question}"
+  enable_thinking: false
+```
+
+Omit `enable_thinking` to preserve the model chat template's default. Templates
+that do not implement this option ignore it.
 
 ## 📊 Output
 

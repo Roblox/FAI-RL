@@ -8,6 +8,7 @@ import os
 import json, csv
 import math
 import sys
+import shlex
 
 # Disable fast tokenizer conversion to avoid tiktoken issues
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -167,6 +168,22 @@ Examples:
         help="Enable debug mode with verbose logging"
     )
     parser.add_argument(
+        "--num-gpus",
+        type=int,
+        default=1,
+        help=(
+            "Number of GPUs to use for data-parallel local inference (default: 1). "
+            "Each GPU loads one model replica and processes a dataset shard."
+        ),
+    )
+    parser.add_argument(
+        "--local-rank",
+        "--local_rank",
+        type=int,
+        default=-1,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--nohup",
         action="store_true",
         help="Run inference in background with nohup (output redirected to logs/Inference_<timestamp>.log)"
@@ -185,6 +202,110 @@ Examples:
         sys.exit(1)
     
     return args
+
+
+_RESULT_ORDER_COLUMN = "__fai_rl_result_order"
+
+
+def is_distributed_launch():
+    """Return whether this process was started by torchrun."""
+    return int(os.environ.get("WORLD_SIZE", "1")) > 1
+
+
+def _distributed_context():
+    """Return ``(rank, local_rank, world_size)`` from torchrun's environment."""
+    return (
+        int(os.environ.get("RANK", "0")),
+        int(os.environ.get("LOCAL_RANK", "0")),
+        int(os.environ.get("WORLD_SIZE", "1")),
+    )
+
+
+def _initialize_distributed_inference():
+    """Initialize torchrun coordination without wrapping the model in DDP."""
+    rank, local_rank, world_size = _distributed_context()
+    if world_size <= 1:
+        return rank, local_rank, world_size
+
+    if torch.cuda.is_available():
+        visible_gpus = torch.cuda.device_count()
+        if local_rank >= visible_gpus:
+            raise RuntimeError(
+                f"LOCAL_RANK={local_rank}, but only {visible_gpus} CUDA device(s) are visible"
+            )
+        torch.cuda.set_device(local_rank)
+        backend = "nccl"
+    else:
+        backend = "gloo"
+
+    if not torch.distributed.is_initialized():
+        torch.distributed.init_process_group(backend=backend)
+
+    return rank, local_rank, world_size
+
+
+def _distributed_barrier():
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        torch.distributed.barrier()
+
+
+def _rank_results_path(output_file, rank, world_size):
+    """Return the temporary per-rank result path used before rank-0 merging."""
+    return f"{output_file}.rank-{rank:05d}-of-{world_size:05d}.pkl"
+
+
+def _launch_inference_workers(args):
+    """Launch one inference worker per requested GPU."""
+    if args.num_gpus < 1:
+        raise ValueError("--num-gpus must be at least 1")
+
+    script_path = os.path.abspath(__file__)
+    worker_args = []
+    if args.recipe:
+        worker_args.extend(["--recipe", args.recipe])
+    if args.debug:
+        worker_args.append("--debug")
+    worker_args.extend(args.overrides or [])
+
+    if args.num_gpus > 1:
+        if not torch.cuda.is_available():
+            raise RuntimeError("--num-gpus > 1 requires CUDA")
+        visible_gpus = torch.cuda.device_count()
+        if args.num_gpus > visible_gpus:
+            raise RuntimeError(
+                f"Requested {args.num_gpus} GPUs, but only {visible_gpus} are visible. "
+                "Allocate/expose more GPUs or lower --num-gpus."
+            )
+        cmd = [
+            "torchrun",
+            "--standalone",
+            f"--nproc_per_node={args.num_gpus}",
+            script_path,
+            *worker_args,
+        ]
+    else:
+        cmd = [sys.executable, script_path, *worker_args]
+
+    if not args.nohup:
+        print(f"Executing: {shlex.join(cmd)}")
+        return subprocess.call(cmd)
+
+    os.makedirs("logs", exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f"logs/Inference_{timestamp}.log"
+    print(f"Running inference in background. Output will be saved to: {log_file}")
+    print(f"Executing: {shlex.join(cmd)}")
+    with open(log_file, "ab", buffering=0) as output:
+        process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=os.environ.copy(),
+        )
+    print(f"Inference started with PID {process.pid}. Monitor progress with: tail -f {log_file}")
+    return 0
 
 
 def _resolve_model_identifier(config):
@@ -246,7 +367,11 @@ def _build_model_load_kwargs():
     if device_type == "mps":
         device_map = {"": "mps"}
     elif device_type == "cuda":
-        device_map = "auto"
+        _, local_rank, world_size = _distributed_context()
+        # Data-parallel inference runs one full replica per GPU. Do not use
+        # device_map="auto" here: every rank can see all GPUs and would otherwise
+        # compete for GPU 0 or shard a replica across devices owned by other ranks.
+        device_map = {"": local_rank} if world_size > 1 else "auto"
     else:
         device_map = {"": "cpu"}
     print(f"Running on {device_type.upper()} with dtype: {optimal_dtype}")
@@ -370,6 +495,14 @@ def _generation_confidence(model, outputs):
     return min(max(confidence, 0.0), 1.0)
 
 
+def _chat_template_kwargs(config):
+    """Return explicitly configured, model-specific chat-template controls."""
+    enable_thinking = getattr(config, "enable_thinking", None)
+    if enable_thinking is None:
+        return {}
+    return {"enable_thinking": enable_thinking}
+
+
 def generate_response(
     model,
     tokenizer,
@@ -395,6 +528,7 @@ def generate_response(
             tokenize=True,
             return_tensors="pt",
             return_dict=True,
+            **_chat_template_kwargs(config),
         ).to(model.device)
     else:
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -593,7 +727,12 @@ def generate_vlm_response(
         messages.append({"role": "system", "content": [{"type": "text", "text": system_text}]})
     messages.append({"role": "user", "content": content})
 
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    text = processor.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        **_chat_template_kwargs(config),
+    )
     processor_kwargs = {
         "text": [text],
         "images": images if images else None,
@@ -629,6 +768,8 @@ def generate_vlm_response(
 
 def run_inference(config, debug=False):
     """Run inference on the specified dataset."""
+    rank, _, world_size = _distributed_context()
+
     # Determine if we should use API or local model
     # API requires both model and api_key
     use_api = (hasattr(config, 'model') and config.model is not None) and \
@@ -665,7 +806,15 @@ def run_inference(config, debug=False):
     print(f"Loading dataset: {config.dataset_name}")
     data_split = load_raw_dataset(config)
     print(f"Loaded {len(data_split)} rows")
-    print(f"Processing {len(data_split)} examples from the dataset...")
+    local_indices = range(rank, len(data_split), world_size)
+    local_example_count = len(local_indices)
+    if world_size > 1:
+        print(
+            f"Rank {rank}/{world_size}: processing {local_example_count} "
+            f"of {len(data_split)} examples"
+        )
+    else:
+        print(f"Processing {len(data_split)} examples from the dataset...")
     
     # Process all checkpoints
     all_results = []
@@ -699,7 +848,8 @@ def run_inference(config, debug=False):
         # Process the dataset for this checkpoint
         checkpoint_results = []
         
-        for i, example in enumerate(data_split):
+        for local_i, dataset_idx in enumerate(local_indices):
+            example = data_split[dataset_idx]
             # Split (chat) mode: build system/user turns. Legacy flat mode: build
             # a single templated prompt string from system_prompt.
             if config.split_mode:
@@ -724,7 +874,7 @@ def run_inference(config, debug=False):
                 confidence = None
                 if debug:
                     print(f"\n{'='*50}")
-                    print(f"DEBUG - Example {i+1}")
+                    print(f"DEBUG - Example {dataset_idx + 1}")
                     print(f"{'='*50}")
                     if messages is not None:
                         print("CHAT MESSAGES:")
@@ -816,13 +966,21 @@ def run_inference(config, debug=False):
                 result[response_col] = response
                 confidence_col = getattr(config, 'confidence_column', 'confidence')
                 result[confidence_col] = confidence
+                if world_size > 1:
+                    result[_RESULT_ORDER_COLUMN] = (
+                        checkpoint_idx * len(data_split) + dataset_idx
+                    )
                 
                 checkpoint_results.append(result)
                 
-                print(f"Processed example {i+1}/{len(data_split)}")
+                print(
+                    f"Rank {rank}: processed local example "
+                    f"{local_i + 1}/{local_example_count} "
+                    f"(dataset row {dataset_idx + 1}/{len(data_split)})"
+                )
                 
             except Exception as e:
-                print(f"Error processing example {i}: {e}")
+                print(f"Error processing example {dataset_idx}: {e}")
                 continue
         
         # Add results from this checkpoint to overall results
@@ -839,20 +997,52 @@ def run_inference(config, debug=False):
             elif hasattr(torch, 'mps') and hasattr(torch.mps, 'empty_cache'):
                 torch.mps.empty_cache()
     
-    # Use all_results as the final results
-    results = all_results
-    
     # Create output directory if it doesn't exist
     output_dir = os.path.dirname(config.output_file)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-    
-    # Save results to CSV file
-    df = pd.DataFrame(results)
+
+    if world_size > 1:
+        # Each rank writes independently, then rank 0 merges in original
+        # checkpoint/dataset order. Pickle is only an internal transport format;
+        # it preserves list-valued dataset columns without CSV round trips.
+        rank_file = _rank_results_path(config.output_file, rank, world_size)
+        pd.DataFrame(all_results).to_pickle(rank_file)
+        print(f"Rank {rank}: saved {len(all_results)} temporary results to {rank_file}")
+        _distributed_barrier()
+
+        if rank != 0:
+            return
+
+        rank_frames = []
+        rank_files = []
+        for worker_rank in range(world_size):
+            worker_file = _rank_results_path(config.output_file, worker_rank, world_size)
+            rank_files.append(worker_file)
+            if not os.path.exists(worker_file):
+                raise FileNotFoundError(
+                    f"Missing distributed inference results from rank {worker_rank}: "
+                    f"{worker_file}"
+                )
+            rank_frames.append(pd.read_pickle(worker_file))
+
+        df = pd.concat(rank_frames, ignore_index=True) if rank_frames else pd.DataFrame()
+        if _RESULT_ORDER_COLUMN in df.columns:
+            df = (
+                df.sort_values(_RESULT_ORDER_COLUMN, kind="stable")
+                .drop(columns=[_RESULT_ORDER_COLUMN])
+                .reset_index(drop=True)
+            )
+        for worker_file in rank_files:
+            os.remove(worker_file)
+    else:
+        df = pd.DataFrame(all_results)
+
+    # Only rank 0 reaches this point in a distributed run.
     df.to_csv(config.output_file, index=False, encoding='utf-8', quoting=csv.QUOTE_ALL)
     
     print(f"\nResults saved to: {config.output_file}")
-    print(f"Processed {len(results)} examples successfully")
+    print(f"Processed {len(df)} examples successfully")
     
     # Determine model info for summary
     if use_api:
@@ -876,8 +1066,8 @@ def run_inference(config, debug=False):
         'total_examples': len(data_split),
         'num_checkpoints': len(checkpoint_paths),
         'total_expected_results': total_expected,
-        'successful_examples': len(results),
-        'failed_examples': total_expected - len(results),
+        'successful_examples': len(df),
+        'failed_examples': total_expected - len(df),
         'config': config.to_dict(),
         'inference_type': inference_type,
         'model_info': model_info,
@@ -950,41 +1140,16 @@ def main():
     """Main inference function."""
     global args
     args = parse_args()
-    
-    # Handle nohup mode
-    if args.nohup:
-        # Create logs directory if it doesn't exist
-        os.makedirs("logs", exist_ok=True)
-        
-        # Generate log filename with timestamp
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = f"logs/Inference_{timestamp}.log"
-        
-        print(f"Running inference in background with nohup. Output will be saved to: {log_file}")
-        
-        # Build command to run the script without --nohup
-        script_path = os.path.abspath(__file__)
-        cmd_args = [sys.executable, script_path, "--recipe", args.recipe]
-        if args.debug:
-            cmd_args.append("--debug")
-        
-        # Add overrides to command
-        if args.overrides:
-            cmd_args.extend(args.overrides)
-        
-        # Prepare nohup command: nohup <command> > log_file 2>&1 &
-        cmd_str = " ".join(cmd_args) + f" > {log_file} 2>&1 &"
-        full_cmd = f"nohup {cmd_str}"
-        
-        print(f"Executing: {full_cmd}")
-        
-        # Execute with shell to handle redirection and background
-        result = subprocess.call(full_cmd, shell=True)
-        
-        if result == 0:
-            print(f"Inference started in background. Monitor progress with: tail -f {log_file}")
-        
-        return result
+
+    if args.num_gpus < 1:
+        raise ValueError("--num-gpus must be at least 1")
+
+    # The parent process launches torchrun. Child workers omit --num-gpus and
+    # are identified by torchrun's RANK/LOCAL_RANK/WORLD_SIZE environment.
+    if not is_distributed_launch() and (args.nohup or args.num_gpus > 1):
+        return _launch_inference_workers(args)
+
+    rank, _, world_size = _initialize_distributed_inference()
     
     # Load recipe with overrides
     config = load_inference_recipe_with_overrides(args)
@@ -993,45 +1158,52 @@ def main():
     use_api = hasattr(config, 'api_key') and config.api_key and \
               hasattr(config, 'model') and config.model
     
-    print("Starting inference with the following configuration:")
-    if use_api:
-        print(f"  Model (API): {config.model}")
-        print(f"  Inference type: API-based")
-    elif hasattr(config, 'model_paths') and config.model_paths:
-        print(f"  Number of checkpoints: {len(config.model_paths)}")
-        print(f"  Checkpoints:")
-        for i, path in enumerate(config.model_paths, 1):
-            print(f"    {i}. {path}")
-        if len(config.model_paths) > 1:
-            print(f"  Inference type: Multi-checkpoint inference")
+    if rank == 0:
+        print("Starting inference with the following configuration:")
+        if world_size > 1:
+            print(f"  Data-parallel workers: {world_size} GPUs")
+        if use_api:
+            print(f"  Model (API): {config.model}")
+            print(f"  Inference type: API-based")
+        elif hasattr(config, 'model_paths') and config.model_paths:
+            print(f"  Number of checkpoints: {len(config.model_paths)}")
+            print(f"  Checkpoints:")
+            for i, path in enumerate(config.model_paths, 1):
+                print(f"    {i}. {path}")
+            if len(config.model_paths) > 1:
+                print(f"  Inference type: Multi-checkpoint inference")
+            else:
+                print(f"  Inference type: Local fine-tuned model")
+        elif hasattr(config, 'model') and config.model:
+            print(f"  Model: {config.model}")
+            print(f"  Inference type: HuggingFace vanilla model")
         else:
-            print(f"  Inference type: Local fine-tuned model")
-    elif hasattr(config, 'model') and config.model:
-        print(f"  Model: {config.model}")
-        print(f"  Inference type: HuggingFace vanilla model")
-    else:
-        raise ValueError("Either model_paths or model must be specified in config")
-    
-    print(f"  Dataset: {config.dataset_name}")
-    print(f"  Dataset columns: {config.dataset_columns}")
-    print(f"  Output file: {config.output_file}")
-    print(f"  Temperature: {config.temperature}")
-    print(f"  Top-p: {config.top_p}")
-    print(f"  Max new tokens: {config.max_new_tokens}")
-    print(f"  Do sample: {config.do_sample}")
-    print()
+            raise ValueError("Either model_paths or model must be specified in config")
+
+        print(f"  Dataset: {config.dataset_name}")
+        print(f"  Dataset columns: {config.dataset_columns}")
+        print(f"  Output file: {config.output_file}")
+        print(f"  Temperature: {config.temperature}")
+        print(f"  Top-p: {config.top_p}")
+        print(f"  Max new tokens: {config.max_new_tokens}")
+        print(f"  Do sample: {config.do_sample}")
+        print()
     
     try:
         # Run inference
         run_inference(config, debug=args.debug)
-        print("Inference completed successfully!")
+        if rank == 0:
+            print("Inference completed successfully!")
         
     except Exception as e:
-        print(f"Inference failed with error: {str(e)}")
+        print(f"Rank {rank} inference failed with error: {str(e)}")
         if args.debug:
             import traceback
             traceback.print_exc()
         raise
+    finally:
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
 
 
 if __name__ == "__main__":

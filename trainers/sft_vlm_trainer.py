@@ -565,7 +565,7 @@ class SFTVLMTrainer(BaseTrainer):
         self.setup_data()
         self.setup_trainer()
 
-        self.trainer.train()
+        self.train_with_resume()
 
         self.trainer.save_model(self.config.training.output_dir)
         # Persist the processor alongside the model so the checkpoint is loadable.

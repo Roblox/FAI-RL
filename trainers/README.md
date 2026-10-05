@@ -294,7 +294,7 @@ The file is downloaded to a temporary path at training startup, loaded into the 
 
 ### Checkpoint Strategy
 - Set `save_steps` based on dataset size (e.g., every 10% of total steps)
-- Keep `save_only_model: true` to save disk space
+- Use `save_only_model: true` to save disk space, or `false` to retain optimizer/scheduler state for recovery
 - Use `eval_steps` to monitor validation performance periodically
 - SFT/CPT/DPO/sft_vlm can set `eval_enabled: true` to hold out
   `eval_split_ratio` of the train set and log `eval_loss`. Set
@@ -304,6 +304,25 @@ The file is downloaded to a temporary path at training startup, loaded into the 
 - Early stopping overrides `eval_steps`/`save_steps` and reloads the best
   checkpoint, except under `save_only_model: true` with `deepspeed_config`,
   where DeepSpeed cannot reload it and the last checkpoint is kept instead.
+
+### Resuming interrupted training
+
+```bash
+fai-rl-train --recipe recipe.yaml --auto-resume
+
+# An explicit checkpoint takes precedence over --auto-resume:
+fai-rl-train --recipe recipe.yaml \
+  training.resume_from_checkpoint=outputs/run/checkpoint-500
+```
+
+`--auto-resume` selects the highest-step resumable `checkpoint-N` directory in
+`training.output_dir`. It starts a fresh run if none is found. Recovery requires
+weights and trainer/optimizer state; model-only saves cannot fully resume training.
+Set `training.save_only_model=false` where model-only saving is enabled, and keep
+the original model, data, and training configuration when resuming. Discovery
+checks local checkpoint files, including DeepSpeed layouts, but cannot guarantee
+tensor integrity or compatibility. Without either resume option, training starts
+as usual and logs a suggestion if a recoverable checkpoint exists.
 
 ### Dataset Preparation
 - Ensure column names in config match your dataset

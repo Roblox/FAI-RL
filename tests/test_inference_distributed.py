@@ -17,6 +17,15 @@ import inference.inference as inference_module
 from core.config import InferenceConfig
 
 
+class _FakeStore:
+    def __init__(self):
+        self.counters = {}
+
+    def add(self, key, value):
+        self.counters[key] = self.counters.get(key, 0) + value
+        return self.counters[key]
+
+
 def test_parse_args_accepts_num_gpus(monkeypatch):
     monkeypatch.setattr(
         sys,
@@ -178,6 +187,19 @@ def test_distributed_ranks_process_disjoint_rows_and_rank_zero_merges(
     )
     # Run rank 1 followed by rank 0 in one process. Rank 0 must consume rank 1's
     # completion marker without requiring a torch.distributed collective.
+    fake_store = _FakeStore()
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+    monkeypatch.setattr(
+        torch.distributed.distributed_c10d,
+        "_get_default_store",
+        lambda: fake_store,
+    )
+    monkeypatch.setattr(
+        inference_module,
+        "_distributed_run_id",
+        lambda _rank, _world_size: "merge-test",
+    )
     monkeypatch.setenv("WORLD_SIZE", "2")
 
     monkeypatch.setenv("RANK", "1")
@@ -196,3 +218,203 @@ def test_distributed_ranks_process_disjoint_rows_and_rank_zero_merges(
     ]
     assert not list(tmp_path.glob("*.pkl"))
     assert not list(tmp_path.glob("*.complete"))
+
+
+def test_claim_dataset_indices_single_process():
+    indices = list(
+        inference_module._claim_dataset_indices(
+            checkpoint_idx=0,
+            total_examples=10,
+            world_size=1,
+        )
+    )
+    assert indices == list(range(10))
+
+
+def test_claim_dataset_indices_requires_distributed_store(monkeypatch):
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
+
+    with pytest.raises(RuntimeError, match="initialized torch.distributed"):
+        list(
+            inference_module._claim_dataset_indices(
+                checkpoint_idx=0,
+                total_examples=10,
+                world_size=2,
+                run_id="missing-store-test",
+            )
+        )
+
+
+def test_claim_dataset_indices_with_distributed_store(monkeypatch):
+    fake_store = _FakeStore()
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+    monkeypatch.setattr(
+        torch.distributed.distributed_c10d,
+        "_get_default_store",
+        lambda: fake_store,
+    )
+
+    iter0 = inference_module._claim_dataset_indices(
+        checkpoint_idx=0,
+        total_examples=5,
+        world_size=2,
+        run_id="claim-test",
+        chunk_size=3,
+    )
+    iter1 = inference_module._claim_dataset_indices(
+        checkpoint_idx=0,
+        total_examples=5,
+        world_size=2,
+        run_id="claim-test",
+        chunk_size=3,
+    )
+
+    rank0_items = [next(iter0), next(iter0), next(iter0)]
+    assert rank0_items == [0, 1, 2]
+
+    rank1_items = [next(iter1), next(iter1)]
+    assert rank1_items == [3, 4]
+
+    assert list(iter0) == []
+    assert list(iter1) == []
+
+
+def test_claim_dataset_indices_isolates_repeated_runs(monkeypatch):
+    fake_store = _FakeStore()
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+    monkeypatch.setattr(
+        torch.distributed.distributed_c10d,
+        "_get_default_store",
+        lambda: fake_store,
+    )
+
+    first_run = list(
+        inference_module._claim_dataset_indices(
+            checkpoint_idx=0,
+            total_examples=5,
+            world_size=2,
+            run_id="run-1",
+        )
+    )
+    second_run = list(
+        inference_module._claim_dataset_indices(
+            checkpoint_idx=0,
+            total_examples=5,
+            world_size=2,
+            run_id="run-2",
+        )
+    )
+
+    assert first_run == list(range(5))
+    assert second_run == list(range(5))
+
+
+def test_dynamic_scheduling_preserves_order_with_uneven_ranks(tmp_path):
+    output_file = tmp_path / "results.csv"
+    rank1_results = [
+        {"question": "q0", "response": "r0", inference_module._RESULT_ORDER_COLUMN: 0},
+        {"question": "q1", "response": "r1", inference_module._RESULT_ORDER_COLUMN: 1},
+        {"question": "q3", "response": "r3", inference_module._RESULT_ORDER_COLUMN: 3},
+        {"question": "q4", "response": "r4", inference_module._RESULT_ORDER_COLUMN: 4},
+    ]
+    rank0_results = [
+        {"question": "q2", "response": "r2", inference_module._RESULT_ORDER_COLUMN: 2},
+        {"question": "q5", "response": "r5", inference_module._RESULT_ORDER_COLUMN: 5},
+    ]
+
+    inference_module._publish_rank_results(str(output_file), rank=1, world_size=2, results=rank1_results)
+    inference_module._publish_rank_results(str(output_file), rank=0, world_size=2, results=rank0_results)
+
+    rank_files, _completion_files = inference_module._wait_for_rank_results(str(output_file), world_size=2)
+    rank_frames = [pd.read_pickle(f) for f in rank_files]
+    df = pd.concat(rank_frames, ignore_index=True)
+    df = (
+        df.sort_values(inference_module._RESULT_ORDER_COLUMN, kind="stable")
+        .drop(columns=[inference_module._RESULT_ORDER_COLUMN])
+        .reset_index(drop=True)
+    )
+    df.to_csv(output_file, index=False)
+
+    merged = pd.read_csv(output_file)
+    assert merged["question"].tolist() == ["q0", "q1", "q2", "q3", "q4", "q5"]
+    assert merged["response"].tolist() == ["r0", "r1", "r2", "r3", "r4", "r5"]
+
+
+def test_inference_chunk_size_env_override(monkeypatch):
+    monkeypatch.setenv("FAI_RL_INFERENCE_CHUNK_SIZE", "8")
+    assert inference_module._inference_chunk_size() == 8
+
+    monkeypatch.setenv("FAI_RL_INFERENCE_CHUNK_SIZE", "invalid")
+    assert inference_module._inference_chunk_size() == 1
+
+    monkeypatch.setenv("FAI_RL_INFERENCE_CHUNK_SIZE", "-5")
+    assert inference_module._inference_chunk_size() == 1
+
+
+def _multiprocess_test_worker(rank, world_size, output_file, store_path):
+    import os
+    import time
+    from pathlib import Path
+
+    import torch.distributed as dist
+
+    os.environ["RANK"] = str(rank)
+    os.environ["LOCAL_RANK"] = str(rank)
+    os.environ["WORLD_SIZE"] = str(world_size)
+    dist.init_process_group(
+        "gloo",
+        init_method=Path(store_path).resolve().as_uri(),
+        rank=rank,
+        world_size=world_size,
+    )
+
+    rows = [{"id": i, "question": f"question-{i}"} for i in range(12)]
+    config = InferenceConfig(
+        model_paths=["checkpoint-100", "checkpoint-200"],
+        dataset_name="test_dataset",
+        dataset_columns=["id", "question"],
+        system_prompt="{question}",
+        output_file=output_file,
+    )
+
+    inference_module.load_raw_dataset = lambda _config: rows
+    inference_module.load_model_and_tokenizer = lambda _config: (object(), object())
+
+    def fake_generate(_model, _tokenizer, prompt, _config, **_kwargs):
+        idx = int(prompt.split("-")[1])
+        if idx % 2 == 0 and rank == 0:
+            time.sleep(0.05)
+        return (f"answer-{prompt}", 0.95)
+
+    inference_module.generate_response = fake_generate
+    try:
+        inference_module.run_inference(config)
+    finally:
+        if dist.is_initialized():
+            dist.destroy_process_group()
+
+
+def test_end_to_end_multiprocess_dynamic_inference_preserves_order(tmp_path):
+    output_file = str(tmp_path / "results.csv")
+    world_size = 2
+    torch.multiprocessing.spawn(
+        _multiprocess_test_worker,
+        args=(world_size, output_file, str(tmp_path / "distributed-store")),
+        nprocs=world_size,
+        join=True,
+    )
+
+    df = pd.read_csv(output_file)
+    assert df["checkpoint"].tolist() == (
+        ["checkpoint-100"] * 12 + ["checkpoint-200"] * 12
+    )
+    assert df["id"].tolist() == list(range(12)) * 2
+    assert df["question"].tolist() == [
+        f"question-{i}" for i in range(12)
+    ] * 2
+    assert df["response"].tolist() == [
+        f"answer-question-{i}" for i in range(12)
+    ] * 2

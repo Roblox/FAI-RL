@@ -10,6 +10,7 @@ import math
 import sys
 import shlex
 import time
+import uuid
 
 # Disable fast tokenizer conversion to avoid tiktoken issues
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -208,6 +209,22 @@ Examples:
 _RESULT_ORDER_COLUMN = "__fai_rl_result_order"
 _DEFAULT_DISTRIBUTED_TIMEOUT_SECONDS = 60 * 60
 _RANK_RESULT_POLL_INTERVAL_SECONDS = 1.0
+_DEFAULT_INFERENCE_CHUNK_SIZE = 1
+
+
+def _inference_chunk_size():
+    """Return the batch chunk size when claiming rows in distributed inference."""
+    raw_chunk = os.environ.get(
+        "FAI_RL_INFERENCE_CHUNK_SIZE",
+        str(_DEFAULT_INFERENCE_CHUNK_SIZE),
+    )
+    try:
+        chunk_size = int(raw_chunk)
+        if chunk_size > 0:
+            return chunk_size
+    except ValueError:
+        pass
+    return _DEFAULT_INFERENCE_CHUNK_SIZE
 
 
 def _distributed_timeout_seconds():
@@ -267,6 +284,22 @@ def _initialize_distributed_inference():
         )
 
     return rank, local_rank, world_size
+
+
+def _distributed_run_id(rank, world_size):
+    """Return one unique work-queue namespace shared by all ranks in this run."""
+    if world_size <= 1:
+        return None
+    if not (
+        torch.distributed.is_available() and torch.distributed.is_initialized()
+    ):
+        raise RuntimeError(
+            "Multi-worker dynamic inference requires initialized torch.distributed"
+        )
+
+    run_id = [uuid.uuid4().hex if rank == 0 else None]
+    torch.distributed.broadcast_object_list(run_id, src=0)
+    return run_id[0]
 
 
 def _rank_results_path(output_file, rank, world_size):
@@ -378,6 +411,48 @@ def _wait_for_rank_results(
                 f"rank(s): {missing} after {timeout_seconds:g} seconds"
             )
         time.sleep(min(poll_interval_seconds, remaining_seconds))
+
+
+def _claim_dataset_indices(
+    checkpoint_idx,
+    total_examples,
+    world_size,
+    run_id=None,
+    chunk_size=None,
+):
+    """Yield dataset indices claimed dynamically by this rank.
+
+    When world_size == 1, yields range(total_examples) without synchronization.
+    When world_size > 1, ranks claim disjoint chunks from a shared atomic
+    counter in the initialized distributed store, which operates across worker
+    nodes.
+    """
+    if world_size <= 1:
+        yield from range(total_examples)
+        return
+
+    if chunk_size is None:
+        chunk_size = _inference_chunk_size()
+
+    if not (
+        torch.distributed.is_available() and torch.distributed.is_initialized()
+    ):
+        raise RuntimeError(
+            "Multi-worker dynamic inference requires initialized torch.distributed"
+        )
+    if not run_id:
+        raise ValueError("run_id is required for multi-worker dynamic inference")
+
+    store = torch.distributed.distributed_c10d._get_default_store()
+    counter_key = f"fai_rl_claim_{run_id}_ckpt_{checkpoint_idx}"
+    while True:
+        new_val = store.add(counter_key, chunk_size)
+        start_idx = new_val - chunk_size
+        if start_idx >= total_examples:
+            break
+        end_idx = min(new_val, total_examples)
+        for idx in range(start_idx, end_idx):
+            yield idx
 
 
 def _launch_inference_workers(args):
@@ -897,6 +972,7 @@ def run_inference(config, debug=False):
     rank, _, world_size = _distributed_context()
     if world_size > 1:
         _clear_rank_results(config.output_file, rank, world_size)
+    run_id = _distributed_run_id(rank, world_size)
 
     # Determine if we should use API or local model
     # API requires both model and api_key
@@ -934,12 +1010,10 @@ def run_inference(config, debug=False):
     print(f"Loading dataset: {config.dataset_name}")
     data_split = load_raw_dataset(config)
     print(f"Loaded {len(data_split)} rows")
-    local_indices = range(rank, len(data_split), world_size)
-    local_example_count = len(local_indices)
     if world_size > 1:
         print(
-            f"Rank {rank}/{world_size}: processing {local_example_count} "
-            f"of {len(data_split)} examples"
+            f"Rank {rank}/{world_size}: dynamically processing "
+            f"from {len(data_split)} examples"
         )
     else:
         print(f"Processing {len(data_split)} examples from the dataset...")
@@ -976,7 +1050,14 @@ def run_inference(config, debug=False):
         # Process the dataset for this checkpoint
         checkpoint_results = []
         
-        for local_i, dataset_idx in enumerate(local_indices):
+        for local_i, dataset_idx in enumerate(
+            _claim_dataset_indices(
+                checkpoint_idx=checkpoint_idx,
+                total_examples=len(data_split),
+                world_size=world_size,
+                run_id=run_id,
+            )
+        ):
             example = data_split[dataset_idx]
             # Split (chat) mode: build system/user turns. Legacy flat mode: build
             # a single templated prompt string from system_prompt.
@@ -1101,11 +1182,16 @@ def run_inference(config, debug=False):
                 
                 checkpoint_results.append(result)
                 
-                print(
-                    f"Rank {rank}: processed local example "
-                    f"{local_i + 1}/{local_example_count} "
-                    f"(dataset row {dataset_idx + 1}/{len(data_split)})"
-                )
+                if world_size > 1:
+                    print(
+                        f"Rank {rank}: processed {local_i + 1} local examples "
+                        f"(dataset row {dataset_idx + 1}/{len(data_split)})"
+                    )
+                else:
+                    print(
+                        f"Processed {local_i + 1}/{len(data_split)} examples "
+                        f"(dataset row {dataset_idx + 1}/{len(data_split)})"
+                    )
                 
             except Exception as e:
                 print(f"Error processing example {dataset_idx}: {e}")

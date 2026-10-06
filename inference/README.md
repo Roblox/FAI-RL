@@ -39,9 +39,14 @@ fai-rl-inference --recipe recipes/inference/qwen3_vl_30b_a3b.yaml --num-gpus 8
 
 Use `--num-gpus N` when the model fits on one GPU and you want higher dataset
 throughput. The launcher starts `N` torchrun workers, pins one complete model
-replica to each GPU, assigns disjoint dataset rows to each worker, and merges the
-temporary rank outputs into the configured `output_file` in original row order.
-The job must allocate and expose at least `N` CUDA devices.
+replica to each GPU, and dynamically claims dataset rows from a shared atomic
+work queue so faster workers never sit idle while slower workers finish
+variable-latency generations. Temporary rank outputs are merged by rank 0 into
+the configured `output_file` in exact original row order. The job must allocate
+and expose at least `N` CUDA devices.
+
+Workers claim 1 row at a time by default. Set `FAI_RL_INFERENCE_CHUNK_SIZE` to a
+positive integer to claim larger batches if desired.
 
 Ranks publish their temporary outputs atomically and may finish at different
 times; rank 0 waits for every completion marker before merging. Process-group

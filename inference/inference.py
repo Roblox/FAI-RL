@@ -10,6 +10,10 @@ import math
 import sys
 import shlex
 import time
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 # Disable fast tokenizer conversion to avoid tiktoken issues
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -208,6 +212,22 @@ Examples:
 _RESULT_ORDER_COLUMN = "__fai_rl_result_order"
 _DEFAULT_DISTRIBUTED_TIMEOUT_SECONDS = 60 * 60
 _RANK_RESULT_POLL_INTERVAL_SECONDS = 1.0
+_DEFAULT_INFERENCE_CHUNK_SIZE = 1
+
+
+def _inference_chunk_size():
+    """Return the batch chunk size when claiming rows in distributed inference."""
+    raw_chunk = os.environ.get(
+        "FAI_RL_INFERENCE_CHUNK_SIZE",
+        str(_DEFAULT_INFERENCE_CHUNK_SIZE),
+    )
+    try:
+        chunk_size = int(raw_chunk)
+        if chunk_size > 0:
+            return chunk_size
+    except ValueError:
+        pass
+    return _DEFAULT_INFERENCE_CHUNK_SIZE
 
 
 def _distributed_timeout_seconds():
@@ -378,6 +398,88 @@ def _wait_for_rank_results(
                 f"rank(s): {missing} after {timeout_seconds:g} seconds"
             )
         time.sleep(min(poll_interval_seconds, remaining_seconds))
+
+
+def _claim_counter_path(output_file, checkpoint_idx):
+    """Return the path for the file-based work counter fallback."""
+    return f"{output_file}.claim-counter-ckpt-{checkpoint_idx:05d}.txt"
+
+
+def _claim_dataset_indices(
+    checkpoint_idx,
+    total_examples,
+    rank,
+    world_size,
+    output_file,
+    chunk_size=None,
+):
+    """Yield dataset indices claimed dynamically by this rank.
+
+    When world_size == 1, yields range(total_examples) without synchronization.
+    When world_size > 1, ranks claim disjoint chunks from a shared atomic
+    counter. If torch.distributed is initialized, the counter lives in the
+    distributed store (operating across worker nodes). Otherwise, it falls back
+    to an atomically locked counter file beside output_file.
+    """
+    if world_size <= 1:
+        yield from range(total_examples)
+        return
+
+    if chunk_size is None:
+        chunk_size = _inference_chunk_size()
+
+    use_distributed_store = (
+        torch.distributed.is_available() and torch.distributed.is_initialized()
+    )
+
+    if use_distributed_store:
+        store = torch.distributed.distributed_c10d._get_default_store()
+        counter_key = f"fai_rl_claim_ckpt_{checkpoint_idx}"
+        while True:
+            new_val = store.add(counter_key, chunk_size)
+            start_idx = new_val - chunk_size
+            if start_idx >= total_examples:
+                break
+            end_idx = min(new_val, total_examples)
+            for idx in range(start_idx, end_idx):
+                yield idx
+    else:
+        counter_path = _claim_counter_path(output_file, checkpoint_idx)
+        counter_dir = os.path.dirname(counter_path)
+        if counter_dir:
+            os.makedirs(counter_dir, exist_ok=True)
+
+        while True:
+            if fcntl is not None:
+                with open(counter_path, "a+", encoding="utf-8") as f:
+                    fcntl.flock(f, fcntl.LOCK_EX)
+                    try:
+                        f.seek(0)
+                        content = f.read().strip()
+                        current_val = int(content) if content else 0
+                        new_val = current_val + chunk_size
+                        f.seek(0)
+                        f.truncate()
+                        f.write(str(new_val))
+                        f.flush()
+                    finally:
+                        fcntl.flock(f, fcntl.LOCK_UN)
+            else:
+                current_val = 0
+                if os.path.exists(counter_path):
+                    with open(counter_path, "r", encoding="utf-8") as f:
+                        c = f.read().strip()
+                        current_val = int(c) if c else 0
+                new_val = current_val + chunk_size
+                with open(counter_path, "w", encoding="utf-8") as f:
+                    f.write(str(new_val))
+
+            start_idx = new_val - chunk_size
+            if start_idx >= total_examples:
+                break
+            end_idx = min(new_val, total_examples)
+            for idx in range(start_idx, end_idx):
+                yield idx
 
 
 def _launch_inference_workers(args):
@@ -934,12 +1036,10 @@ def run_inference(config, debug=False):
     print(f"Loading dataset: {config.dataset_name}")
     data_split = load_raw_dataset(config)
     print(f"Loaded {len(data_split)} rows")
-    local_indices = range(rank, len(data_split), world_size)
-    local_example_count = len(local_indices)
     if world_size > 1:
         print(
-            f"Rank {rank}/{world_size}: processing {local_example_count} "
-            f"of {len(data_split)} examples"
+            f"Rank {rank}/{world_size}: dynamically processing "
+            f"from {len(data_split)} examples"
         )
     else:
         print(f"Processing {len(data_split)} examples from the dataset...")
@@ -976,7 +1076,15 @@ def run_inference(config, debug=False):
         # Process the dataset for this checkpoint
         checkpoint_results = []
         
-        for local_i, dataset_idx in enumerate(local_indices):
+        for local_i, dataset_idx in enumerate(
+            _claim_dataset_indices(
+                checkpoint_idx=checkpoint_idx,
+                total_examples=len(data_split),
+                rank=rank,
+                world_size=world_size,
+                output_file=config.output_file,
+            )
+        ):
             example = data_split[dataset_idx]
             # Split (chat) mode: build system/user turns. Legacy flat mode: build
             # a single templated prompt string from system_prompt.
@@ -1101,11 +1209,16 @@ def run_inference(config, debug=False):
                 
                 checkpoint_results.append(result)
                 
-                print(
-                    f"Rank {rank}: processed local example "
-                    f"{local_i + 1}/{local_example_count} "
-                    f"(dataset row {dataset_idx + 1}/{len(data_split)})"
-                )
+                if world_size > 1:
+                    print(
+                        f"Rank {rank}: processed {local_i + 1} local examples "
+                        f"(dataset row {dataset_idx + 1}/{len(data_split)})"
+                    )
+                else:
+                    print(
+                        f"Processed {local_i + 1}/{len(data_split)} examples "
+                        f"(dataset row {dataset_idx + 1}/{len(data_split)})"
+                    )
                 
             except Exception as e:
                 print(f"Error processing example {dataset_idx}: {e}")
@@ -1162,6 +1275,8 @@ def run_inference(config, debug=False):
             )
         for temporary_file in [*rank_files, *completion_files]:
             _remove_file_if_present(temporary_file)
+        for ckpt_i in range(len(checkpoint_paths)):
+            _remove_file_if_present(_claim_counter_path(config.output_file, ckpt_i))
     else:
         df = pd.DataFrame(all_results)
 

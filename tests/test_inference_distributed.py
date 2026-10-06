@@ -196,3 +196,140 @@ def test_distributed_ranks_process_disjoint_rows_and_rank_zero_merges(
     ]
     assert not list(tmp_path.glob("*.pkl"))
     assert not list(tmp_path.glob("*.complete"))
+
+
+def test_claim_dataset_indices_single_process():
+    indices = list(
+        inference_module._claim_dataset_indices(
+            checkpoint_idx=0,
+            total_examples=10,
+            rank=0,
+            world_size=1,
+            output_file="/tmp/dummy.csv",
+        )
+    )
+    assert indices == list(range(10))
+
+
+def test_claim_dataset_indices_file_fallback_claims_all_disjoint(tmp_path):
+    output_file = tmp_path / "results.csv"
+    claimed_rank0 = []
+    claimed_rank1 = []
+
+    iter0 = inference_module._claim_dataset_indices(
+        checkpoint_idx=0,
+        total_examples=10,
+        rank=0,
+        world_size=2,
+        output_file=str(output_file),
+        chunk_size=2,
+    )
+    iter1 = inference_module._claim_dataset_indices(
+        checkpoint_idx=0,
+        total_examples=10,
+        rank=1,
+        world_size=2,
+        output_file=str(output_file),
+        chunk_size=2,
+    )
+
+    claimed_rank0.extend([next(iter0), next(iter0)])
+    claimed_rank1.extend([next(iter1), next(iter1)])
+    claimed_rank0.extend([next(iter0), next(iter0)])
+    claimed_rank1.extend([next(iter1), next(iter1)])
+    claimed_rank0.extend([next(iter0), next(iter0)])
+
+    assert list(iter0) == []
+    assert list(iter1) == []
+    all_claimed = sorted(claimed_rank0 + claimed_rank1)
+    assert all_claimed == list(range(10))
+    assert set(claimed_rank0).isdisjoint(set(claimed_rank1))
+
+
+def test_claim_dataset_indices_with_distributed_store(monkeypatch):
+    class FakeStore:
+        def __init__(self):
+            self.counters = {}
+
+        def add(self, key, value):
+            self.counters[key] = self.counters.get(key, 0) + value
+            return self.counters[key]
+
+    fake_store = FakeStore()
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+    monkeypatch.setattr(
+        torch.distributed.distributed_c10d,
+        "_get_default_store",
+        lambda: fake_store,
+    )
+
+    iter0 = inference_module._claim_dataset_indices(
+        checkpoint_idx=0,
+        total_examples=5,
+        rank=0,
+        world_size=2,
+        output_file="/tmp/unused.csv",
+        chunk_size=3,
+    )
+    iter1 = inference_module._claim_dataset_indices(
+        checkpoint_idx=0,
+        total_examples=5,
+        rank=1,
+        world_size=2,
+        output_file="/tmp/unused.csv",
+        chunk_size=3,
+    )
+
+    rank0_items = [next(iter0), next(iter0), next(iter0)]
+    assert rank0_items == [0, 1, 2]
+
+    rank1_items = [next(iter1), next(iter1)]
+    assert rank1_items == [3, 4]
+
+    assert list(iter0) == []
+    assert list(iter1) == []
+
+
+def test_dynamic_scheduling_preserves_order_with_uneven_ranks(tmp_path):
+    output_file = tmp_path / "results.csv"
+    rank1_results = [
+        {"question": "q0", "response": "r0", inference_module._RESULT_ORDER_COLUMN: 0},
+        {"question": "q1", "response": "r1", inference_module._RESULT_ORDER_COLUMN: 1},
+        {"question": "q3", "response": "r3", inference_module._RESULT_ORDER_COLUMN: 3},
+        {"question": "q4", "response": "r4", inference_module._RESULT_ORDER_COLUMN: 4},
+    ]
+    rank0_results = [
+        {"question": "q2", "response": "r2", inference_module._RESULT_ORDER_COLUMN: 2},
+        {"question": "q5", "response": "r5", inference_module._RESULT_ORDER_COLUMN: 5},
+    ]
+
+    inference_module._publish_rank_results(str(output_file), rank=1, world_size=2, results=rank1_results)
+    inference_module._publish_rank_results(str(output_file), rank=0, world_size=2, results=rank0_results)
+
+    rank_files, _completion_files = inference_module._wait_for_rank_results(str(output_file), world_size=2)
+    rank_frames = [pd.read_pickle(f) for f in rank_files]
+    df = pd.concat(rank_frames, ignore_index=True)
+    df = (
+        df.sort_values(inference_module._RESULT_ORDER_COLUMN, kind="stable")
+        .drop(columns=[inference_module._RESULT_ORDER_COLUMN])
+        .reset_index(drop=True)
+    )
+    df.to_csv(output_file, index=False)
+
+    merged = pd.read_csv(output_file)
+    assert merged["question"].tolist() == ["q0", "q1", "q2", "q3", "q4", "q5"]
+    assert merged["response"].tolist() == ["r0", "r1", "r2", "r3", "r4", "r5"]
+
+
+def test_inference_chunk_size_env_override(monkeypatch):
+    monkeypatch.setenv("FAI_RL_INFERENCE_CHUNK_SIZE", "8")
+    assert inference_module._inference_chunk_size() == 8
+
+    monkeypatch.setenv("FAI_RL_INFERENCE_CHUNK_SIZE", "invalid")
+    assert inference_module._inference_chunk_size() == 1
+
+    monkeypatch.setenv("FAI_RL_INFERENCE_CHUNK_SIZE", "-5")
+    assert inference_module._inference_chunk_size() == 1
+
+

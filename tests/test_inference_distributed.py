@@ -17,6 +17,15 @@ import inference.inference as inference_module
 from core.config import InferenceConfig
 
 
+class _FakeStore:
+    def __init__(self):
+        self.counters = {}
+
+    def add(self, key, value):
+        self.counters[key] = self.counters.get(key, 0) + value
+        return self.counters[key]
+
+
 def test_parse_args_accepts_num_gpus(monkeypatch):
     monkeypatch.setattr(
         sys,
@@ -178,6 +187,19 @@ def test_distributed_ranks_process_disjoint_rows_and_rank_zero_merges(
     )
     # Run rank 1 followed by rank 0 in one process. Rank 0 must consume rank 1's
     # completion marker without requiring a torch.distributed collective.
+    fake_store = _FakeStore()
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+    monkeypatch.setattr(
+        torch.distributed.distributed_c10d,
+        "_get_default_store",
+        lambda: fake_store,
+    )
+    monkeypatch.setattr(
+        inference_module,
+        "_distributed_run_id",
+        lambda _rank, _world_size: "merge-test",
+    )
     monkeypatch.setenv("WORLD_SIZE", "2")
 
     monkeypatch.setenv("RANK", "1")
@@ -203,59 +225,29 @@ def test_claim_dataset_indices_single_process():
         inference_module._claim_dataset_indices(
             checkpoint_idx=0,
             total_examples=10,
-            rank=0,
             world_size=1,
-            output_file="/tmp/dummy.csv",
         )
     )
     assert indices == list(range(10))
 
 
-def test_claim_dataset_indices_file_fallback_claims_all_disjoint(tmp_path):
-    output_file = tmp_path / "results.csv"
-    claimed_rank0 = []
-    claimed_rank1 = []
+def test_claim_dataset_indices_requires_distributed_store(monkeypatch):
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
 
-    iter0 = inference_module._claim_dataset_indices(
-        checkpoint_idx=0,
-        total_examples=10,
-        rank=0,
-        world_size=2,
-        output_file=str(output_file),
-        chunk_size=2,
-    )
-    iter1 = inference_module._claim_dataset_indices(
-        checkpoint_idx=0,
-        total_examples=10,
-        rank=1,
-        world_size=2,
-        output_file=str(output_file),
-        chunk_size=2,
-    )
-
-    claimed_rank0.extend([next(iter0), next(iter0)])
-    claimed_rank1.extend([next(iter1), next(iter1)])
-    claimed_rank0.extend([next(iter0), next(iter0)])
-    claimed_rank1.extend([next(iter1), next(iter1)])
-    claimed_rank0.extend([next(iter0), next(iter0)])
-
-    assert list(iter0) == []
-    assert list(iter1) == []
-    all_claimed = sorted(claimed_rank0 + claimed_rank1)
-    assert all_claimed == list(range(10))
-    assert set(claimed_rank0).isdisjoint(set(claimed_rank1))
+    with pytest.raises(RuntimeError, match="initialized torch.distributed"):
+        list(
+            inference_module._claim_dataset_indices(
+                checkpoint_idx=0,
+                total_examples=10,
+                world_size=2,
+                run_id="missing-store-test",
+            )
+        )
 
 
 def test_claim_dataset_indices_with_distributed_store(monkeypatch):
-    class FakeStore:
-        def __init__(self):
-            self.counters = {}
-
-        def add(self, key, value):
-            self.counters[key] = self.counters.get(key, 0) + value
-            return self.counters[key]
-
-    fake_store = FakeStore()
+    fake_store = _FakeStore()
     monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
     monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
     monkeypatch.setattr(
@@ -267,17 +259,15 @@ def test_claim_dataset_indices_with_distributed_store(monkeypatch):
     iter0 = inference_module._claim_dataset_indices(
         checkpoint_idx=0,
         total_examples=5,
-        rank=0,
         world_size=2,
-        output_file="/tmp/unused.csv",
+        run_id="claim-test",
         chunk_size=3,
     )
     iter1 = inference_module._claim_dataset_indices(
         checkpoint_idx=0,
         total_examples=5,
-        rank=1,
         world_size=2,
-        output_file="/tmp/unused.csv",
+        run_id="claim-test",
         chunk_size=3,
     )
 
@@ -289,6 +279,37 @@ def test_claim_dataset_indices_with_distributed_store(monkeypatch):
 
     assert list(iter0) == []
     assert list(iter1) == []
+
+
+def test_claim_dataset_indices_isolates_repeated_runs(monkeypatch):
+    fake_store = _FakeStore()
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+    monkeypatch.setattr(
+        torch.distributed.distributed_c10d,
+        "_get_default_store",
+        lambda: fake_store,
+    )
+
+    first_run = list(
+        inference_module._claim_dataset_indices(
+            checkpoint_idx=0,
+            total_examples=5,
+            world_size=2,
+            run_id="run-1",
+        )
+    )
+    second_run = list(
+        inference_module._claim_dataset_indices(
+            checkpoint_idx=0,
+            total_examples=5,
+            world_size=2,
+            run_id="run-2",
+        )
+    )
+
+    assert first_run == list(range(5))
+    assert second_run == list(range(5))
 
 
 def test_dynamic_scheduling_preserves_order_with_uneven_ranks(tmp_path):
@@ -333,21 +354,26 @@ def test_inference_chunk_size_env_override(monkeypatch):
     assert inference_module._inference_chunk_size() == 1
 
 
-def _multiprocess_test_worker(rank, world_size, output_file, master_port):
+def _multiprocess_test_worker(rank, world_size, output_file, store_path):
     import os
     import time
+    from pathlib import Path
 
     import torch.distributed as dist
 
-    os.environ["MASTER_ADDR"] = "127.0.0.1"
-    os.environ["MASTER_PORT"] = str(master_port)
     os.environ["RANK"] = str(rank)
     os.environ["LOCAL_RANK"] = str(rank)
     os.environ["WORLD_SIZE"] = str(world_size)
+    dist.init_process_group(
+        "gloo",
+        init_method=Path(store_path).resolve().as_uri(),
+        rank=rank,
+        world_size=world_size,
+    )
 
     rows = [{"id": i, "question": f"question-{i}"} for i in range(12)]
     config = InferenceConfig(
-        model_paths=["checkpoint-100"],
+        model_paths=["checkpoint-100", "checkpoint-200"],
         dataset_name="test_dataset",
         dataset_columns=["id", "question"],
         system_prompt="{question}",
@@ -364,10 +390,11 @@ def _multiprocess_test_worker(rank, world_size, output_file, master_port):
         return (f"answer-{prompt}", 0.95)
 
     inference_module.generate_response = fake_generate
-    inference_module.run_inference(config)
-
-    if dist.is_initialized():
-        dist.destroy_process_group()
+    try:
+        inference_module.run_inference(config)
+    finally:
+        if dist.is_initialized():
+            dist.destroy_process_group()
 
 
 def test_end_to_end_multiprocess_dynamic_inference_preserves_order(tmp_path):
@@ -375,15 +402,19 @@ def test_end_to_end_multiprocess_dynamic_inference_preserves_order(tmp_path):
     world_size = 2
     torch.multiprocessing.spawn(
         _multiprocess_test_worker,
-        args=(world_size, output_file, 29591),
+        args=(world_size, output_file, str(tmp_path / "distributed-store")),
         nprocs=world_size,
         join=True,
     )
 
     df = pd.read_csv(output_file)
-    assert df["id"].tolist() == list(range(12))
-    assert df["question"].tolist() == [f"question-{i}" for i in range(12)]
-    assert df["response"].tolist() == [f"answer-question-{i}" for i in range(12)]
-
-
-
+    assert df["checkpoint"].tolist() == (
+        ["checkpoint-100"] * 12 + ["checkpoint-200"] * 12
+    )
+    assert df["id"].tolist() == list(range(12)) * 2
+    assert df["question"].tolist() == [
+        f"question-{i}" for i in range(12)
+    ] * 2
+    assert df["response"].tolist() == [
+        f"answer-question-{i}" for i in range(12)
+    ] * 2

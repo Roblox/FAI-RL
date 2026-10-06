@@ -10,10 +10,7 @@ import math
 import sys
 import shlex
 import time
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
+import uuid
 
 # Disable fast tokenizer conversion to avoid tiktoken issues
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -289,6 +286,22 @@ def _initialize_distributed_inference():
     return rank, local_rank, world_size
 
 
+def _distributed_run_id(rank, world_size):
+    """Return one unique work-queue namespace shared by all ranks in this run."""
+    if world_size <= 1:
+        return None
+    if not (
+        torch.distributed.is_available() and torch.distributed.is_initialized()
+    ):
+        raise RuntimeError(
+            "Multi-worker dynamic inference requires initialized torch.distributed"
+        )
+
+    run_id = [uuid.uuid4().hex if rank == 0 else None]
+    torch.distributed.broadcast_object_list(run_id, src=0)
+    return run_id[0]
+
+
 def _rank_results_path(output_file, rank, world_size):
     """Return the temporary per-rank result path used before rank-0 merging."""
     return f"{output_file}.rank-{rank:05d}-of-{world_size:05d}.pkl"
@@ -400,26 +413,19 @@ def _wait_for_rank_results(
         time.sleep(min(poll_interval_seconds, remaining_seconds))
 
 
-def _claim_counter_path(output_file, checkpoint_idx):
-    """Return the path for the file-based work counter fallback."""
-    return f"{output_file}.claim-counter-ckpt-{checkpoint_idx:05d}.txt"
-
-
 def _claim_dataset_indices(
     checkpoint_idx,
     total_examples,
-    rank,
     world_size,
-    output_file,
+    run_id=None,
     chunk_size=None,
 ):
     """Yield dataset indices claimed dynamically by this rank.
 
     When world_size == 1, yields range(total_examples) without synchronization.
     When world_size > 1, ranks claim disjoint chunks from a shared atomic
-    counter. If torch.distributed is initialized, the counter lives in the
-    distributed store (operating across worker nodes). Otherwise, it falls back
-    to an atomically locked counter file beside output_file.
+    counter in the initialized distributed store, which operates across worker
+    nodes.
     """
     if world_size <= 1:
         yield from range(total_examples)
@@ -428,58 +434,25 @@ def _claim_dataset_indices(
     if chunk_size is None:
         chunk_size = _inference_chunk_size()
 
-    use_distributed_store = (
+    if not (
         torch.distributed.is_available() and torch.distributed.is_initialized()
-    )
+    ):
+        raise RuntimeError(
+            "Multi-worker dynamic inference requires initialized torch.distributed"
+        )
+    if not run_id:
+        raise ValueError("run_id is required for multi-worker dynamic inference")
 
-    if use_distributed_store:
-        store = torch.distributed.distributed_c10d._get_default_store()
-        counter_key = f"fai_rl_claim_ckpt_{checkpoint_idx}"
-        while True:
-            new_val = store.add(counter_key, chunk_size)
-            start_idx = new_val - chunk_size
-            if start_idx >= total_examples:
-                break
-            end_idx = min(new_val, total_examples)
-            for idx in range(start_idx, end_idx):
-                yield idx
-    else:
-        counter_path = _claim_counter_path(output_file, checkpoint_idx)
-        counter_dir = os.path.dirname(counter_path)
-        if counter_dir:
-            os.makedirs(counter_dir, exist_ok=True)
-
-        while True:
-            if fcntl is not None:
-                with open(counter_path, "a+", encoding="utf-8") as f:
-                    fcntl.flock(f, fcntl.LOCK_EX)
-                    try:
-                        f.seek(0)
-                        content = f.read().strip()
-                        current_val = int(content) if content else 0
-                        new_val = current_val + chunk_size
-                        f.seek(0)
-                        f.truncate()
-                        f.write(str(new_val))
-                        f.flush()
-                    finally:
-                        fcntl.flock(f, fcntl.LOCK_UN)
-            else:
-                current_val = 0
-                if os.path.exists(counter_path):
-                    with open(counter_path, "r", encoding="utf-8") as f:
-                        c = f.read().strip()
-                        current_val = int(c) if c else 0
-                new_val = current_val + chunk_size
-                with open(counter_path, "w", encoding="utf-8") as f:
-                    f.write(str(new_val))
-
-            start_idx = new_val - chunk_size
-            if start_idx >= total_examples:
-                break
-            end_idx = min(new_val, total_examples)
-            for idx in range(start_idx, end_idx):
-                yield idx
+    store = torch.distributed.distributed_c10d._get_default_store()
+    counter_key = f"fai_rl_claim_{run_id}_ckpt_{checkpoint_idx}"
+    while True:
+        new_val = store.add(counter_key, chunk_size)
+        start_idx = new_val - chunk_size
+        if start_idx >= total_examples:
+            break
+        end_idx = min(new_val, total_examples)
+        for idx in range(start_idx, end_idx):
+            yield idx
 
 
 def _launch_inference_workers(args):
@@ -999,6 +972,7 @@ def run_inference(config, debug=False):
     rank, _, world_size = _distributed_context()
     if world_size > 1:
         _clear_rank_results(config.output_file, rank, world_size)
+    run_id = _distributed_run_id(rank, world_size)
 
     # Determine if we should use API or local model
     # API requires both model and api_key
@@ -1080,9 +1054,8 @@ def run_inference(config, debug=False):
             _claim_dataset_indices(
                 checkpoint_idx=checkpoint_idx,
                 total_examples=len(data_split),
-                rank=rank,
                 world_size=world_size,
-                output_file=config.output_file,
+                run_id=run_id,
             )
         ):
             example = data_split[dataset_idx]
@@ -1275,8 +1248,6 @@ def run_inference(config, debug=False):
             )
         for temporary_file in [*rank_files, *completion_files]:
             _remove_file_if_present(temporary_file)
-        for ckpt_i in range(len(checkpoint_paths)):
-            _remove_file_if_present(_claim_counter_path(config.output_file, ckpt_i))
     else:
         df = pd.DataFrame(all_results)
 

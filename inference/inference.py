@@ -9,6 +9,7 @@ import json, csv
 import math
 import sys
 import shlex
+import time
 
 # Disable fast tokenizer conversion to avoid tiktoken issues
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -205,6 +206,27 @@ Examples:
 
 
 _RESULT_ORDER_COLUMN = "__fai_rl_result_order"
+_DEFAULT_DISTRIBUTED_TIMEOUT_SECONDS = 60 * 60
+_RANK_RESULT_POLL_INTERVAL_SECONDS = 1.0
+
+
+def _distributed_timeout_seconds():
+    """Return the timeout shared by process-group setup and result rendezvous."""
+    raw_timeout = os.environ.get(
+        "FAI_RL_DISTRIBUTED_TIMEOUT_SECONDS",
+        str(_DEFAULT_DISTRIBUTED_TIMEOUT_SECONDS),
+    )
+    try:
+        timeout_seconds = float(raw_timeout)
+    except ValueError as exc:
+        raise ValueError(
+            "FAI_RL_DISTRIBUTED_TIMEOUT_SECONDS must be a positive number"
+        ) from exc
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError(
+            "FAI_RL_DISTRIBUTED_TIMEOUT_SECONDS must be a positive number"
+        )
+    return timeout_seconds
 
 
 def is_distributed_launch():
@@ -239,19 +261,123 @@ def _initialize_distributed_inference():
         backend = "gloo"
 
     if not torch.distributed.is_initialized():
-        torch.distributed.init_process_group(backend=backend)
+        torch.distributed.init_process_group(
+            backend=backend,
+            timeout=datetime.timedelta(seconds=_distributed_timeout_seconds()),
+        )
 
     return rank, local_rank, world_size
-
-
-def _distributed_barrier():
-    if torch.distributed.is_available() and torch.distributed.is_initialized():
-        torch.distributed.barrier()
 
 
 def _rank_results_path(output_file, rank, world_size):
     """Return the temporary per-rank result path used before rank-0 merging."""
     return f"{output_file}.rank-{rank:05d}-of-{world_size:05d}.pkl"
+
+
+def _rank_completion_path(output_file, rank, world_size):
+    """Return the marker published after a rank result file is complete."""
+    return f"{_rank_results_path(output_file, rank, world_size)}.complete"
+
+
+def _remove_file_if_present(path):
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def _clear_rank_results(output_file, rank, world_size):
+    """Remove this rank's stale result and completion marker before inference."""
+    _remove_file_if_present(_rank_completion_path(output_file, rank, world_size))
+    _remove_file_if_present(_rank_results_path(output_file, rank, world_size))
+
+
+def _temporary_publish_path(path):
+    return f"{path}.tmp-{os.getpid()}-{time.monotonic_ns()}"
+
+
+def _publish_rank_results(output_file, rank, world_size, results):
+    """Atomically publish one rank's results followed by its completion marker."""
+    rank_file = _rank_results_path(output_file, rank, world_size)
+    completion_file = _rank_completion_path(output_file, rank, world_size)
+    temporary_rank_file = _temporary_publish_path(rank_file)
+    temporary_completion_file = _temporary_publish_path(completion_file)
+
+    _remove_file_if_present(completion_file)
+    try:
+        pd.DataFrame(results).to_pickle(temporary_rank_file)
+        os.replace(temporary_rank_file, rank_file)
+        with open(temporary_completion_file, "w", encoding="utf-8") as marker:
+            json.dump(
+                {
+                    "rank": rank,
+                    "world_size": world_size,
+                    "result_file": os.path.basename(rank_file),
+                    "result_count": len(results),
+                },
+                marker,
+            )
+        os.replace(temporary_completion_file, completion_file)
+    finally:
+        _remove_file_if_present(temporary_rank_file)
+        _remove_file_if_present(temporary_completion_file)
+
+    return rank_file, completion_file
+
+
+def _rank_result_is_complete(output_file, rank, world_size):
+    rank_file = _rank_results_path(output_file, rank, world_size)
+    completion_file = _rank_completion_path(output_file, rank, world_size)
+    try:
+        with open(completion_file, encoding="utf-8") as marker:
+            completion = json.load(marker)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+    return (
+        completion.get("rank") == rank
+        and completion.get("world_size") == world_size
+        and completion.get("result_file") == os.path.basename(rank_file)
+        and os.path.isfile(rank_file)
+    )
+
+
+def _wait_for_rank_results(
+    output_file,
+    world_size,
+    timeout_seconds=None,
+    poll_interval_seconds=_RANK_RESULT_POLL_INTERVAL_SECONDS,
+):
+    """Wait until every rank atomically publishes its local result file."""
+    if timeout_seconds is None:
+        timeout_seconds = _distributed_timeout_seconds()
+    deadline = time.monotonic() + timeout_seconds
+
+    while True:
+        missing_ranks = [
+            rank
+            for rank in range(world_size)
+            if not _rank_result_is_complete(output_file, rank, world_size)
+        ]
+        if not missing_ranks:
+            return (
+                [
+                    _rank_results_path(output_file, rank, world_size)
+                    for rank in range(world_size)
+                ],
+                [
+                    _rank_completion_path(output_file, rank, world_size)
+                    for rank in range(world_size)
+                ],
+            )
+
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            missing = ", ".join(str(rank) for rank in missing_ranks)
+            raise TimeoutError(
+                "Timed out waiting for distributed inference result "
+                f"rank(s): {missing} after {timeout_seconds:g} seconds"
+            )
+        time.sleep(min(poll_interval_seconds, remaining_seconds))
 
 
 def _launch_inference_workers(args):
@@ -769,6 +895,8 @@ def generate_vlm_response(
 def run_inference(config, debug=False):
     """Run inference on the specified dataset."""
     rank, _, world_size = _distributed_context()
+    if world_size > 1:
+        _clear_rank_results(config.output_file, rank, world_size)
 
     # Determine if we should use API or local model
     # API requires both model and api_key
@@ -1003,27 +1131,26 @@ def run_inference(config, debug=False):
         os.makedirs(output_dir, exist_ok=True)
 
     if world_size > 1:
-        # Each rank writes independently, then rank 0 merges in original
-        # checkpoint/dataset order. Pickle is only an internal transport format;
-        # it preserves list-valued dataset columns without CSV round trips.
-        rank_file = _rank_results_path(config.output_file, rank, world_size)
-        pd.DataFrame(all_results).to_pickle(rank_file)
+        # Each rank publishes independently. The final atomic completion marker
+        # lets faster ranks return without waiting in a short NCCL barrier while
+        # a slower rank is still generating variable-length responses.
+        rank_file, _ = _publish_rank_results(
+            config.output_file,
+            rank,
+            world_size,
+            all_results,
+        )
         print(f"Rank {rank}: saved {len(all_results)} temporary results to {rank_file}")
-        _distributed_barrier()
 
         if rank != 0:
             return
 
+        rank_files, completion_files = _wait_for_rank_results(
+            config.output_file,
+            world_size,
+        )
         rank_frames = []
-        rank_files = []
-        for worker_rank in range(world_size):
-            worker_file = _rank_results_path(config.output_file, worker_rank, world_size)
-            rank_files.append(worker_file)
-            if not os.path.exists(worker_file):
-                raise FileNotFoundError(
-                    f"Missing distributed inference results from rank {worker_rank}: "
-                    f"{worker_file}"
-                )
+        for worker_file in rank_files:
             rank_frames.append(pd.read_pickle(worker_file))
 
         df = pd.concat(rank_frames, ignore_index=True) if rank_frames else pd.DataFrame()
@@ -1033,8 +1160,8 @@ def run_inference(config, debug=False):
                 .drop(columns=[_RESULT_ORDER_COLUMN])
                 .reset_index(drop=True)
             )
-        for worker_file in rank_files:
-            os.remove(worker_file)
+        for temporary_file in [*rank_files, *completion_files]:
+            _remove_file_if_present(temporary_file)
     else:
         df = pd.DataFrame(all_results)
 

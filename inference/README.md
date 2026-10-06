@@ -43,6 +43,12 @@ replica to each GPU, assigns disjoint dataset rows to each worker, and merges th
 temporary rank outputs into the configured `output_file` in original row order.
 The job must allocate and expose at least `N` CUDA devices.
 
+Ranks publish their temporary outputs atomically and may finish at different
+times; rank 0 waits for every completion marker before merging. Process-group
+setup and this result rendezvous both default to a one-hour timeout. Set
+`FAI_RL_DISTRIBUTED_TIMEOUT_SECONDS` to a positive number of seconds to override
+that limit for unusually long or variable-latency workloads.
+
 This is data parallelism, not tensor parallelism: each GPU must have enough
 memory for the complete model. Without `--num-gpus`, inference remains a
 single-process run and `device_map="auto"` may shard a model across visible GPUs

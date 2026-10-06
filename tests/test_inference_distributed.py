@@ -1,10 +1,12 @@
 """Data-parallel inference launches and merges rank-sharded results."""
 
+import datetime
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 import torch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -75,6 +77,78 @@ def test_distributed_model_replica_is_pinned_to_local_rank(monkeypatch):
     assert kwargs["device_map"] == {"": 2}
 
 
+def test_distributed_process_group_uses_one_hour_timeout(monkeypatch):
+    recorded = {}
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    monkeypatch.setenv("RANK", "0")
+    monkeypatch.setenv("LOCAL_RANK", "0")
+    monkeypatch.delenv("FAI_RL_DISTRIBUTED_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: False)
+    monkeypatch.setattr(
+        torch.distributed,
+        "init_process_group",
+        lambda **kwargs: recorded.update(kwargs),
+    )
+
+    inference_module._initialize_distributed_inference()
+
+    assert recorded == {
+        "backend": "gloo",
+        "timeout": datetime.timedelta(hours=1),
+    }
+
+
+def test_rank_zero_waits_for_each_rank_completion_marker(monkeypatch, tmp_path):
+    output_file = tmp_path / "results.csv"
+    inference_module._publish_rank_results(
+        str(output_file),
+        rank=0,
+        world_size=2,
+        results=[{"value": "rank-0"}],
+    )
+
+    def publish_slow_rank(_seconds):
+        inference_module._publish_rank_results(
+            str(output_file),
+            rank=1,
+            world_size=2,
+            results=[{"value": "rank-1"}],
+        )
+
+    monkeypatch.setattr(inference_module.time, "sleep", publish_slow_rank)
+
+    rank_files, completion_files = inference_module._wait_for_rank_results(
+        str(output_file),
+        world_size=2,
+        timeout_seconds=5,
+        poll_interval_seconds=0.01,
+    )
+
+    assert [pd.read_pickle(path)["value"].item() for path in rank_files] == [
+        "rank-0",
+        "rank-1",
+    ]
+    assert all(Path(path).exists() for path in completion_files)
+
+
+def test_rank_result_wait_times_out_with_missing_ranks(tmp_path):
+    output_file = tmp_path / "results.csv"
+    inference_module._publish_rank_results(
+        str(output_file),
+        rank=0,
+        world_size=2,
+        results=[],
+    )
+
+    with pytest.raises(TimeoutError, match=r"rank\(s\): 1"):
+        inference_module._wait_for_rank_results(
+            str(output_file),
+            world_size=2,
+            timeout_seconds=0,
+        )
+
+
 def test_distributed_ranks_process_disjoint_rows_and_rank_zero_merges(
     monkeypatch, tmp_path
 ):
@@ -102,9 +176,8 @@ def test_distributed_ranks_process_disjoint_rows_and_rank_zero_merges(
             0.5,
         ),
     )
-    # The real torchrun workers synchronize here. Running rank 1 followed by
-    # rank 0 in one test process makes both temporary files available directly.
-    monkeypatch.setattr(inference_module, "_distributed_barrier", lambda: None)
+    # Run rank 1 followed by rank 0 in one process. Rank 0 must consume rank 1's
+    # completion marker without requiring a torch.distributed collective.
     monkeypatch.setenv("WORLD_SIZE", "2")
 
     monkeypatch.setenv("RANK", "1")
@@ -122,3 +195,4 @@ def test_distributed_ranks_process_disjoint_rows_and_rank_zero_merges(
         f"answer-question-{i}" for i in range(6)
     ]
     assert not list(tmp_path.glob("*.pkl"))
+    assert not list(tmp_path.glob("*.complete"))

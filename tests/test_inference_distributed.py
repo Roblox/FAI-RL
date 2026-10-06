@@ -333,3 +333,57 @@ def test_inference_chunk_size_env_override(monkeypatch):
     assert inference_module._inference_chunk_size() == 1
 
 
+def _multiprocess_test_worker(rank, world_size, output_file, master_port):
+    import os
+    import time
+
+    import torch.distributed as dist
+
+    os.environ["MASTER_ADDR"] = "127.0.0.1"
+    os.environ["MASTER_PORT"] = str(master_port)
+    os.environ["RANK"] = str(rank)
+    os.environ["LOCAL_RANK"] = str(rank)
+    os.environ["WORLD_SIZE"] = str(world_size)
+
+    rows = [{"id": i, "question": f"question-{i}"} for i in range(12)]
+    config = InferenceConfig(
+        model_paths=["checkpoint-100"],
+        dataset_name="test_dataset",
+        dataset_columns=["id", "question"],
+        system_prompt="{question}",
+        output_file=output_file,
+    )
+
+    inference_module.load_raw_dataset = lambda _config: rows
+    inference_module.load_model_and_tokenizer = lambda _config: (object(), object())
+
+    def fake_generate(_model, _tokenizer, prompt, _config, **_kwargs):
+        idx = int(prompt.split("-")[1])
+        if idx % 2 == 0 and rank == 0:
+            time.sleep(0.05)
+        return (f"answer-{prompt}", 0.95)
+
+    inference_module.generate_response = fake_generate
+    inference_module.run_inference(config)
+
+    if dist.is_initialized():
+        dist.destroy_process_group()
+
+
+def test_end_to_end_multiprocess_dynamic_inference_preserves_order(tmp_path):
+    output_file = str(tmp_path / "results.csv")
+    world_size = 2
+    torch.multiprocessing.spawn(
+        _multiprocess_test_worker,
+        args=(world_size, output_file, 29591),
+        nprocs=world_size,
+        join=True,
+    )
+
+    df = pd.read_csv(output_file)
+    assert df["id"].tolist() == list(range(12))
+    assert df["question"].tolist() == [f"question-{i}" for i in range(12)]
+    assert df["response"].tolist() == [f"answer-question-{i}" for i in range(12)]
+
+
+

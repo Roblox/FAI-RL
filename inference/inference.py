@@ -50,7 +50,7 @@ from core.config import ExperimentConfig
 from core.peft_lora import peft_model_from_pretrained
 from utils.config_validation import validate_api_config
 from utils.recipe_overrides import apply_overrides_to_recipe, load_recipe_from_yaml
-from utils.logging_utils import setup_logging, SafeLogger
+from utils.logging_utils import get_package_version, setup_logging, SafeLogger
 from utils.dataset_utils import format_multiple_choice_for_inference, load_raw_dataset
 from utils.tokenizer_utils import prepare_tokenizer_with_model
 from utils.device_utils import (
@@ -63,6 +63,11 @@ from utils.device_utils import (
 # This prevents logging errors from crashing long-running inference jobs
 _base_logger = setup_logging("Inference")
 logger = SafeLogger(_base_logger)
+
+
+def _log_inference_version():
+    """Log the installed FAI-RL distribution version for job diagnostics."""
+    logger.info(f"FAI-RL version: {get_package_version()}")
 
 
 def has_template_placeholders(template):
@@ -1372,6 +1377,7 @@ def main():
               hasattr(config, 'model') and config.model
     
     if rank == 0:
+        _log_inference_version()
         print("Starting inference with the following configuration:")
         if world_size > 1:
             print(f"  Data-parallel workers: {world_size} GPUs")

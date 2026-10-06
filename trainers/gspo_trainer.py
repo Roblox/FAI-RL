@@ -17,7 +17,6 @@ if project_root not in sys.path:
 from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
-from utils.dataset_utils import load_raw_dataset
 from .rewards.factory import build_reward_function
 
 class GSPOTrainer(BaseTrainer):
@@ -77,7 +76,7 @@ class GSPOTrainer(BaseTrainer):
             subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
             self.logger.info(f"Loading dataset: {dataset_info.name}{subset_info} (split: {dataset_info.split})")
 
-            dataset = load_raw_dataset(dataset_info)
+            dataset = self.load_training_dataset(dataset_info)
 
             original_size = len(dataset)
 

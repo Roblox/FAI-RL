@@ -40,6 +40,7 @@ from utils.media_utils import collect_media_sources
 from utils.structured_output import (
     compile_json_schema,
     json_schema_logits_processor,
+    split_reasoning,
     validate_json_response,
 )
 from utils.video_utils import fetch_video
@@ -1030,6 +1031,7 @@ def run_inference(config, debug=False):
     # Process all checkpoints
     all_results = []
     json_schema = getattr(config, 'json_schema', None)
+    thinking = json_schema is not None and bool(getattr(config, 'enable_thinking', None))
     
     for checkpoint_idx, checkpoint_path in enumerate(checkpoint_paths):
         compiled_schema = None
@@ -1060,7 +1062,7 @@ def run_inference(config, debug=False):
 
             # Compile before the row loop so a bad schema is not caught per row.
             if json_schema is not None:
-                compiled_schema = compile_json_schema(model, tokenizer, json_schema)
+                compiled_schema = compile_json_schema(model, tokenizer, json_schema, thinking)
         
         # Process the dataset for this checkpoint
         checkpoint_results = []
@@ -1097,6 +1099,7 @@ def run_inference(config, debug=False):
             try:
                 confidence = None
                 schema_result = None
+                reasoning = ""
                 logits_processor = (
                     json_schema_logits_processor(compiled_schema)
                     if compiled_schema is not None
@@ -1171,6 +1174,9 @@ def run_inference(config, debug=False):
                             logits_processor=logits_processor,
                         )
 
+                if thinking:
+                    reasoning, response = split_reasoning(response)
+
                 if debug:
                     print("Response (truncated):")
                     # Avoid logging the full response to prevent leaking sensitive data
@@ -1211,6 +1217,8 @@ def run_inference(config, debug=False):
                 result['parse_ok'], result['schema_error'] = (
                     schema_result or validate_json_response(response, json_schema)
                 )
+            if thinking:
+                result['reasoning'] = reasoning
             if world_size > 1:
                 result[_RESULT_ORDER_COLUMN] = (
                     checkpoint_idx * len(data_split) + dataset_idx

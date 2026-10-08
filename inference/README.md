@@ -152,8 +152,12 @@ inference:
 
 Each row gets `parse_ok` and `schema_error` columns; rows whose generation fails
 are kept and flagged, and only `parse_ok` rows count as successful in the summary.
-Thinking mode is turned off (`enable_thinking: true` is rejected), and API
-inference is not supported. Output cut off by `max_new_tokens` is invalid JSON.
+Thinking stays off unless `enable_thinking: true` (chat mode only): the model then
+thinks first, the text before `</think>` goes to a `reasoning` column, and only the
+JSON after it is validated. This needs a `<think>…</think>` model such as Qwen3; others
+fail at startup. Thinking has no separate budget, so output that runs out of
+`max_new_tokens` (while thinking or in the JSON) is flagged `parse_ok=False`. API
+inference is not supported.
 
 ## 📊 Output
 

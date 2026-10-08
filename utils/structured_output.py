@@ -8,6 +8,8 @@ from typing import Any, Dict, Tuple
 
 from transformers import LogitsProcessorList
 
+THINK_END = "</think>"
+
 
 def _require(module_name: str):
     try:
@@ -38,9 +40,31 @@ def parse_json_schema(json_schema: Any) -> Dict[str, Any]:
     return json_schema
 
 
-def compile_json_schema(model, tokenizer, json_schema: Dict[str, Any]):
+def _has_thinking_mode(tokenizer) -> bool:
+    # THINK_END must survive skip_special_tokens decoding so the reasoning can be split off.
+    if THINK_END not in tokenizer.get_vocab() or THINK_END in tokenizer.all_special_tokens:
+        return False
+    if not getattr(tokenizer, "chat_template", None):
+        return False
+    turn = [{"role": "user", "content": "x"}]
+    on, off = (
+        tokenizer.apply_chat_template(
+            turn, tokenize=False, add_generation_prompt=True, enable_thinking=enabled
+        )
+        for enabled in (True, False)
+    )
+    # Thinking-only templates open <think> in the prompt; hybrid ones render differently.
+    return on.rstrip().endswith("<think>") or on != off
+
+
+def compile_json_schema(model, tokenizer, json_schema: Dict[str, Any], thinking: bool = False):
     xgr = _require("xgrammar")
     tokenizer = getattr(tokenizer, "tokenizer", tokenizer)  # VLM processors wrap a tokenizer
+    if thinking and not _has_thinking_mode(tokenizer):
+        raise ValueError(
+            "enable_thinking with json_schema needs a thinking model whose chat template "
+            f"uses <think>...{THINK_END}"
+        )
     output_embeddings = model.get_output_embeddings()
     tokenizer_info = xgr.TokenizerInfo.from_huggingface(
         tokenizer,
@@ -50,9 +74,18 @@ def compile_json_schema(model, tokenizer, json_schema: Dict[str, Any]):
         stop_token_ids=getattr(model.generation_config, "eos_token_id", None),
     )
     try:
-        # Compact whitespace keeps the model from padding the JSON indefinitely.
-        return xgr.GrammarCompiler(tokenizer_info).compile_json_schema(
-            json.dumps(json_schema), any_whitespace=False
+        compiler = xgr.GrammarCompiler(tokenizer_info)
+        if not thinking:
+            # Compact whitespace keeps the model from padding the JSON indefinitely.
+            return compiler.compile_json_schema(json.dumps(json_schema), any_whitespace=False)
+        from xgrammar.structural_tag import AnyTextFormat, JSONSchemaFormat, SequenceFormat
+        from xgrammar.structural_tag import TagFormat
+
+        # Free text up to THINK_END (no token budget), then only schema-valid JSON.
+        think = TagFormat(begin="", content=AnyTextFormat(), end=THINK_END)
+        answer = JSONSchemaFormat(json_schema=json_schema, max_whitespace_cnt=1)
+        return compiler.compile_structural_tag(
+            xgr.StructuralTag(format=SequenceFormat(elements=[think, answer]))
         )
     except Exception as e:
         raise ValueError(f"json_schema could not be compiled for constrained decoding: {e}") from e
@@ -61,6 +94,12 @@ def compile_json_schema(model, tokenizer, json_schema: Dict[str, Any]):
 def json_schema_logits_processor(compiled_grammar):
     """xgrammar processors are single-use: build a new one for every generate() call."""
     return LogitsProcessorList([_require("xgrammar").contrib.hf.LogitsProcessor(compiled_grammar)])
+
+
+def split_reasoning(response: str) -> Tuple[str, str]:
+    """Return ``(reasoning, answer)``; the answer is empty if thinking never closed."""
+    reasoning, _, answer = response.partition(THINK_END)
+    return reasoning.strip().removeprefix("<think>").strip(), answer.strip()
 
 
 def validate_json_response(response: str, json_schema: Dict[str, Any]) -> Tuple[bool, str]:

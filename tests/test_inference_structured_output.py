@@ -27,11 +27,32 @@ SCHEMA = {
     "additionalProperties": False,
 }
 BAD_JSON = {"json_schema": "{not json"}
+THINK = {"enable_thinking": True}
+THINKING_TEMPLATE = "{{ messages[-1]['content'] }}{% if enable_thinking %}<think>{% endif %}"
+
+
+def _tiny_model(chat_template=None):
+    from tokenizers import ByteLevelBPETokenizer
+    from transformers import GPT2Config, GPT2LMHeadModel, PreTrainedTokenizerFast
+
+    bpe = ByteLevelBPETokenizer()
+    bpe.train_from_iterator([json.dumps(SCHEMA)], vocab_size=300, special_tokens=["<eos>"])
+    tokenizer = PreTrainedTokenizerFast(tokenizer_object=bpe._tokenizer, eos_token="<eos>")
+    tokenizer.add_tokens(["<think>", "</think>"])
+    tokenizer.chat_template = chat_template
+    config = GPT2Config(vocab_size=len(tokenizer), n_embd=16, n_layer=1, n_head=2)
+    config.eos_token_id = tokenizer.eos_token_id
+    return GPT2LMHeadModel(config).eval(), tokenizer
 
 
 @pytest.mark.parametrize(
     "overrides, error",
-    [({}, None), (BAD_JSON, "not valid JSON"), ({"enable_thinking": True}, "enable_thinking")],
+    [
+        ({}, None),
+        (BAD_JSON, "not valid JSON"),
+        ({**THINK, "user_prompt": "{q}"}, None),
+        (THINK, "user_prompt"),
+    ],
 )
 def test_recipe_json_schema_validation(tmp_path, overrides, error):
     recipe = tmp_path / "recipe.yaml"
@@ -44,20 +65,13 @@ def test_recipe_json_schema_validation(tmp_path, overrides, error):
         return
     config = inference_module.load_inference_recipe_with_overrides(args)
     assert list(config.json_schema["properties"]) == ["label", "decision"]
-    assert config.enable_thinking is False
+    # Thinking stays off unless enabled explicitly.
+    assert config.enable_thinking is overrides.get("enable_thinking", False)
 
 
 def test_run_inference_constrains_and_flags_rows_only_with_schema(monkeypatch, tmp_path):
     pytest.importorskip("xgrammar")
-    from tokenizers import ByteLevelBPETokenizer
-    from transformers import GPT2Config, GPT2LMHeadModel, PreTrainedTokenizerFast
-
-    bpe = ByteLevelBPETokenizer()
-    bpe.train_from_iterator([json.dumps(SCHEMA)], vocab_size=300, special_tokens=["<eos>"])
-    tokenizer = PreTrainedTokenizerFast(tokenizer_object=bpe._tokenizer, eos_token="<eos>")
-    config = GPT2Config(vocab_size=len(tokenizer), n_embd=16, n_layer=1, n_head=2)
-    config.eos_token_id = tokenizer.eos_token_id
-    model = GPT2LMHeadModel(config).eval()
+    model, tokenizer = _tiny_model()
 
     canned = {
         "cut": '{"label": "a", "decision": ',
@@ -100,3 +114,40 @@ def test_run_inference_constrains_and_flags_rows_only_with_schema(monkeypatch, t
 
     # An unresolvable $ref fails the row instead of aborting the run.
     assert not validate_json_response("1", {"$ref": "https://example.com/x.json"})[0]
+
+
+def test_run_inference_with_thinking_validates_only_the_json(monkeypatch, tmp_path):
+    pytest.importorskip("xgrammar")
+    from utils.structured_output import compile_json_schema
+
+    model, tokenizer = _tiny_model(THINKING_TEMPLATE)
+    answer = '{"label": "a", "decision": "allow"}'
+    canned = {"ok": "<think>hmm</think>" + answer, "long": "never stops thinking"}
+
+    def generate(*_args, messages, **_kwargs):
+        return canned[messages[-1]["content"]], 0.5
+
+    monkeypatch.chdir(tmp_path)
+    rows = [{"prompt": prompt} for prompt in canned]
+    monkeypatch.setattr(inference_module, "load_raw_dataset", lambda _c: rows)
+    monkeypatch.setattr(inference_module, "load_model_and_tokenizer", lambda _c: (model, tokenizer))
+    monkeypatch.setattr(inference_module, "generate_response", generate)
+    kwargs = {"model_paths": ["c"], "user_prompt": "{prompt}", "output_file": "r.csv"}
+    inference_module.run_inference(InferenceConfig(json_schema=SCHEMA, **THINK, **kwargs))
+
+    result = pd.read_csv("r.csv", keep_default_na=False)
+    assert result["reasoning"].tolist() == ["hmm", "never stops thinking"]
+    assert result["response"].tolist() == [answer, ""]
+    assert result["parse_ok"].tolist() == [True, False]
+
+    # The compiled grammar allows free text, then </think>, then only schema-valid JSON.
+    compiled = compile_json_schema(model, tokenizer, SCHEMA, thinking=True)
+    import xgrammar as xgr
+
+    assert xgr.GrammarMatcher(compiled).accept_string("any text</think>" + answer)
+    assert not xgr.GrammarMatcher(compiled).accept_string('any text</think>{"label": "z"')
+
+    # A model whose chat template has no thinking mode fails at startup.
+    _, plain = _tiny_model("{{ messages[-1]['content'] }}")
+    with pytest.raises(ValueError, match="thinking model"):
+        compile_json_schema(model, plain, SCHEMA, thinking=True)

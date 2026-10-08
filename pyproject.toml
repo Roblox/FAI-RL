@@ -70,6 +70,7 @@ Repository = "https://github.com/Roblox/FAI-RL"
 Issues = "https://github.com/Roblox/FAI-RL/issues"
 
 [project.scripts]
+fai-rl-doctor = "utils.doctor:main"
 fai-rl-train = "trainers.train:main"
 fai-rl-inference = "inference.inference:main"
 fai-rl-eval = "evaluations.eval:main"

@@ -488,3 +488,9 @@ version = "X.Y.Z"  # Increment version
 The tag and `pyproject.toml` version must match. PyPI versions are immutable,
 so do not reuse a version after it has been published.
 </details>
+
+## Environment diagnostics
+
+Run `fai-rl-doctor` to check Python, PyTorch/CUDA, GPU memory, dependencies,
+and local authentication configuration. See the [environment doctor guide](docs/environment-doctor.md)
+for example output, fixes, and information to include when opening an issue.

@@ -33,13 +33,11 @@ from transformers import (
     AutoModelForCausalLM,
     AutoProcessor,
     AutoModelForImageTextToText,
-    LogitsProcessorList,
 )
 from utils.api_utils import generate_response_by_api
 from utils.image_utils import fetch_image
 from utils.media_utils import collect_media_sources
 from utils.structured_output import (
-    GENERATION_FAILED_PREFIX,
     compile_json_schema,
     json_schema_logits_processor,
     validate_json_response,
@@ -711,13 +709,6 @@ def _chat_template_kwargs(config):
     return {"enable_thinking": enable_thinking}
 
 
-def _logits_processor_kwargs(logits_processor):
-    """Return generate() kwargs for an optional constrained-decoding processor."""
-    if logits_processor is None:
-        return {}
-    return {"logits_processor": LogitsProcessorList([logits_processor])}
-
-
 def generate_response(
     model,
     tokenizer,
@@ -733,8 +724,7 @@ def generate_response(
     In flat mode a raw ``prompt`` string is tokenized directly. In split (chat)
     mode a ``messages`` role list is rendered with the tokenizer's chat template
     (add_generation_prompt=True) so system/user turns are honored and special
-    tokens are added exactly once. An optional ``logits_processor`` (e.g. a
-    JSON-schema grammar) constrains decoding.
+    tokens are added exactly once.
     """
 
     # Tokenize the input prompt
@@ -764,7 +754,7 @@ def generate_response(
             pad_token_id=tokenizer.pad_token_id,
             return_dict_in_generate=True,
             output_scores=True,
-            **_logits_processor_kwargs(logits_processor),
+            logits_processor=logits_processor,
         )
     
     # Slice off the prompt tokens
@@ -935,7 +925,7 @@ def generate_vlm_response(
     video placeholder per video, followed by the text, applies the processor's
     chat template, and decodes only the newly generated tokens (matching the text
     path's behavior). In split (chat) mode a non-empty ``system_text`` is prepended
-    as a system-role turn. An optional ``logits_processor`` constrains decoding.
+    as a system-role turn.
     """
     videos = videos or []
     content = [{"type": "image"} for _ in images]
@@ -976,7 +966,7 @@ def generate_vlm_response(
             pad_token_id=tokenizer.pad_token_id,
             return_dict_in_generate=True,
             output_scores=True,
-            **_logits_processor_kwargs(logits_processor),
+            logits_processor=logits_processor,
         )
 
     generated_tokens = outputs.sequences[0][input_token_length:]
@@ -1068,8 +1058,7 @@ def run_inference(config, debug=False):
             else:
                 model, tokenizer = load_model_and_tokenizer(config)
 
-            # Compile once per checkpoint, before any row, so an unsupported schema
-            # fails here instead of inside the per-row error handling below.
+            # Compile before the row loop so a bad schema is not caught per row.
             if json_schema is not None:
                 compiled_schema = compile_json_schema(model, tokenizer, json_schema)
         
@@ -1107,7 +1096,7 @@ def run_inference(config, debug=False):
             # Generate response
             try:
                 confidence = None
-                generation_error = None
+                schema_result = None
                 logits_processor = (
                     json_schema_logits_processor(compiled_schema)
                     if compiled_schema is not None
@@ -1198,9 +1187,8 @@ def run_inference(config, debug=False):
                 print(f"Error processing example {dataset_idx}: {e}")
                 if json_schema is None:
                     continue
-                # With a schema, keep and flag the row so failures stay visible.
                 response, confidence = "", None
-                generation_error = f"{GENERATION_FAILED_PREFIX}{type(e).__name__}: {e}"
+                schema_result = (False, f"generation failed: {type(e).__name__}: {e}")
 
             # Store the result with dataset columns first, then response column
             result = {}
@@ -1220,12 +1208,9 @@ def run_inference(config, debug=False):
             confidence_col = getattr(config, 'confidence_column', 'confidence')
             result[confidence_col] = confidence
             if json_schema is not None:
-                if generation_error is None:
-                    parse_ok, schema_error = validate_json_response(response, json_schema)
-                else:
-                    parse_ok, schema_error = False, generation_error
-                result[getattr(config, 'parse_ok_column', 'parse_ok')] = parse_ok
-                result[getattr(config, 'schema_error_column', 'schema_error')] = schema_error
+                result['parse_ok'], result['schema_error'] = (
+                    schema_result or validate_json_response(response, json_schema)
+                )
             if world_size > 1:
                 result[_RESULT_ORDER_COLUMN] = (
                     checkpoint_idx * len(data_split) + dataset_idx
@@ -1320,13 +1305,9 @@ def run_inference(config, debug=False):
     
     # Calculate total expected examples (dataset size * number of checkpoints)
     total_expected = len(data_split) * len(checkpoint_paths)
-    successful_examples = len(df)
-    if json_schema is not None and len(df):
-        # Rows whose generation raised are kept (and flagged) when a schema is set.
-        schema_errors = df[getattr(config, 'schema_error_column', 'schema_error')]
-        successful_examples -= int(
-            schema_errors.astype(str).str.startswith(GENERATION_FAILED_PREFIX).sum()
-        )
+    successful_examples = (
+        int(df['parse_ok'].sum()) if json_schema is not None and len(df) else len(df)
+    )
     
     # Create summary
     summary = {
@@ -1342,12 +1323,6 @@ def run_inference(config, debug=False):
         'dataset_columns_used': config.dataset_columns,
         'system_prompt': config.system_prompt
     }
-    if json_schema is not None:
-        schema_valid = (
-            int(df[getattr(config, 'parse_ok_column', 'parse_ok')].sum()) if len(df) else 0
-        )
-        summary['schema_valid_examples'] = schema_valid
-        summary['schema_invalid_examples'] = len(df) - schema_valid
     
     # Save summary (keep as JSON, base filename on CSV output)
     summary_file = config.output_file.replace('.csv', '_summary.json')
@@ -1460,8 +1435,6 @@ def main():
         print(f"  Top-p: {config.top_p}")
         print(f"  Max new tokens: {config.max_new_tokens}")
         print(f"  Do sample: {config.do_sample}")
-        if getattr(config, 'json_schema', None) is not None:
-            print("  JSON schema: enabled (constrained decoding)")
         print()
     
     try:

@@ -55,30 +55,15 @@ def validate_api_config(config) -> None:
 
 
 def validate_structured_output_config(config) -> None:
-    """
-    Validate and normalize an inference config's json_schema, when set.
-
-    Args:
-        config: Inference configuration object; json_schema is replaced by its parsed dict
-
-    Raises:
-        ValueError: If the schema is invalid or combined with an unsupported setting
-    """
-    if getattr(config, 'json_schema', None) is None:
+    """Parse json_schema in place and reject settings it cannot be combined with."""
+    if config.json_schema is None:
         return
 
     from utils.structured_output import parse_json_schema
 
     config.json_schema = parse_json_schema(config.json_schema)
-
-    if getattr(config, 'enable_thinking', None):
-        raise ValueError(
-            "json_schema cannot be combined with enable_thinking: true, because constrained "
-            "decoding forces JSON from the first generated token. Set enable_thinking: false."
-        )
-
-    if getattr(config, 'model', None) is not None and getattr(config, 'api_key', None) is not None:
-        raise ValueError(
-            "json_schema is only supported for local model inference (model_paths or a "
-            "HuggingFace model), not API endpoints."
-        )
+    if config.enable_thinking:
+        raise ValueError("json_schema cannot be combined with enable_thinking: true")
+    config.enable_thinking = False  # the schema applies from the first generated token
+    if config.model is not None and config.api_key is not None:
+        raise ValueError("json_schema is only supported for local models, not API endpoints")

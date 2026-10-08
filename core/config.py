@@ -10,7 +10,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from utils.config_validation import validate_api_config
+from utils.config_validation import validate_api_config, validate_structured_output_config
 
 
 @dataclass
@@ -474,6 +474,8 @@ class InferenceConfig:
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     response_column: str = "response"
     confidence_column: str = "confidence"  # Geometric mean generated-token probability
+    parse_ok_column: str = "parse_ok"  # Whether the response is schema-valid JSON (json_schema only)
+    schema_error_column: str = "schema_error"  # Parse/validation/generation error (json_schema only)
     checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint inference
 
     # Multimodal (VLM) inference. Setting image_columns enables VLM mode: it names
@@ -527,6 +529,11 @@ class InferenceConfig:
     # Qwen. None preserves the model/template default and avoids passing a
     # model-specific kwarg to existing templates.
     enable_thinking: Optional[bool] = None
+    # Optional JSON Schema (a mapping or a JSON string) enforced at decode time with
+    # xgrammar on local text and VLM models. Requires `pip install 'FAI-RL[structured]'`.
+    # Each row gets parse_ok/schema_error columns, and rows whose generation raises
+    # are kept and flagged instead of skipped. None leaves generation unconstrained.
+    json_schema: Optional[Union[str, Dict[str, Any]]] = None
 
     @property
     def split_mode(self) -> bool:
@@ -640,6 +647,7 @@ class ExperimentConfig:
         
         # Validate API configuration
         validate_api_config(config)
+        validate_structured_output_config(config)
         
         return config
     

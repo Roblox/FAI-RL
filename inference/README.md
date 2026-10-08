@@ -140,6 +140,50 @@ inference:
 Omit `enable_thinking` to preserve the model chat template's default. Templates
 that do not implement this option ignore it.
 
+### Structured (JSON) Output
+
+Set **`json_schema`** to a JSON Schema to constrain local text and VLM generation
+so every response is JSON that follows the schema. Decoding is masked token by
+token with [xgrammar](https://github.com/mlc-ai/xgrammar), which is installed with
+the `structured` extra:
+
+```bash
+pip install "FAI-RL[structured]"
+```
+
+The schema can be a YAML mapping or a JSON string:
+
+```yaml
+inference:
+  user_prompt: "{question}"
+  enable_thinking: false
+  max_new_tokens: 256
+  json_schema:
+    type: object
+    properties:
+      decision: {type: string, enum: [allow, block]}
+      reason: {type: string}
+    required: [decision, reason]
+    additionalProperties: false
+```
+
+The schema is checked when the recipe loads and compiled once per checkpoint, so an
+invalid or unsupported schema fails before any row is generated. Each response is
+then parsed and validated with `jsonschema`, and the results CSV gains two columns:
+
+- **`parse_ok`**: `True` when the response is JSON that satisfies the schema (column name set by `parse_ok_column`).
+- **`schema_error`**: empty when valid; otherwise why the row failed, e.g. `invalid JSON: …`, `decision: 'maybe' is not one of […]`, or `generation failed: …` (column name set by `schema_error_column`).
+
+Notes:
+- Constrained decoding cannot finish JSON that runs out of `max_new_tokens`; such rows have `parse_ok=False`. Leave enough room for the full object.
+- Rows whose generation raises are kept with an empty response and a `generation failed: …` error instead of being skipped. The summary JSON also reports `schema_valid_examples` and `schema_invalid_examples`.
+- xgrammar accepts some keywords (for example `not`, `uniqueItems`, `if`/`then`) without enforcing them while decoding. Violations still show up in `schema_error`.
+- `confidence` is computed over the tokens the schema allows, so tokens the schema forces (braces, keys) count as near-certain.
+- On Apple MPS, PyTorch's sampler can occasionally pick a token the schema masked out when `do_sample: true`; those rows are flagged `generation failed: AssertionError`. Use greedy decoding (`do_sample: false`) on MPS. CUDA and CPU are unaffected.
+- `json_schema` cannot be combined with `enable_thinking: true` (the schema applies from the first generated token) or with API inference.
+
+See `recipes/inference/qwen3_vl_30b_a3b_json_schema.yaml`.
+
 ## 📊 Output
 
 ### Output Files
@@ -158,6 +202,7 @@ The CSV file contains the following columns:
 - **Checkpoint column** (multi-checkpoint only): Identifies which checkpoint generated each response (column name specified by `checkpoint_column`, default is `checkpoint`)
 - **Response column**: The model's generated response (column name specified by `response_column`, default is `response`)
 - **Confidence column**: Geometric mean of the generated-token probabilities, from 0 to 1 (column name specified by `confidence_column`, default is `confidence`). API inference leaves this value blank when the endpoint does not return token probabilities.
+- **Structured output columns** (only when `json_schema` is set): `parse_ok` and `schema_error`; see [Structured (JSON) Output](#structured-json-output)
 - **Metadata**: Generation parameters used (temperature, top_p, max_new_tokens)
 
 ### Multi-Checkpoint Inference

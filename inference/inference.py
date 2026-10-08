@@ -40,6 +40,7 @@ from utils.media_utils import collect_media_sources
 from utils.structured_output import (
     compile_json_schema,
     json_schema_logits_processor,
+    resolve_thinking,
     split_reasoning,
     validate_json_response,
 )
@@ -1031,10 +1032,10 @@ def run_inference(config, debug=False):
     # Process all checkpoints
     all_results = []
     json_schema = getattr(config, 'json_schema', None)
-    thinking = json_schema is not None and bool(getattr(config, 'enable_thinking', None))
     
     for checkpoint_idx, checkpoint_path in enumerate(checkpoint_paths):
         compiled_schema = None
+        thinking = False
         # Load model for this checkpoint (if not using API)
         if use_api:
             print(f"Using API inference with model: {config.model}")
@@ -1062,6 +1063,11 @@ def run_inference(config, debug=False):
 
             # Compile before the row loop so a bad schema is not caught per row.
             if json_schema is not None:
+                thinking = resolve_thinking(
+                    tokenizer,
+                    getattr(config, 'enable_thinking', None),
+                    chat_mode=is_vlm or config.split_mode,
+                )
                 compiled_schema = compile_json_schema(model, tokenizer, json_schema, thinking)
         
         # Process the dataset for this checkpoint

@@ -29,6 +29,12 @@ SCHEMA = {
 BAD_JSON = {"json_schema": "{not json"}
 THINK = {"enable_thinking": True}
 THINKING_TEMPLATE = "{{ messages[-1]['content'] }}{% if enable_thinking %}<think>{% endif %}"
+# Qwen3-style: thinks unless enable_thinking is false.
+THINKING_BY_DEFAULT_TEMPLATE = (
+    "{{ messages[-1]['content'] }}"
+    "{% if enable_thinking is defined and enable_thinking is false %}<think></think>"
+    "{% else %}<think>{% endif %}"
+)
 
 
 def _tiny_model(chat_template=None):
@@ -65,8 +71,26 @@ def test_recipe_json_schema_validation(tmp_path, overrides, error):
         return
     config = inference_module.load_inference_recipe_with_overrides(args)
     assert list(config.json_schema["properties"]) == ["label", "decision"]
-    # Thinking stays off unless enabled explicitly.
-    assert config.enable_thinking is overrides.get("enable_thinking", False)
+    # Unset stays unset, so the chat template's default applies as it does without a schema.
+    assert config.enable_thinking is overrides.get("enable_thinking")
+
+
+@pytest.mark.parametrize(
+    "template, enable_thinking, chat_mode, expected",
+    [
+        (THINKING_BY_DEFAULT_TEMPLATE, None, True, True),
+        (THINKING_BY_DEFAULT_TEMPLATE, False, True, False),
+        (THINKING_BY_DEFAULT_TEMPLATE, None, False, False),
+        (THINKING_TEMPLATE, None, True, False),
+        (THINKING_TEMPLATE, True, True, True),
+        ("{{ messages[-1]['content'] }}", None, True, False),
+    ],
+)
+def test_resolve_thinking_follows_the_chat_template_default(template, enable_thinking, chat_mode, expected):
+    from utils.structured_output import resolve_thinking
+
+    _, tokenizer = _tiny_model(template)
+    assert resolve_thinking(tokenizer, enable_thinking, chat_mode) is expected
 
 
 def test_run_inference_constrains_and_flags_rows_only_with_schema(monkeypatch, tmp_path):
@@ -116,11 +140,16 @@ def test_run_inference_constrains_and_flags_rows_only_with_schema(monkeypatch, t
     assert not validate_json_response("1", {"$ref": "https://example.com/x.json"})[0]
 
 
-def test_run_inference_with_thinking_validates_only_the_json(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "template, overrides",
+    [(THINKING_TEMPLATE, THINK), (THINKING_BY_DEFAULT_TEMPLATE, {})],
+    ids=["explicit", "template-default"],
+)
+def test_run_inference_with_thinking_validates_only_the_json(monkeypatch, tmp_path, template, overrides):
     pytest.importorskip("xgrammar")
     from utils.structured_output import compile_json_schema
 
-    model, tokenizer = _tiny_model(THINKING_TEMPLATE)
+    model, tokenizer = _tiny_model(template)
     answer = '{"label": "a", "decision": "allow"}'
     canned = {"ok": "<think>hmm</think>" + answer, "long": "never stops thinking"}
 
@@ -133,7 +162,7 @@ def test_run_inference_with_thinking_validates_only_the_json(monkeypatch, tmp_pa
     monkeypatch.setattr(inference_module, "load_model_and_tokenizer", lambda _c: (model, tokenizer))
     monkeypatch.setattr(inference_module, "generate_response", generate)
     kwargs = {"model_paths": ["c"], "user_prompt": "{prompt}", "output_file": "r.csv"}
-    inference_module.run_inference(InferenceConfig(json_schema=SCHEMA, **THINK, **kwargs))
+    inference_module.run_inference(InferenceConfig(json_schema=SCHEMA, **overrides, **kwargs))
 
     result = pd.read_csv("r.csv", keep_default_na=False)
     assert result["reasoning"].tolist() == ["hmm", "never stops thinking"]

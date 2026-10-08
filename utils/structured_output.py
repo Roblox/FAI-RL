@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from transformers import LogitsProcessorList
 
@@ -55,6 +55,22 @@ def _has_thinking_mode(tokenizer) -> bool:
     )
     # Thinking-only templates open <think> in the prompt; hybrid ones render differently.
     return on.rstrip().endswith("<think>") or on != off
+
+
+def resolve_thinking(tokenizer, enable_thinking: Optional[bool], chat_mode: bool) -> bool:
+    """Whether generation thinks: the explicit setting, else the chat template's default."""
+    if enable_thinking is not None:
+        return enable_thinking
+    tokenizer = getattr(tokenizer, "tokenizer", tokenizer)  # VLM processors wrap a tokenizer
+    # Flat prompts skip the chat template, so nothing opens a thinking block.
+    if not chat_mode or not _has_thinking_mode(tokenizer):
+        return False
+    turn = [{"role": "user", "content": "x"}]
+    default, on = (
+        tokenizer.apply_chat_template(turn, tokenize=False, add_generation_prompt=True, **kwargs)
+        for kwargs in ({}, {"enable_thinking": True})
+    )
+    return default == on
 
 
 def compile_json_schema(model, tokenizer, json_schema: Dict[str, Any], thinking: bool = False):

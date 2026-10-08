@@ -62,9 +62,7 @@ def validate_structured_output_config(config) -> None:
     from utils.structured_output import parse_json_schema
 
     config.json_schema = parse_json_schema(config.json_schema)
-    if config.enable_thinking is None:
-        config.enable_thinking = False  # thinking stays opt-in with a schema
-    elif config.enable_thinking and not (
+    if config.enable_thinking and not (
         config.user_prompt or config.image_columns or config.video_columns
     ):
         raise ValueError("json_schema with enable_thinking: true needs chat mode (set user_prompt)")

@@ -93,6 +93,14 @@ def test_resolve_thinking_follows_the_chat_template_default(template, enable_thi
     assert resolve_thinking(tokenizer, enable_thinking, chat_mode) is expected
 
 
+def test_example_recipe_loads():
+    recipe = REPO_ROOT / "recipes/inference/qwen3_4b_json_schema.yaml"
+    args = SimpleNamespace(recipe=str(recipe), overrides=[])
+    config = inference_module.load_inference_recipe_with_overrides(args)
+    assert config.json_schema["required"] == ["task", "needs_image"]
+    assert config.enable_thinking is False
+
+
 def test_run_inference_constrains_and_flags_rows_only_with_schema(monkeypatch, tmp_path):
     pytest.importorskip("xgrammar")
     model, tokenizer = _tiny_model()
@@ -128,13 +136,13 @@ def test_run_inference_constrains_and_flags_rows_only_with_schema(monkeypatch, t
     # A JSON string schema is parsed when the config is built.
     result, summary = run(json.dumps(SCHEMA))
     assert seen == [True] * 6
-    assert result["parse_ok"].tolist() == [True] * 3 + [False] * 3
-    prefixes = [error.split(":")[0] for error in result["schema_error"]]
+    assert result["__parse_ok"].tolist() == [True] * 3 + [False] * 3
+    prefixes = [error.split(":")[0] for error in result["__schema_error"]]
     assert prefixes == ["", "", "", "invalid JSON", "decision", "generation failed"]
     assert (summary["successful_examples"], summary["failed_examples"]) == (3, 3)
 
     result, _ = run(None)
-    assert seen == [False] * 6 and "parse_ok" not in result and len(result) == 5
+    assert seen == [False] * 6 and "__parse_ok" not in result and len(result) == 5
 
     # An unresolvable $ref fails the row instead of aborting the run.
     assert not validate_json_response("1", {"$ref": "https://example.com/x.json"})[0]
@@ -165,9 +173,9 @@ def test_run_inference_with_thinking_validates_only_the_json(monkeypatch, tmp_pa
     inference_module.run_inference(InferenceConfig(json_schema=SCHEMA, **overrides, **kwargs))
 
     result = pd.read_csv("r.csv", keep_default_na=False)
-    assert result["reasoning"].tolist() == ["hmm", "never stops thinking"]
-    assert result["response"].tolist() == [answer, ""]
-    assert result["parse_ok"].tolist() == [True, False]
+    assert result["__reasoning"].tolist() == ["hmm", "never stops thinking"]
+    assert result["__response"].tolist() == [answer, ""]
+    assert result["__parse_ok"].tolist() == [True, False]
 
     # The compiled grammar allows free text, then </think>, then only schema-valid JSON.
     compiled = compile_json_schema(model, tokenizer, SCHEMA, thinking=True)

@@ -1,0 +1,40 @@
+# Structured (JSON) Output with Qwen3-4B
+# Setting `json_schema` constrains decoding so every response is JSON that matches
+# the schema, and adds __parse_ok / __schema_error columns to the output CSV.
+#
+#   pip install "FAI-RL[structured]"
+#   fai-rl-inference --recipe recipes/inference/qwen3_4b_json_schema.yaml
+#
+# Qwen3-4B is a text model, so this example classifies each question in
+# example_inference_data.csv without fetching its image.
+
+inference:
+  # Model Configuration - Vanilla HuggingFace model
+  model: "Qwen/Qwen3-4B"
+
+  # Path to save inference results (CSV format with input columns + __response column)
+  output_file: "outputs/qwen3-4b-json-schema-infer.csv"
+
+  # Dataset Configuration for a local file (relative to the launch directory)
+  dataset_name: "recipes/inference/example_inference_data.csv"
+  dataset_split: ""                    # Used for Hub ids only; ignored for local files
+  dataset_columns: ["question"]        # Columns available to the prompt below
+
+  # Chat mode prompt; the model's chat template is applied
+  user_prompt: "Classify this question about an image: {question}"
+  enable_thinking: false               # Qwen3-4B is hybrid: true thinks first (text goes to __reasoning)
+
+  # JSON Schema enforced while decoding (a YAML mapping or a JSON string)
+  json_schema:
+    type: object
+    properties:
+      task: {type: string, enum: [describe, identify, count, other]}
+      needs_image: {type: boolean}
+    required: [task, needs_image]
+    additionalProperties: false
+
+  # Generation Parameters
+  temperature: 1.0            # Sampling temperature (0.0 = deterministic)
+  top_p: 0.9                  # Nucleus sampling threshold
+  max_new_tokens: 256         # Leave room for the complete JSON object
+  do_sample: false            # Greedy decoding for reproducible labels

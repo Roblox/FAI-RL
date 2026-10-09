@@ -16,7 +16,7 @@ inference:
   dataset_name: "data/example_test_data.csv"
   dataset_split: ""                           # Used for Hub ids only; ignored for local files
   dataset_columns: ["persona", "prompt"]      # Columns from your CSV to use as input
-  response_column: "response"                 # Name of column to store model responses (default: "response")
+  response_column: "__response"               # Name of column to store model responses (default: "__response")
   
   # System Prompt
   # Provides context and instructions to the model for generation

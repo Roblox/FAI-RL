@@ -213,7 +213,7 @@ def test_distributed_ranks_process_disjoint_rows_and_rank_zero_merges(
 
     result = pd.read_csv(output_file)
     assert result["question"].tolist() == [f"question-{i}" for i in range(6)]
-    assert result["response"].tolist() == [
+    assert result["__response"].tolist() == [
         f"answer-question-{i}" for i in range(6)
     ]
     assert not list(tmp_path.glob("*.pkl"))
@@ -415,6 +415,6 @@ def test_end_to_end_multiprocess_dynamic_inference_preserves_order(tmp_path):
     assert df["question"].tolist() == [
         f"question-{i}" for i in range(12)
     ] * 2
-    assert df["response"].tolist() == [
+    assert df["__response"].tolist() == [
         f"answer-question-{i}" for i in range(12)
     ] * 2

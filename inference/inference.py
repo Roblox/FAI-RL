@@ -1215,16 +1215,16 @@ def run_inference(config, debug=False):
                 result[checkpoint_col] = checkpoint_name
 
             # Add response column after dataset columns
-            response_col = getattr(config, 'response_column', 'response')
+            response_col = getattr(config, 'response_column', '__response')
             result[response_col] = response
-            confidence_col = getattr(config, 'confidence_column', 'confidence')
+            confidence_col = getattr(config, 'confidence_column', '__confidence')
             result[confidence_col] = confidence
             if json_schema is not None:
-                result['parse_ok'], result['schema_error'] = (
+                result['__parse_ok'], result['__schema_error'] = (
                     schema_result or validate_json_response(response, json_schema)
                 )
             if thinking:
-                result['reasoning'] = reasoning
+                result['__reasoning'] = reasoning
             if world_size > 1:
                 result[_RESULT_ORDER_COLUMN] = (
                     checkpoint_idx * len(data_split) + dataset_idx
@@ -1320,7 +1320,7 @@ def run_inference(config, debug=False):
     # Calculate total expected examples (dataset size * number of checkpoints)
     total_expected = len(data_split) * len(checkpoint_paths)
     successful_examples = (
-        int(df['parse_ok'].sum()) if json_schema is not None and len(df) else len(df)
+        int(df['__parse_ok'].sum()) if json_schema is not None and len(df) else len(df)
     )
     
     # Create summary

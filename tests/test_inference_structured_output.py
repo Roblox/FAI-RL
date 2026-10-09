@@ -223,8 +223,12 @@ def test_infer_json_schema_from_dataset_values():
         },
         "required": ["decision", "score", "tags", "meta"],
     }
-    with pytest.raises(ValueError, match="'label': only 0 of 2 sampled values are JSON objects"):
+    with pytest.raises(ValueError, match="'label': only 0 of 2 non-empty values are JSON objects"):
         infer_json_schema(["plain", "text", None], "label")
+    # The whole column is read, so labels that only appear late still join the enum.
+    sorted_labels = ['{"animal": "cat"}'] * 250 + ['{"animal": "dog"}'] * 250
+    animal = infer_json_schema(sorted_labels, "label")["properties"]["animal"]
+    assert animal["enum"] == ["cat", "dog"]
 
 
 def test_run_inference_uses_schema_inferred_from_column(monkeypatch, tmp_path):
@@ -239,6 +243,10 @@ def test_run_inference_uses_schema_inferred_from_column(monkeypatch, tmp_path):
         inference_module, "generate_response", lambda *_a, **_k: (next(responses), 0.5)
     )
     kwargs = {"model_paths": ["c"], "system_prompt": "{prompt}", "output_file": "r.csv"}
+    with pytest.raises(
+        ValueError, match=r"'lable' is not a dataset column \(columns: prompt, label\)"
+    ):
+        inference_module.run_inference(InferenceConfig(json_schema_from_column="lable", **kwargs))
     inference_module.run_inference(InferenceConfig(json_schema_from_column="label", **kwargs))
 
     summary = json.loads(Path("r_summary.json").read_text())

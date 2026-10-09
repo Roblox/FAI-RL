@@ -9,8 +9,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from transformers import LogitsProcessorList
 
 THINK_END = "</think>"
-# json_schema_from_column: rows sampled, max enum size, and min share of rows that must be JSON.
-INFER_SAMPLE_SIZE, INFER_MAX_ENUM, INFER_MIN_JSON_SHARE = 200, 20, 0.5
+# json_schema_from_column: max enum size, and min share of non-empty cells that must be JSON.
+INFER_MAX_ENUM, INFER_MIN_JSON_SHARE = 20, 0.5
 
 
 def _require(module_name: str):
@@ -198,16 +198,12 @@ def _infer(values: List[Any]) -> Dict[str, Any]:
 
 def infer_json_schema(cells: Iterable[Any], column: str) -> Dict[str, Any]:
     """Infer a JSON Schema from the JSON objects in a dataset column (see the README rules)."""
-    sample = []
-    for cell in cells:
-        if cell is not None and not (isinstance(cell, str) and not cell.strip()):
-            sample.append(cell)
-            if len(sample) == INFER_SAMPLE_SIZE:
-                break
-    objects = [obj for obj in map(_json_object, sample) if obj is not None]
-    if not objects or len(objects) < INFER_MIN_JSON_SHARE * len(sample):
+    # The whole column is read so a value that only appears late still joins its enum.
+    cells = [c for c in cells if c is not None and not (isinstance(c, str) and not c.strip())]
+    objects = [obj for obj in map(_json_object, cells) if obj is not None]
+    if not objects or len(objects) < INFER_MIN_JSON_SHARE * len(cells):
         raise ValueError(
-            f"json_schema_from_column '{column}': only {len(objects)} of {len(sample)} "
-            "sampled values are JSON objects"
+            f"json_schema_from_column '{column}': only {len(objects)} of {len(cells)} "
+            "non-empty values are JSON objects"
         )
     return _infer(objects)

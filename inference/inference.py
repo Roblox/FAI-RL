@@ -1024,7 +1024,18 @@ def run_inference(config, debug=False):
     print(f"Loaded {len(data_split)} rows")
     schema_column = getattr(config, 'json_schema_from_column', None)
     if schema_column:
-        cells = (data_split[i].get(schema_column) for i in range(len(data_split)))
+        columns = getattr(data_split, 'column_names', None)
+        if columns is None:
+            columns = list(data_split[0]) if len(data_split) else []
+        if schema_column not in columns:
+            raise ValueError(
+                f"json_schema_from_column '{schema_column}' is not a dataset column "
+                f"(columns: {', '.join(columns)})"
+            )
+        if hasattr(data_split, 'column_names'):
+            cells = data_split[schema_column]  # reads only this column
+        else:
+            cells = [row.get(schema_column) for row in data_split]
         config.json_schema = infer_json_schema(cells, schema_column)
         print(f"Inferred JSON schema from column '{schema_column}': {json.dumps(config.json_schema)}")
     if world_size > 1:

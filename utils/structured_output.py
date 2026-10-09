@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import importlib
 import json
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from transformers import LogitsProcessorList
 
 THINK_END = "</think>"
+# json_schema_from_column: rows sampled, max enum size, and min share of rows that must be JSON.
+INFER_SAMPLE_SIZE, INFER_MAX_ENUM, INFER_MIN_JSON_SHARE = 200, 20, 0.5
 
 
 def _require(module_name: str):
@@ -135,3 +137,77 @@ def validate_json_response(response: str, json_schema: Dict[str, Any]) -> Tuple[
         return True, ""
     path = ".".join(str(part) for part in error.absolute_path) or "$"
     return False, f"{path}: {error.message}"
+
+
+def _json_object(cell: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(cell, dict):
+        return cell
+    if not isinstance(cell, str):
+        return None
+    text = cell.strip()
+    if text.startswith("```"):  # drop a ```json fence
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+        text = text.rsplit("```", 1)[0]
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _kind(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):  # bool is an int subclass
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    return "array" if isinstance(value, list) else "object"
+
+
+def _infer(values: List[Any]) -> Dict[str, Any]:
+    kinds = [_kind(value) for value in values]
+    widen = "number" in kinds  # integers join number when any decimal is present
+    by_kind: Dict[str, List[Any]] = {}
+    for kind, value in zip(kinds, values):
+        by_kind.setdefault("number" if widen and kind == "integer" else kind, []).append(value)
+    schemas = []
+    for kind, group in by_kind.items():
+        schema: Dict[str, Any] = {"type": kind}
+        if kind == "string":
+            distinct = set(group)
+            if len(distinct) <= INFER_MAX_ENUM and len(group) >= 2 * len(distinct):
+                schema["enum"] = sorted(distinct)
+        elif kind == "array":
+            items = [item for array in group for item in array]
+            schema["items"] = _infer(items) if items else {}
+        elif kind == "object":
+            keys = list(dict.fromkeys(key for obj in group for key in obj))
+            schema["properties"] = {
+                key: _infer([obj[key] for obj in group if key in obj]) for key in keys
+            }
+            schema["required"] = [key for key in keys if all(key in obj for obj in group)]
+            schema["additionalProperties"] = False
+        schemas.append(schema)
+    return schemas[0] if len(schemas) == 1 else {"anyOf": schemas}
+
+
+def infer_json_schema(cells: Iterable[Any], column: str) -> Dict[str, Any]:
+    """Infer a JSON Schema from the JSON objects in a dataset column (see the README rules)."""
+    sample = []
+    for cell in cells:
+        if cell is not None and not (isinstance(cell, str) and not cell.strip()):
+            sample.append(cell)
+            if len(sample) == INFER_SAMPLE_SIZE:
+                break
+    objects = [obj for obj in map(_json_object, sample) if obj is not None]
+    if not objects or len(objects) < INFER_MIN_JSON_SHARE * len(sample):
+        raise ValueError(
+            f"json_schema_from_column '{column}': only {len(objects)} of {len(sample)} "
+            "sampled values are JSON objects"
+        )
+    return _infer(objects)

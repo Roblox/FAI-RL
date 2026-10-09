@@ -530,6 +530,8 @@ class InferenceConfig:
     enable_thinking: Optional[bool] = None
     # Optional JSON Schema (a mapping or JSON string) enforced while decoding.
     json_schema: Optional[Union[str, Dict[str, Any]]] = None
+    # Or infer it at startup from the JSON objects in this dataset column.
+    json_schema_from_column: Optional[str] = None
 
     def __post_init__(self):
         validate_structured_output_config(self)

@@ -58,6 +58,7 @@ def _tiny_model(chat_template=None):
         (BAD_JSON, "not valid JSON"),
         ({**THINK, "user_prompt": "{q}"}, None),
         (THINK, "user_prompt"),
+        ({"json_schema_from_column": "label"}, "not both"),
     ],
 )
 def test_recipe_json_schema_validation(tmp_path, overrides, error):
@@ -86,7 +87,9 @@ def test_recipe_json_schema_validation(tmp_path, overrides, error):
         ("{{ messages[-1]['content'] }}", None, True, False),
     ],
 )
-def test_resolve_thinking_follows_the_chat_template_default(template, enable_thinking, chat_mode, expected):
+def test_resolve_thinking_follows_the_chat_template_default(
+    template, enable_thinking, chat_mode, expected
+):
     from utils.structured_output import resolve_thinking
 
     _, tokenizer = _tiny_model(template)
@@ -153,7 +156,9 @@ def test_run_inference_constrains_and_flags_rows_only_with_schema(monkeypatch, t
     [(THINKING_TEMPLATE, THINK), (THINKING_BY_DEFAULT_TEMPLATE, {})],
     ids=["explicit", "template-default"],
 )
-def test_run_inference_with_thinking_validates_only_the_json(monkeypatch, tmp_path, template, overrides):
+def test_run_inference_with_thinking_validates_only_the_json(
+    monkeypatch, tmp_path, template, overrides
+):
     pytest.importorskip("xgrammar")
     from utils.structured_output import compile_json_schema
 
@@ -188,3 +193,56 @@ def test_run_inference_with_thinking_validates_only_the_json(monkeypatch, tmp_pa
     _, plain = _tiny_model("{{ messages[-1]['content'] }}")
     with pytest.raises(ValueError, match="thinking model"):
         compile_json_schema(model, plain, SCHEMA, thinking=True)
+
+
+def test_infer_json_schema_from_dataset_values():
+    from utils.structured_output import infer_json_schema
+
+    cells = [
+        '{"decision": "allow", "score": 1, "why": "fine", "tags": ["a"], "meta": {"v": 1}}',
+        '```json\n{"decision": "block", "score": 0.5, "why": "spam", "tags": [], "meta": {"v": 2}}'
+        "\n```",
+        '{"decision": "allow", "score": 2, "why": null, "tags": ["a", "b"], "meta": {"v": 3}}',
+        {"decision": "block", "score": 3, "tags": ["b"], "meta": {"v": 4, "x": None}},
+        "not json",
+        "",
+    ]
+    obj = {"type": "object", "additionalProperties": False}
+    assert infer_json_schema(cells, "label") == {
+        **obj,
+        "properties": {
+            "decision": {"type": "string", "enum": ["allow", "block"]},
+            "score": {"type": "number"},
+            "why": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            "tags": {"type": "array", "items": {"type": "string", "enum": ["a", "b"]}},
+            "meta": {
+                **obj,
+                "properties": {"v": {"type": "integer"}, "x": {"type": "null"}},
+                "required": ["v"],
+            },
+        },
+        "required": ["decision", "score", "tags", "meta"],
+    }
+    with pytest.raises(ValueError, match="'label': only 0 of 2 sampled values are JSON objects"):
+        infer_json_schema(["plain", "text", None], "label")
+
+
+def test_run_inference_uses_schema_inferred_from_column(monkeypatch, tmp_path):
+    rows = [{"prompt": "p", "label": '{"decision": "allow"}'}] * 2
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(inference_module, "load_raw_dataset", lambda _c: rows)
+    monkeypatch.setattr(inference_module, "load_model_and_tokenizer", lambda _c: (None, None))
+    monkeypatch.setattr(inference_module, "compile_json_schema", lambda *_a: "compiled")
+    monkeypatch.setattr(inference_module, "json_schema_logits_processor", lambda _c: "lp")
+    responses = iter(['{"decision": "allow"}', '{"decision": "maybe"}'])
+    monkeypatch.setattr(
+        inference_module, "generate_response", lambda *_a, **_k: (next(responses), 0.5)
+    )
+    kwargs = {"model_paths": ["c"], "system_prompt": "{prompt}", "output_file": "r.csv"}
+    inference_module.run_inference(InferenceConfig(json_schema_from_column="label", **kwargs))
+
+    summary = json.loads(Path("r_summary.json").read_text())
+    assert summary["config"]["json_schema"]["properties"] == {
+        "decision": {"type": "string", "enum": ["allow"]}
+    }
+    assert pd.read_csv("r.csv")["__parse_ok"].tolist() == [True, False]

@@ -39,6 +39,7 @@ from utils.image_utils import fetch_image
 from utils.media_utils import collect_media_sources
 from utils.structured_output import (
     compile_json_schema,
+    infer_json_schema,
     json_schema_logits_processor,
     resolve_thinking,
     split_reasoning,
@@ -1021,6 +1022,11 @@ def run_inference(config, debug=False):
     print(f"Loading dataset: {config.dataset_name}")
     data_split = load_raw_dataset(config)
     print(f"Loaded {len(data_split)} rows")
+    schema_column = getattr(config, 'json_schema_from_column', None)
+    if schema_column:
+        cells = (data_split[i].get(schema_column) for i in range(len(data_split)))
+        config.json_schema = infer_json_schema(cells, schema_column)
+        print(f"Inferred JSON schema from column '{schema_column}': {json.dumps(config.json_schema)}")
     if world_size > 1:
         print(
             f"Rank {rank}/{world_size}: dynamically processing "

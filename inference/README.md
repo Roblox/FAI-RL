@@ -162,6 +162,14 @@ mode; others fail at startup. Thinking has no separate budget, so output that ru
 inference is not supported.
 See `recipes/inference/qwen3_4b_json_schema.yaml`.
 
+Instead of `json_schema`, set `json_schema_from_column: <column>` to infer the schema at
+startup from JSON objects in that dataset column (for example, reference outputs). The
+first 200 non-empty cells are sampled (```json fences are stripped) and at least half must
+be JSON objects. Keys found in every row are `required`, values seen as both integers and
+decimals become `number`, mixed types become `anyOf`, and strings with at most 20 distinct
+values that repeat on average become an `enum`. The inferred schema is printed and saved
+in the summary JSON, so you can copy it into `json_schema` and adjust it.
+
 ## 📊 Output
 
 ### Output Files

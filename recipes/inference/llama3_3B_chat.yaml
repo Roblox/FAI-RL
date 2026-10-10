@@ -20,7 +20,7 @@ inference:
   dataset_name: "your-org/your-inference-dataset"  # HuggingFace dataset identifier
   dataset_split: "test"                            # train, test, or validation
   dataset_columns: ["persona", "prompt"]           # Columns available to the templates below
-  response_column: "response"                      # Column to store model responses
+  response_column: "__response"                    # Column to store model responses
 
   # Chat (split) mode prompts. Both are str.format() templates keyed by
   # dataset_columns. system_prompt is optional; user_prompt enables chat mode.

@@ -10,7 +10,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from utils.config_validation import validate_api_config
+from utils.config_validation import validate_api_config, validate_structured_output_config
 
 
 @dataclass
@@ -472,8 +472,9 @@ class InferenceConfig:
 
     # Dataset column configuration
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
-    response_column: str = "response"
-    confidence_column: str = "confidence"  # Geometric mean generated-token probability
+    # Generated columns start with "__" so they never overwrite dataset columns.
+    response_column: str = "__response"
+    confidence_column: str = "__confidence"  # Geometric mean generated-token probability
     checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint inference
 
     # Multimodal (VLM) inference. Setting image_columns enables VLM mode: it names
@@ -527,6 +528,13 @@ class InferenceConfig:
     # Qwen. None preserves the model/template default and avoids passing a
     # model-specific kwarg to existing templates.
     enable_thinking: Optional[bool] = None
+    # Optional JSON Schema (a mapping or JSON string) enforced while decoding.
+    json_schema: Optional[Union[str, Dict[str, Any]]] = None
+    # Or infer it at startup from the JSON objects in this dataset column.
+    json_schema_from_column: Optional[str] = None
+
+    def __post_init__(self):
+        validate_structured_output_config(self)
 
     @property
     def split_mode(self) -> bool:

@@ -26,7 +26,7 @@ inference:
   dataset_name: "your-org/your-inference-dataset"
   dataset_split: "test"                       # used for Hub ids; ignored for local/S3 files
   dataset_columns: ["persona", "prompt"]
-  response_column: "response"
+  response_column: "__response"
 
   # System Prompt
   system_prompt: |

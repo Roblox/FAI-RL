@@ -31,7 +31,7 @@ inference:
   s3_endpoint_url: null     # Custom S3-compatible endpoint (null = AWS S3)
   dataset_split: "test"
   dataset_columns: ["image_url", "question"]
-  response_column: "response"
+  response_column: "__response"
 
   # Multimodal config: image_columns lists the column(s) holding the image URL/path
   # (each cell may be a single value or a list). Its presence enables VLM inference;

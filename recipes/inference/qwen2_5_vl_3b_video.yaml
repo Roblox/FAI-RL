@@ -22,7 +22,7 @@ inference:
   s3_endpoint_url: null
   dataset_split: "test"
   dataset_columns: ["video", "question"]
-  response_column: "response"
+  response_column: "__response"
 
   # Multimodal config: video_columns lists every column holding a video URL/path
   # (each cell may also be a list). All videos across these columns are fed to the

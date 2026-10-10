@@ -37,11 +37,15 @@ def set_nested_value(recipe_dict: Dict, key_path: str, value: Any) -> None:
     
     # Navigate to the nested location
     for key in keys[:-1]:
+        if not isinstance(current, dict):
+            raise ValueError(f'Invalid config override: "{key_path}" traverses a non-mapping value.')
         if key not in current:
             current[key] = {}
         current = current[key]
     
     # Set the final value
+    if not isinstance(current, dict) or any(not key for key in keys):
+        raise ValueError(f'Invalid config override: "{key_path}" requires a mapping and non-empty keys.')
     current[keys[-1]] = value
 
 
@@ -79,8 +83,15 @@ def load_recipe_from_yaml(yaml_path: str) -> Dict:
     Returns:
         Recipe dictionary
     """
-    with open(yaml_path, 'r') as f:
-        recipe_dict = yaml.safe_load(f)
+    try:
+        with open(yaml_path, 'r', encoding='utf-8') as f:
+            recipe_dict = yaml.safe_load(f)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        location = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+        raise ValueError(f"Invalid YAML config in {yaml_path}{location}; check indentation, colons, and quoting.") from None
+    if not isinstance(recipe_dict, dict):
+        raise ValueError(f"Invalid config in {yaml_path}: expected a YAML mapping, not {type(recipe_dict).__name__}.")
     logger.info("Loaded base recipe from: %s", yaml_path)
     return recipe_dict
 

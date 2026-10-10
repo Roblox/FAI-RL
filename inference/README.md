@@ -160,6 +160,8 @@ without `user_prompt` never think. A thinking model thinks first, the text befor
 mode; others fail at startup. Thinking has no separate budget, so output that runs out of
 `max_new_tokens` (while thinking or in the JSON) is flagged `__parse_ok=False`. API
 inference is not supported.
+With a schema, `__confidence` also averages over schema-constrained tokens, so it reads
+higher than in an unconstrained run: use it to rank rows, not as a calibrated probability.
 See `recipes/inference/qwen3_4b_json_schema.yaml`.
 
 Instead of `json_schema`, set `json_schema_from_column: <column>` to infer the schema at

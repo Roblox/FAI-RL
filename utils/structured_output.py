@@ -120,6 +120,17 @@ def split_reasoning(response: str) -> Tuple[str, str]:
     return reasoning.strip().removeprefix("<think>").strip(), answer.strip()
 
 
+_cached_validator: Tuple[Any, Any] = (None, None)  # (schema, validator) for the current run
+
+
+def _schema_validator(json_schema: Dict[str, Any]):
+    """Build the validator once per schema object instead of once per row."""
+    global _cached_validator
+    if _cached_validator[0] is not json_schema:
+        _cached_validator = (json_schema, _validator(json_schema)(json_schema))
+    return _cached_validator[1]
+
+
 def validate_json_response(response: str, json_schema: Dict[str, Any]) -> Tuple[bool, str]:
     try:
         value = json.loads(response)
@@ -129,7 +140,7 @@ def validate_json_response(response: str, json_schema: Dict[str, Any]) -> Tuple[
     jsonschema = _require("jsonschema")
     try:
         error = jsonschema.exceptions.best_match(
-            _validator(json_schema)(json_schema).iter_errors(value)
+            _schema_validator(json_schema).iter_errors(value)
         )
     except Exception as e:  # e.g. an unresolvable $ref
         return False, f"schema validation failed: {e}"

@@ -20,6 +20,13 @@ inference:
   dataset_split: ""                    # Used for Hub ids only; ignored for local files
   dataset_columns: ["question"]        # Columns available to the prompt below
 
+  # Output column names (must not match a dataset_columns entry)
+  response_column: "response"          # Model response (default: "response")
+  confidence_column: "confidence"      # Response confidence (default: "confidence")
+  parse_ok_column: "__parse_ok"        # Response is schema-valid JSON (default: "__parse_ok")
+  schema_error_column: "__schema_error"  # Why the row failed (default: "__schema_error")
+  reasoning_column: "__reasoning"      # Thinking text, when thinking (default: "__reasoning")
+
   # Chat mode prompt; the model's chat template is applied
   user_prompt: "Classify this question about an image: {question}"
   enable_thinking: false               # Qwen3-4B is hybrid: true thinks first (text goes to __reasoning)

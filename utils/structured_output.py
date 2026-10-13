@@ -139,9 +139,7 @@ def validate_json_response(response: str, json_schema: Dict[str, Any]) -> Tuple[
 
     jsonschema = _require("jsonschema")
     try:
-        error = jsonschema.exceptions.best_match(
-            _schema_validator(json_schema).iter_errors(value)
-        )
+        error = jsonschema.exceptions.best_match(_schema_validator(json_schema).iter_errors(value))
     except Exception as e:  # e.g. an unresolvable $ref
         return False, f"schema validation failed: {e}"
     if error is None:
@@ -180,7 +178,7 @@ def _kind(value: Any) -> str:
     return "array" if isinstance(value, list) else "object"
 
 
-def _infer(values: List[Any]) -> Dict[str, Any]:
+def _infer(values: List[Any], infer_enums: bool = True) -> Dict[str, Any]:
     kinds = [_kind(value) for value in values]
     widen = "number" in kinds  # integers join number when any decimal is present
     by_kind: Dict[str, List[Any]] = {}
@@ -191,15 +189,15 @@ def _infer(values: List[Any]) -> Dict[str, Any]:
         schema: Dict[str, Any] = {"type": kind}
         if kind == "string":
             distinct = set(group)
-            if len(distinct) <= INFER_MAX_ENUM and len(group) >= 2 * len(distinct):
+            if infer_enums and len(distinct) <= INFER_MAX_ENUM and len(group) >= 2 * len(distinct):
                 schema["enum"] = sorted(distinct)
         elif kind == "array":
             items = [item for array in group for item in array]
-            schema["items"] = _infer(items) if items else {}
+            schema["items"] = _infer(items, infer_enums) if items else {}
         elif kind == "object":
             keys = list(dict.fromkeys(key for obj in group for key in obj))
             schema["properties"] = {
-                key: _infer([obj[key] for obj in group if key in obj]) for key in keys
+                key: _infer([obj[key] for obj in group if key in obj], infer_enums) for key in keys
             }
             schema["required"] = [key for key in keys if all(key in obj for obj in group)]
             schema["additionalProperties"] = False
@@ -207,7 +205,24 @@ def _infer(values: List[Any]) -> Dict[str, Any]:
     return schemas[0] if len(schemas) == 1 else {"anyOf": schemas}
 
 
-def infer_json_schema(cells: Iterable[Any], column: str) -> Dict[str, Any]:
+def column_cells(dataset, column: str) -> List[Any]:
+    """The cells of ``column`` (an HF Dataset reads only that column); fails if it is missing."""
+    columns = getattr(dataset, "column_names", None)
+    if columns is None:  # a list of row dicts
+        columns = list(dataset[0]) if len(dataset) else []
+    if column not in columns:
+        raise ValueError(
+            f"json_schema_from_column '{column}' is not a dataset column "
+            f"(columns: {', '.join(columns)})"
+        )
+    if hasattr(dataset, "column_names"):
+        return dataset[column]
+    return [row.get(column) for row in dataset]
+
+
+def infer_json_schema(
+    cells: Iterable[Any], column: str, infer_enums: bool = True
+) -> Dict[str, Any]:
     """Infer a JSON Schema from the JSON objects in a dataset column (see the README rules)."""
     # The whole column is read so a value that only appears late still joins its enum.
     cells = [c for c in cells if c is not None and not (isinstance(c, str) and not c.strip())]
@@ -217,4 +232,16 @@ def infer_json_schema(cells: Iterable[Any], column: str) -> Dict[str, Any]:
             f"json_schema_from_column '{column}': only {len(objects)} of {len(cells)} "
             "non-empty values are JSON objects"
         )
-    return _infer(objects)
+    return _infer(objects, infer_enums)
+
+
+def enum_fields(schema: Dict[str, Any], path: str = "$") -> List[Tuple[str, List[str]]]:
+    """``(path, values)`` for every enum in an inferred schema."""
+    found = [(path, schema["enum"])] if "enum" in schema else []
+    for sub in schema.get("anyOf", []):
+        found += enum_fields(sub, path)
+    for key, sub in schema.get("properties", {}).items():
+        found += enum_fields(sub, f"{path}.{key}")
+    if schema.get("items"):
+        found += enum_fields(schema["items"], f"{path}[]")
+    return found

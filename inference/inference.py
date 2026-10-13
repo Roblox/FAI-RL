@@ -38,7 +38,9 @@ from utils.api_utils import generate_response_by_api
 from utils.image_utils import fetch_image
 from utils.media_utils import collect_media_sources
 from utils.structured_output import (
+    column_cells,
     compile_json_schema,
+    enum_fields,
     infer_json_schema,
     json_schema_logits_processor,
     resolve_thinking,
@@ -988,7 +990,10 @@ def _check_output_columns(config, is_multi_checkpoint):
     if is_multi_checkpoint:
         generated.append(getattr(config, 'checkpoint_column', 'checkpoint'))
     if getattr(config, 'json_schema', None) is not None:
-        generated += ['__parse_ok', '__schema_error', '__reasoning']
+        generated += [config.parse_ok_column, config.schema_error_column, config.reasoning_column]
+    duplicates = sorted({col for col in generated if generated.count(col) > 1})
+    if duplicates:
+        raise ValueError(f"output columns {duplicates} are set more than once; give each a unique name")
     clashes = [col for col in config.dataset_columns if col in generated]
     if clashes:
         raise ValueError(
@@ -1042,20 +1047,15 @@ def run_inference(config, debug=False):
     print(f"Loaded {len(data_split)} rows")
     schema_column = getattr(config, 'json_schema_from_column', None)
     if schema_column:
-        columns = getattr(data_split, 'column_names', None)
-        if columns is None:
-            columns = list(data_split[0]) if len(data_split) else []
-        if schema_column not in columns:
-            raise ValueError(
-                f"json_schema_from_column '{schema_column}' is not a dataset column "
-                f"(columns: {', '.join(columns)})"
-            )
-        if hasattr(data_split, 'column_names'):
-            cells = data_split[schema_column]  # reads only this column
-        else:
-            cells = [row.get(schema_column) for row in data_split]
-        config.json_schema = infer_json_schema(cells, schema_column)
+        cells = column_cells(data_split, schema_column)
+        infer_enums = getattr(config, 'json_schema_infer_enums', True)
+        config.json_schema = infer_json_schema(cells, schema_column, infer_enums)
         print(f"Inferred JSON schema from column '{schema_column}': {json.dumps(config.json_schema)}")
+        for path, values in enum_fields(config.json_schema):
+            logger.warning(
+                f"Inferred enum for {path}: {values}. Generation can only produce these values; "
+                "set json_schema_infer_enums: false or pass json_schema if others are possible."
+            )
     _check_output_columns(config, is_multi_checkpoint)
     if world_size > 1:
         print(
@@ -1256,11 +1256,11 @@ def run_inference(config, debug=False):
             confidence_col = getattr(config, 'confidence_column', 'confidence')
             result[confidence_col] = confidence
             if json_schema is not None:
-                result['__parse_ok'], result['__schema_error'] = (
+                result[config.parse_ok_column], result[config.schema_error_column] = (
                     schema_result or validate_json_response(response, json_schema)
                 )
             if thinking:
-                result['__reasoning'] = reasoning
+                result[config.reasoning_column] = reasoning
             if world_size > 1:
                 result[_RESULT_ORDER_COLUMN] = (
                     checkpoint_idx * len(data_split) + dataset_idx
@@ -1356,7 +1356,7 @@ def run_inference(config, debug=False):
     # Calculate total expected examples (dataset size * number of checkpoints)
     total_expected = len(data_split) * len(checkpoint_paths)
     successful_examples = (
-        int(df['__parse_ok'].sum()) if json_schema is not None and len(df) else len(df)
+        int(df[config.parse_ok_column].sum()) if json_schema is not None and len(df) else len(df)
     )
     
     # Create summary

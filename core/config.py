@@ -474,6 +474,10 @@ class InferenceConfig:
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     response_column: str = "response"
     confidence_column: str = "confidence"  # Geometric mean generated-token probability
+    # Structured-output columns, written only when json_schema is set.
+    parse_ok_column: str = "__parse_ok"  # Whether the response is schema-valid JSON
+    schema_error_column: str = "__schema_error"  # Why the row failed, empty when valid
+    reasoning_column: str = "__reasoning"  # Thinking text before </think>
     checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint inference
 
     # Multimodal (VLM) inference. Setting image_columns enables VLM mode: it names
@@ -531,6 +535,7 @@ class InferenceConfig:
     json_schema: Optional[Union[str, Dict[str, Any]]] = None
     # Or infer it at startup from the JSON objects in this dataset column.
     json_schema_from_column: Optional[str] = None
+    json_schema_infer_enums: bool = True  # False: inferred strings never become enums
 
     def __post_init__(self):
         validate_structured_output_config(self)

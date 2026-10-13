@@ -195,7 +195,8 @@ def test_run_inference_with_thinking_validates_only_the_json(
         compile_json_schema(model, plain, SCHEMA, thinking=True)
 
 
-def test_infer_json_schema_from_dataset_values():
+@pytest.mark.parametrize("infer_enums", [True, False])
+def test_infer_json_schema_from_dataset_values(infer_enums):
     from utils.structured_output import infer_json_schema
 
     cells = [
@@ -208,13 +209,17 @@ def test_infer_json_schema_from_dataset_values():
         "",
     ]
     obj = {"type": "object", "additionalProperties": False}
-    assert infer_json_schema(cells, "label") == {
+
+    def enum(*values):  # json_schema_infer_enums: false leaves repeated strings as plain strings
+        return {"enum": list(values)} if infer_enums else {}
+
+    assert infer_json_schema(cells, "label", infer_enums) == {
         **obj,
         "properties": {
-            "decision": {"type": "string", "enum": ["allow", "block"]},
+            "decision": {"type": "string", **enum("allow", "block")},
             "score": {"type": "number"},
             "why": {"anyOf": [{"type": "string"}, {"type": "null"}]},
-            "tags": {"type": "array", "items": {"type": "string", "enum": ["a", "b"]}},
+            "tags": {"type": "array", "items": {"type": "string", **enum("a", "b")}},
             "meta": {
                 **obj,
                 "properties": {"v": {"type": "integer"}, "x": {"type": "null"}},
@@ -263,12 +268,28 @@ def test_run_inference_uses_schema_inferred_from_column(monkeypatch, tmp_path):
         ({"dataset_columns": ["prompt", "answer"], "response_column": "answer"}, "answer"),
         ({"dataset_columns": ["prompt", "__parse_ok"], "json_schema": SCHEMA}, "__parse_ok"),
         ({"dataset_columns": ["prompt", "__parse_ok"]}, None),  # only generated with a schema
+        (
+            {"dataset_columns": ["prompt", "ok"], "json_schema": SCHEMA, "parse_ok_column": "ok"},
+            "ok",
+        ),
+        (
+            {"json_schema": SCHEMA, "parse_ok_column": "response"},
+            "response",
+        ),  # two outputs, one name
+        (  # renamed: the dataset's __parse_ok survives and the result goes to "ok"
+            {
+                "dataset_columns": ["prompt", "__parse_ok"],
+                "json_schema": SCHEMA,
+                "parse_ok_column": "ok",
+            },
+            None,
+        ),
     ],
 )
 def test_run_inference_rejects_dataset_columns_named_like_outputs(
     monkeypatch, tmp_path, overrides, clash
 ):
-    rows = [{"prompt": "p", "response": "r", "answer": "a", "__parse_ok": "x"}]
+    rows = [{"prompt": "p", "response": "r", "answer": "a", "__parse_ok": "x", "ok": "y"}]
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(inference_module, "load_raw_dataset", lambda _c: rows)
     monkeypatch.setattr(inference_module, "load_model_and_tokenizer", lambda _c: (None, None))
@@ -280,7 +301,10 @@ def test_run_inference_rejects_dataset_columns_named_like_outputs(
     )
     if clash is None:
         inference_module.run_inference(config)
-        assert pd.read_csv("r.csv")["__parse_ok"].tolist() == ["x"]
+        result = pd.read_csv("r.csv")
+        assert result["__parse_ok"].tolist() == ["x"]
+        if "parse_ok_column" in overrides:
+            assert result["ok"].tolist() == [False]  # "{}" does not match SCHEMA
         return
-    with pytest.raises(ValueError, match=rf"dataset_columns \['{clash}'\] clash with generated"):
+    with pytest.raises(ValueError, match=rf"\['{clash}'\]"):
         inference_module.run_inference(config)

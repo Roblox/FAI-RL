@@ -4,9 +4,13 @@ from typing import Optional, Dict, Any, List, Literal, Union
 import yaml
 import sys
 import os
+import re
+from urllib.parse import urlparse
+
+import jsonschema
 
 # Add project root to path for imports
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
@@ -16,6 +20,7 @@ from utils.config_validation import validate_api_config
 @dataclass
 class ModelConfig:
     """Configuration for model settings."""
+
     base_model_name: str
     torch_dtype: str = "bfloat16"
     low_cpu_mem_usage: bool = True
@@ -26,7 +31,7 @@ class ModelConfig:
     bnb_4bit_compute_dtype: str = "bfloat16"
     bnb_4bit_quant_type: str = "nf4"
     bnb_4bit_use_double_quant: bool = True
-    
+
     # S3 connection overrides (only used when base_model_name starts with s3://).
     # When unset, boto3 uses its default credential/region resolution chain.
     s3_region: Optional[str] = None
@@ -85,6 +90,7 @@ class ModelConfig:
 @dataclass
 class DatasetInfo:
     """Configuration for a single dataset."""
+
     name: str
     split: str = "train"
     subset: Optional[str] = None
@@ -93,6 +99,9 @@ class DatasetInfo:
     chosen_column: str = "chosen"
     rejected_column: str = "rejected"
     answer_column: str = "answer"
+    # Columns forwarded to reward functions for each GRPO row. None preserves
+    # the legacy behavior (all source columns); an explicit list is an allowlist.
+    reward_context_columns: Optional[List[str]] = None
     # Text columns used to build each example. For sft_vlm, dataset_columns names
     # the columns whose values fill the system_prompt .format() template (e.g.
     # dataset_columns: [question, response] with a "...{question}...{response}"
@@ -120,10 +129,27 @@ class DatasetInfo:
     s3_region: Optional[str] = None
     s3_endpoint_url: Optional[str] = None
 
+    def __post_init__(self):
+        if self.reward_context_columns is None:
+            return
+        if any(not column.strip() for column in self.reward_context_columns):
+            raise ValueError(
+                "reward_context_columns entries must not be blank"
+            )
+        if "prompt" in self.reward_context_columns:
+            raise ValueError(
+                "reward_context_columns must not include reserved column 'prompt'"
+            )
+        if len(self.reward_context_columns) != len(
+            set(self.reward_context_columns)
+        ):
+            raise ValueError("reward_context_columns entries must be unique")
+
 
 @dataclass
 class DataConfig:
     """Configuration for dataset settings."""
+
     datasets: List[DatasetInfo] = field(default_factory=list)
     max_length: int = 512
     max_prompt_length: int = 256
@@ -205,6 +231,7 @@ class DataConfig:
                     "chosen_column": ds.chosen_column,
                     "rejected_column": ds.rejected_column,
                     "answer_column": ds.answer_column,
+                    "reward_context_columns": ds.reward_context_columns,
                     "dataset_columns": ds.dataset_columns,
                     "image_columns": ds.image_columns,
                     "video_columns": ds.video_columns,
@@ -240,9 +267,10 @@ class DataConfig:
 @dataclass
 class TrainingConfig:
     """Configuration for training settings."""
+
     output_dir: str
     algorithm: Optional[str] = None
-    
+
     # Training hyperparameters
     per_device_train_batch_size: int = 1
     per_device_eval_batch_size: int = 1
@@ -251,20 +279,22 @@ class TrainingConfig:
     num_train_epochs: int = 3
     max_steps: int = -1
     warmup_steps: int = 50
-    
+
     # GRPO/GSPO specific parameters (optional for other algorithms)
-    num_generations: int = 8                    # Number of generations for GRPO/GSPO
-    
+    num_generations: int = 8  # Number of generations for GRPO/GSPO
+
     # Shared GRPO/GSPO parameter
-    beta: float = 0.0                           # KL regularization coefficient
+    beta: float = 0.0  # KL regularization coefficient
 
     # GSPO specific parameters (optional for other algorithms)
     # Reference: https://swift.readthedocs.io/en/v3.7/Instruction/GRPO/AdvancedResearch/GSPO.html
-    epsilon: float = 3e-4                       # from paper section 5.1
-    epsilon_high: float = 4e-4                  # from paper section 5.1
-    steps_per_generation: int = 4               # each batch of rollout data is partitioned into four minibatches for gradient updates
-    importance_sampling_level: str = "sequence" # GSPO uses sequence-level importance sampling
-    
+    epsilon: float = 3e-4  # from paper section 5.1
+    epsilon_high: float = 4e-4  # from paper section 5.1
+    steps_per_generation: int = 4  # each batch of rollout data is partitioned into four minibatches for gradient updates
+    importance_sampling_level: str = (
+        "sequence"  # GSPO uses sequence-level importance sampling
+    )
+
     # Logging and inference
     logging_steps: int = 10
     save_steps: int = 500
@@ -281,12 +311,12 @@ class TrainingConfig:
     early_stopping_threshold: float = 0.0
     eval_split_ratio: float = 0.1
     metric_for_best_model: str = "eval_loss"
-    
+
     # Optimization
     bf16: bool = True
     fp16: bool = False
     gradient_checkpointing: bool = True
-    
+
     # DeepSpeed config path. If set, the launcher uses `deepspeed --num_gpus=N`
     # with this config; if unset, the launcher uses plain `torchrun` (DDP).
     # LoRA recipes leave this unset (DDP replicates the frozen base on every
@@ -297,12 +327,12 @@ class TrainingConfig:
     # models -- per-rank expert routing diverges and the _ALLGATHER_BASE
     # collective deadlocks.
     deepspeed_config: Optional[str] = None
-    
+
     # DataLoader
     dataloader_num_workers: int = 0
     dataloader_pin_memory: bool = False
     dataloader_drop_last: bool = True
-    
+
     # DDP
     ddp_find_unused_parameters: bool = False
 
@@ -317,14 +347,15 @@ class TrainingConfig:
             self.eval_enabled = self.early_stopping
         if self.early_stopping and not self.eval_enabled:
             raise ValueError("training.early_stopping requires eval_enabled: true")
-    
+
     def to_dict(self) -> Dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+        return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
 
 @dataclass
 class RewardAPIConfig:
     """HTTP reward service configuration for GRPO and GSPO."""
+
     endpoint: str
     headers: Dict[str, str] = field(default_factory=dict)
     extra_body: Dict[str, Any] = field(default_factory=dict)
@@ -333,8 +364,13 @@ class RewardAPIConfig:
     max_retries: int = 2
     retry_backoff_seconds: float = 1.0
     verify_ssl: bool = True
+    version: Literal["v1", "v2"] = "v1"
+    max_request_bytes: int = 8388608
+    max_response_bytes: int = 1048576
 
     def __post_init__(self):
+        if self.version not in {"v1", "v2"}:
+            raise ValueError("reward_api.version must be 'v1' or 'v2'")
         if not self.endpoint:
             raise ValueError("reward_api.endpoint is required")
         validate_api_config(self)
@@ -342,12 +378,24 @@ class RewardAPIConfig:
             raise ValueError(
                 "reward_api.endpoint must use https when headers are configured"
             )
-        if self.timeout_seconds <= 0:
-            raise ValueError("reward_api.timeout_seconds must be greater than zero")
-        if self.max_retries < 0:
-            raise ValueError("reward_api.max_retries cannot be negative")
-        if self.retry_backoff_seconds < 0:
-            raise ValueError("reward_api.retry_backoff_seconds cannot be negative")
+        if not 0 < self.timeout_seconds <= 300:
+            raise ValueError(
+                "reward_api.timeout_seconds must be between 0 and 300"
+            )
+        if not 0 <= self.max_retries <= 5:
+            raise ValueError("reward_api.max_retries must be between 0 and 5")
+        if not 0 <= self.retry_backoff_seconds <= 60:
+            raise ValueError(
+                "reward_api.retry_backoff_seconds must be between 0 and 60"
+            )
+        if not 1 <= self.max_response_bytes <= 1048576:
+            raise ValueError(
+                "reward_api.max_response_bytes must be between 1 and 1048576"
+            )
+        if not 1 <= self.max_request_bytes <= 16777216:
+            raise ValueError(
+                "reward_api.max_request_bytes must be between 1 and 16777216"
+            )
 
     @property
     def api_endpoint(self) -> str:
@@ -356,7 +404,9 @@ class RewardAPIConfig:
 
     def to_dict(self) -> Dict[str, Any]:
         values = {
-            key: value for key, value in self.__dict__.items() if not key.startswith('_')
+            key: value
+            for key, value in self.__dict__.items()
+            if not key.startswith("_")
         }
         values["headers"] = {key: "***" for key in self.headers}
         return values
@@ -365,6 +415,7 @@ class RewardAPIConfig:
 @dataclass
 class LocalRewardFunctionConfig:
     """Trusted local Python reward callable configuration for FAI-RL."""
+
     function: str
     kwargs: Dict[str, Any] = field(default_factory=dict)
 
@@ -384,13 +435,140 @@ class LocalRewardFunctionConfig:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            key: value for key, value in self.__dict__.items() if not key.startswith('_')
+            key: value
+            for key, value in self.__dict__.items()
+            if not key.startswith("_")
+        }
+
+
+_TOOL_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
+
+
+@dataclass
+class ToolDefinition:
+    """Immutable public schema for one gateway-registered tool."""
+
+    name: str
+    input_schema: Dict[str, Any]
+    description: str = ""
+
+    def __post_init__(self):
+        if not _TOOL_NAME_RE.fullmatch(self.name):
+            raise ValueError(
+                "tool_environment tool names must start with a letter and contain "
+                "only letters, numbers, '.', '_', or '-'"
+            )
+        if self.input_schema.get("type") != "object":
+            raise ValueError(
+                f"tool_environment tool {self.name!r} input_schema must have type 'object'"
+            )
+        try:
+            jsonschema.validators.validator_for(
+                self.input_schema
+            ).check_schema(self.input_schema)
+        except jsonschema.SchemaError as exc:
+            raise ValueError(
+                f"tool_environment tool {self.name!r} input_schema is invalid: "
+                f"{exc.message}"
+            ) from exc
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "input_schema": self.input_schema,
+        }
+
+
+@dataclass
+class ToolEnvironmentConfig:
+    """Managed remote tool environment for agentic GRPO rollouts."""
+
+    gateway_url: str
+    server_id: str
+    tools: List[ToolDefinition]
+    version: Literal["v1"] = "v1"
+    max_turns: int = 4
+    max_tool_calls: int = 8
+    tool_timeout_seconds: float = 10.0
+    max_episode_seconds: float = 300.0
+    max_request_bytes: int = 65536
+    max_response_bytes: int = 65536
+    max_retries: int = 1
+    retry_backoff_seconds: float = 0.5
+
+    def __post_init__(self):
+        if self.version != "v1":
+            raise ValueError("tool_environment.version must be 'v1'")
+        parsed = urlparse(self.gateway_url)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "tool_environment.gateway_url must be an https URL without "
+                "credentials, query, or fragment"
+            )
+        self.gateway_url = self.gateway_url.rstrip("/")
+        if not self.server_id.strip():
+            raise ValueError("tool_environment.server_id is required")
+        if not self.tools:
+            raise ValueError("tool_environment.tools must select at least one tool")
+        names = [tool.name for tool in self.tools]
+        if len(names) != len(set(names)):
+            raise ValueError("tool_environment tool names must be unique")
+        if not 1 <= self.max_turns <= 16:
+            raise ValueError("tool_environment.max_turns must be between 1 and 16")
+        if not 1 <= self.max_tool_calls <= 64:
+            raise ValueError("tool_environment.max_tool_calls must be between 1 and 64")
+        if not 0 < self.tool_timeout_seconds <= 120:
+            raise ValueError(
+                "tool_environment.tool_timeout_seconds must be between 0 and 120"
+            )
+        if not 0 < self.max_episode_seconds <= 3600:
+            raise ValueError(
+                "tool_environment.max_episode_seconds must be between 0 and 3600"
+            )
+        if not 1 <= self.max_request_bytes <= 1048576:
+            raise ValueError(
+                "tool_environment.max_request_bytes must be between 1 and 1048576"
+            )
+        if not 1 <= self.max_response_bytes <= 1048576:
+            raise ValueError(
+                "tool_environment.max_response_bytes must be between 1 and 1048576"
+            )
+        if not 0 <= self.max_retries <= 3:
+            raise ValueError("tool_environment.max_retries must be between 0 and 3")
+        if self.retry_backoff_seconds < 0:
+            raise ValueError(
+                "tool_environment.retry_backoff_seconds cannot be negative"
+            )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "version": self.version,
+            "gateway_url": self.gateway_url,
+            "server_id": self.server_id,
+            "tools": [tool.to_dict() for tool in self.tools],
+            "max_turns": self.max_turns,
+            "max_tool_calls": self.max_tool_calls,
+            "tool_timeout_seconds": self.tool_timeout_seconds,
+            "max_episode_seconds": self.max_episode_seconds,
+            "max_request_bytes": self.max_request_bytes,
+            "max_response_bytes": self.max_response_bytes,
+            "max_retries": self.max_retries,
+            "retry_backoff_seconds": self.retry_backoff_seconds,
         }
 
 
 @dataclass
 class WandbConfig:
     """Configuration for Weights & Biases logging."""
+
     enabled: bool = True
     project: str = "rl"
     entity: Optional[str] = None
@@ -422,6 +600,7 @@ class WandbConfig:
 @dataclass
 class S3Config:
     """Configuration for uploading checkpoints to S3."""
+
     enabled: bool = False
     bucket: str = ""
     prefix: str = ""
@@ -440,21 +619,22 @@ class S3Config:
     uploader: Literal["auto", "boto3", "s5cmd"] = "auto"
 
     def to_dict(self) -> Dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+        return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
 
 @dataclass
 class InferenceConfig:
     """Configuration for inference settings."""
+
     # Model configuration - either model_paths (for local models) or model (for API models)
     # model_paths: List of checkpoint paths for batch inference
     model_paths: Optional[List[str]] = None
     model: Optional[str] = None
-    
+
     # API configuration
     api_endpoint: Optional[str] = None
     api_key: Optional[str] = None
-    
+
     # Dataset configuration
     dataset_name: str = "Roblox/FAI-RL-inference-dataset"
     dataset_subset: Optional[str] = None
@@ -534,40 +714,45 @@ class InferenceConfig:
         return bool(self.user_prompt)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+        return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
 
 @dataclass
 class EvaluationConfig:
     """Configuration for evaluation settings."""
+
     # Model configuration - either model_paths (for local models) or model (for API models)
     # model_paths: List of checkpoint paths for batch evaluation
     model_paths: Optional[List[str]] = None
     model: Optional[str] = None
-    
+
     # API configuration
     api_endpoint: Optional[str] = None
     api_key: Optional[str] = None
-    
+
     # Dataset configuration
     dataset_name: str = "cais/mmlu"
     dataset_subset: Optional[str] = None
-    dataset_split: str = "test" 
+    dataset_split: str = "test"
     output_file: str = "outputs/evaluation_results.csv"
     system_prompt: str = ""
-    
+
     # Dataset column configuration
-    dataset_columns: List[str] = field(default_factory=lambda: ["question", "choices", "answer"])
+    dataset_columns: List[str] = field(
+        default_factory=lambda: ["question", "choices", "answer"]
+    )
     ground_truth_column: str = "answer"
     response_column: str = "response"
     checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint evaluation
-    
+
     # Prompt configuration
     prompt_template: Optional[str] = None
-    
+
     # Multiple choice configuration
-    choice_labels: List[str] = field(default_factory=lambda: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
-    
+    choice_labels: List[str] = field(
+        default_factory=lambda: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+    )
+
     # S3 connection settings (used when model_paths entries start with s3://)
     s3_region: Optional[str] = None
     s3_endpoint_url: Optional[str] = None
@@ -585,12 +770,13 @@ class EvaluationConfig:
     do_sample: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+        return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
 
 @dataclass
 class ExperimentConfig:
     """Main configuration class that combines all settings."""
+
     model: ModelConfig
     data: DataConfig
     training: TrainingConfig
@@ -598,79 +784,128 @@ class ExperimentConfig:
     s3: S3Config = field(default_factory=S3Config)
     reward_api: Optional[RewardAPIConfig] = None
     local_reward_function: Optional[LocalRewardFunctionConfig] = None
-    
+    tool_environment: Optional[ToolEnvironmentConfig] = None
+
+    def __post_init__(self):
+        if self.tool_environment is None:
+            return
+        if (self.training.algorithm or "").lower() != "grpo":
+            raise ValueError("tool_environment is supported only for GRPO")
+        if self.local_reward_function is not None:
+            raise ValueError(
+                "tool_environment requires a trajectory reward API, not a local reward"
+            )
+        if self.reward_api is None or self.reward_api.version != "v2":
+            raise ValueError(
+                "tool_environment requires reward_api.version 'v2' for trajectory rewards"
+            )
+        reward_endpoint = urlparse(self.reward_api.endpoint)
+        if reward_endpoint.scheme != "https":
+            raise ValueError("tool_environment requires an HTTPS reward_api.endpoint")
+        if reward_endpoint.username or reward_endpoint.password:
+            raise ValueError(
+                "tool_environment reward_api.endpoint must not contain credentials"
+            )
+        if reward_endpoint.query or reward_endpoint.fragment:
+            raise ValueError(
+                "tool_environment reward_api.endpoint must not contain a query or fragment"
+            )
+        if self.reward_api.headers:
+            raise ValueError(
+                "tool_environment reward_api must not contain static headers"
+            )
+        if self.model.base_model_name != "Qwen/Qwen3.8-27B":
+            raise ValueError(
+                "tool_environment initially supports only Qwen/Qwen3.8-27B"
+            )
+
     @classmethod
-    def from_yaml(cls, config_path: str) -> 'ExperimentConfig':
-        """Load configuration from YAML file."""
-        with open(config_path, 'r') as f:
-            config_dict = yaml.safe_load(f)
-        
-        # Handle datasets configuration
-        data_config = config_dict['data'].copy()
-        if 'datasets' in data_config:
-            data_config['datasets'] = [
-                DatasetInfo(**ds) for ds in data_config['datasets']
+    def from_dict(cls, config_dict: Dict[str, Any]) -> "ExperimentConfig":
+        """Build a config from a parsed recipe, including nested contracts."""
+        data_config = config_dict["data"].copy()
+        if "datasets" in data_config:
+            data_config["datasets"] = [
+                DatasetInfo(**ds) for ds in data_config["datasets"]
             ]
-        
+        tool_environment = config_dict.get("tool_environment")
+        if tool_environment:
+            tool_environment = tool_environment.copy()
+            tool_environment["tools"] = [
+                ToolDefinition(**tool) for tool in tool_environment.get("tools", [])
+            ]
+
         return cls(
-            model=ModelConfig(**config_dict['model']),
+            model=ModelConfig(**config_dict["model"]),
             data=DataConfig(**data_config),
-            training=TrainingConfig(**config_dict['training']),
-            wandb=WandbConfig(**config_dict.get('wandb', {})),
-            s3=S3Config(**config_dict.get('s3', {})),
+            training=TrainingConfig(**config_dict["training"]),
+            wandb=WandbConfig(**config_dict.get("wandb", {})),
+            s3=S3Config(**config_dict.get("s3", {})),
             reward_api=(
-                RewardAPIConfig(**config_dict['reward_api'])
-                if config_dict.get('reward_api')
+                RewardAPIConfig(**config_dict["reward_api"])
+                if config_dict.get("reward_api")
                 else None
             ),
             local_reward_function=(
-                LocalRewardFunctionConfig(**config_dict['local_reward_function'])
-                if config_dict.get('local_reward_function')
+                LocalRewardFunctionConfig(**config_dict["local_reward_function"])
+                if config_dict.get("local_reward_function")
                 else None
             ),
+            tool_environment=(
+                ToolEnvironmentConfig(**tool_environment) if tool_environment else None
+            ),
         )
-    
+
     @classmethod
-    def load_inference_config(cls, config_path: str) -> 'InferenceConfig':
+    def from_yaml(cls, config_path: str) -> "ExperimentConfig":
+        """Load configuration from YAML file."""
+        with open(config_path, "r") as f:
+            config_dict = yaml.safe_load(f)
+        return cls.from_dict(config_dict)
+
+    @classmethod
+    def load_inference_config(cls, config_path: str) -> "InferenceConfig":
         """Load inference configuration from YAML file."""
-        with open(config_path, 'r') as f:
+        with open(config_path, "r") as f:
             config_dict = yaml.safe_load(f)
-        
-        config = InferenceConfig(**config_dict['inference'])
-        
+
+        config = InferenceConfig(**config_dict["inference"])
+
         # Validate API configuration
         validate_api_config(config)
-        
+
         return config
-    
+
     @classmethod
-    def load_eval_config(cls, config_path: str) -> 'EvaluationConfig':
+    def load_eval_config(cls, config_path: str) -> "EvaluationConfig":
         """Load evaluation configuration from YAML file."""
-        with open(config_path, 'r') as f:
+        with open(config_path, "r") as f:
             config_dict = yaml.safe_load(f)
-        
-        config = EvaluationConfig(**config_dict['evaluation'])
-        
+
+        config = EvaluationConfig(**config_dict["evaluation"])
+
         # Validate API configuration
         validate_api_config(config)
-        
+
         return config
-    
+
     def to_yaml(self, output_path: str) -> None:
         """Save configuration to YAML file."""
         config_dict = {
-            'model': self.model.to_dict(),
-            'data': self.data.to_dict(),
-            'training': self.training.to_dict(),
-            'wandb': self.wandb.to_dict(),
-            's3': self.s3.to_dict(),
-            'reward_api': self.reward_api.to_dict() if self.reward_api else None,
-            'local_reward_function': (
+            "model": self.model.to_dict(),
+            "data": self.data.to_dict(),
+            "training": self.training.to_dict(),
+            "wandb": self.wandb.to_dict(),
+            "s3": self.s3.to_dict(),
+            "reward_api": self.reward_api.to_dict() if self.reward_api else None,
+            "local_reward_function": (
                 self.local_reward_function.to_dict()
                 if self.local_reward_function
                 else None
             ),
+            "tool_environment": (
+                self.tool_environment.to_dict() if self.tool_environment else None
+            ),
         }
-        
-        with open(output_path, 'w') as f:
+
+        with open(output_path, "w") as f:
             yaml.dump(config_dict, f, default_flow_style=False)

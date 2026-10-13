@@ -2,13 +2,14 @@ import os, sys
 import torch
 import wandb
 import re
+from functools import partial
 from datasets import load_dataset, Dataset, concatenate_datasets
 from trl import GRPOConfig, GRPOTrainer as TRLGRPOTrainer
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import TaskType
 from typing import Optional, List
 
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
@@ -17,6 +18,8 @@ from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
 from utils.dataset_utils import load_raw_dataset
 from .rewards.factory import build_reward_function
+from .tool_environment import GatewayToolEnvironment, tool_catalog_prompt
+
 
 class GRPOTrainer(BaseTrainer):
     """GRPO (Group Relative Policy Optimization) trainer implementation."""
@@ -36,7 +39,7 @@ class GRPOTrainer(BaseTrainer):
 
         # Create quantization config using base class method
         quantization_config = self.create_quantization_config()
-        
+
         # Prepare model kwargs using base class method
         model_kwargs = self.prepare_model_kwargs(quantization_config)
 
@@ -50,12 +53,12 @@ class GRPOTrainer(BaseTrainer):
         # inputs. Freeze and LoRA-exclude Gemma 4 E-series' unused vision/audio
         # encoders before adapter injection so plain DDP does not see unused
         # adapters.
-        self.prepare_model_for_modalities(
-            self.model, use_vision=False, use_audio=False
-        )
+        self.prepare_model_for_modalities(self.model, use_vision=False, use_audio=False)
 
         # Apply LoRA if enabled (including QLoRA) using base class method
-        self.model = self.apply_lora_to_model(self.model, TaskType.CAUSAL_LM, quantization_config)
+        self.model = self.apply_lora_to_model(
+            self.model, TaskType.CAUSAL_LM, quantization_config
+        )
 
         # Disable cache when using gradient checkpointing using base class method
         self.disable_cache_for_gradient_checkpointing(self.model)
@@ -69,8 +72,12 @@ class GRPOTrainer(BaseTrainer):
         total_skipped = 0
 
         for dataset_info in self.config.data.datasets:
-            subset_info = f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
-            self.logger.info(f"Loading dataset: {dataset_info.name}{subset_info} (split: {dataset_info.split})")
+            subset_info = (
+                f" (subset: {dataset_info.subset})" if dataset_info.subset else ""
+            )
+            self.logger.info(
+                f"Loading dataset: {dataset_info.name}{subset_info} (split: {dataset_info.split})"
+            )
 
             dataset = load_raw_dataset(dataset_info)
 
@@ -97,12 +104,34 @@ class GRPOTrainer(BaseTrainer):
                 if isinstance(prompt, str):
                     return bool(prompt.strip())
                 return isinstance(prompt, list) and len(prompt) > 0
-            
+
             processed_dataset = processed_dataset.filter(is_valid_example)
-            
+            reward_context_columns = getattr(
+                dataset_info,
+                "reward_context_columns",
+                None,
+            )
+            if reward_context_columns is not None:
+                missing_columns = sorted(
+                    set(reward_context_columns).difference(
+                        processed_dataset.column_names
+                    )
+                )
+                if missing_columns:
+                    raise ValueError(
+                        "Configured reward context columns are missing from "
+                        f"{dataset_info.name}: {', '.join(missing_columns)}"
+                    )
+                # TRL passes every non-prompt dataset column to reward
+                # functions. Reduce that surface to the customer's explicit
+                # allowlist before constructing the trainer.
+                processed_dataset = processed_dataset.select_columns(
+                    ["prompt", *reward_context_columns]
+                )
+
             skipped = original_size - len(processed_dataset)
             total_skipped += skipped
-            
+
             if skipped > 0:
                 self.logger.warning(
                     f"Skipped {skipped} invalid examples from {dataset_info.name} "
@@ -111,7 +140,9 @@ class GRPOTrainer(BaseTrainer):
 
             datasets.append(processed_dataset)
             total_examples += len(processed_dataset)
-            self.logger.info(f"Loaded {len(processed_dataset)} valid examples from {dataset_info.name}")
+            self.logger.info(
+                f"Loaded {len(processed_dataset)} valid examples from {dataset_info.name}"
+            )
 
         # Combine all datasets
         if len(datasets) == 1:
@@ -122,17 +153,55 @@ class GRPOTrainer(BaseTrainer):
         # Convert message dictionaries to strings using chat template
         # This is required because GRPO expects prompts to be strings, not message dicts
         def apply_chat_template(example):
-            prompt = example['prompt']
+            prompt = example["prompt"]
+            if getattr(self.config, "tool_environment", None):
+                # TRL's tool loop needs structured messages so it can apply the
+                # model's tool-aware chat template and append tool observations
+                # between generations. Do not flatten these prompts early.
+                tool_instructions = tool_catalog_prompt(self.config.tool_environment)
+                if (
+                    isinstance(prompt, list)
+                    and len(prompt) > 0
+                    and isinstance(prompt[0], dict)
+                ):
+                    messages = [dict(message) for message in prompt]
+                    if messages[0].get("role") == "system":
+                        messages[0]["content"] = (
+                            f"{messages[0].get('content', '')}\n\n{tool_instructions}"
+                        ).strip()
+                    else:
+                        messages.insert(
+                            0,
+                            {"role": "system", "content": tool_instructions},
+                        )
+                    example["prompt"] = messages
+                    return example
+                messages = []
+                system_content = "\n\n".join(
+                    filter(
+                        None,
+                        [
+                            self.config.data.system_prompt,
+                            tool_instructions,
+                        ],
+                    )
+                )
+                messages.append({"role": "system", "content": system_content})
+                messages.append({"role": "user", "content": str(prompt)})
+                example["prompt"] = messages
+                return example
             # Existing conversational prompts pass through directly. For a plain
             # prompt, an optional configured system instruction creates a chat.
-            if isinstance(prompt, list) and len(prompt) > 0 and isinstance(prompt[0], dict):
-                example['prompt'] = self.tokenizer.apply_chat_template(
-                    prompt, 
-                    tokenize=False, 
-                    add_generation_prompt=True
+            if (
+                isinstance(prompt, list)
+                and len(prompt) > 0
+                and isinstance(prompt[0], dict)
+            ):
+                example["prompt"] = self.tokenizer.apply_chat_template(
+                    prompt, tokenize=False, add_generation_prompt=True
                 )
             elif self.config.data.system_prompt:
-                example['prompt'] = self.tokenizer.apply_chat_template(
+                example["prompt"] = self.tokenizer.apply_chat_template(
                     [
                         {"role": "system", "content": self.config.data.system_prompt},
                         {"role": "user", "content": str(prompt)},
@@ -141,25 +210,29 @@ class GRPOTrainer(BaseTrainer):
                     add_generation_prompt=True,
                 )
             return example
-        
+
         self.train_dataset = self.train_dataset.map(apply_chat_template)
 
         if total_skipped > 0:
-            self.logger.warning(f"Total examples skipped across all datasets: {total_skipped}")
+            self.logger.warning(
+                f"Total examples skipped across all datasets: {total_skipped}"
+            )
 
-        self.logger.info(f"Total dataset loaded with {total_examples} valid examples from {len(datasets)} datasets")
+        self.logger.info(
+            f"Total dataset loaded with {total_examples} valid examples from {len(datasets)} datasets"
+        )
 
     def setup_training_args(self) -> GRPOConfig:
         """Create GRPO training configuration."""
         # Set report_to based on wandb configuration
         report_to = ["wandb"] if self.config.wandb.enabled else []
-        
+
         # Set gradient checkpointing kwargs to use non-reentrant mode for DDP compatibility
         # This fixes the "Expected to mark a variable ready only once" error with LoRA + DDP
         gradient_checkpointing_kwargs = None
         if self.config.training.gradient_checkpointing:
             gradient_checkpointing_kwargs = {"use_reentrant": False}
-        
+
         return GRPOConfig(
             output_dir=self.config.training.output_dir,
             per_device_train_batch_size=self.config.training.per_device_train_batch_size,
@@ -186,8 +259,14 @@ class GRPOTrainer(BaseTrainer):
             ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
             # GRPO specific parameters
             num_generations=self.config.training.num_generations,
-            max_completion_length=self.config.data.max_length - self.config.data.max_prompt_length,
+            max_completion_length=self.config.data.max_length
+            - self.config.data.max_prompt_length,
             beta=float(self.config.training.beta),
+            max_tool_calling_iterations=(
+                self.config.tool_environment.max_turns
+                if getattr(self.config, "tool_environment", None)
+                else None
+            ),
         )
 
     def setup_trainer(self):
@@ -196,12 +275,23 @@ class GRPOTrainer(BaseTrainer):
 
         reward_func = build_reward_function(self.config, logger=self.logger)
 
+        environment_factory = (
+            partial(
+                GatewayToolEnvironment,
+                self.config.tool_environment,
+                logger=self.logger,
+            )
+            if getattr(self.config, "tool_environment", None)
+            else None
+        )
         self.trainer = TRLGRPOTrainer(
             model=self.model,
             reward_funcs=[reward_func],
             args=training_args,
             train_dataset=self.train_dataset,
             callbacks=self.build_callbacks(),
+            processing_class=self.tokenizer,
+            environment_factory=environment_factory,
         )
 
         self.logger.info("GRPO trainer initialized")

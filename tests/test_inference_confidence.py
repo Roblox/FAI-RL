@@ -96,13 +96,11 @@ def test_run_inference_writes_confidence_to_csv(monkeypatch, tmp_path):
     config = InferenceConfig(
         model_paths=["checkpoint-100"],
         dataset_name="unused",
-        dataset_columns=["question", "response"],
+        dataset_columns=["question"],
         system_prompt="{question}",
         output_file=str(output_file),
     )
-    # A dataset "response" column must survive next to the generated "__response".
-    rows = [{"question": "Why?", "response": "Reference."}]
-    monkeypatch.setattr(inference_module, "load_raw_dataset", lambda _config: rows)
+    monkeypatch.setattr(inference_module, "load_raw_dataset", lambda _config: [{"question": "Why?"}])
     monkeypatch.setattr(
         inference_module,
         "load_model_and_tokenizer",
@@ -118,10 +116,5 @@ def test_run_inference_writes_confidence_to_csv(monkeypatch, tmp_path):
 
     result = pd.read_csv(output_file)
     assert result.to_dict(orient="records") == [
-        {
-            "question": "Why?",
-            "response": "Reference.",
-            "__response": "Because.",
-            "__confidence": 0.75,
-        }
+        {"question": "Why?", "response": "Because.", "confidence": 0.75}
     ]

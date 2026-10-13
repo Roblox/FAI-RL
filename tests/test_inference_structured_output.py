@@ -179,7 +179,7 @@ def test_run_inference_with_thinking_validates_only_the_json(
 
     result = pd.read_csv("r.csv", keep_default_na=False)
     assert result["__reasoning"].tolist() == ["hmm", "never stops thinking"]
-    assert result["__response"].tolist() == [answer, ""]
+    assert result["response"].tolist() == [answer, ""]
     assert result["__parse_ok"].tolist() == [True, False]
 
     # The compiled grammar allows free text, then </think>, then only schema-valid JSON.
@@ -254,3 +254,33 @@ def test_run_inference_uses_schema_inferred_from_column(monkeypatch, tmp_path):
         "decision": {"type": "string", "enum": ["allow"]}
     }
     assert pd.read_csv("r.csv")["__parse_ok"].tolist() == [True, False]
+
+
+@pytest.mark.parametrize(
+    "overrides, clash",
+    [
+        ({"dataset_columns": ["prompt", "response"]}, "response"),
+        ({"dataset_columns": ["prompt", "answer"], "response_column": "answer"}, "answer"),
+        ({"dataset_columns": ["prompt", "__parse_ok"], "json_schema": SCHEMA}, "__parse_ok"),
+        ({"dataset_columns": ["prompt", "__parse_ok"]}, None),  # only generated with a schema
+    ],
+)
+def test_run_inference_rejects_dataset_columns_named_like_outputs(
+    monkeypatch, tmp_path, overrides, clash
+):
+    rows = [{"prompt": "p", "response": "r", "answer": "a", "__parse_ok": "x"}]
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(inference_module, "load_raw_dataset", lambda _c: rows)
+    monkeypatch.setattr(inference_module, "load_model_and_tokenizer", lambda _c: (None, None))
+    monkeypatch.setattr(inference_module, "compile_json_schema", lambda *_a: "compiled")
+    monkeypatch.setattr(inference_module, "json_schema_logits_processor", lambda _c: "lp")
+    monkeypatch.setattr(inference_module, "generate_response", lambda *_a, **_k: ("{}", 0.5))
+    config = InferenceConfig(
+        model_paths=["c"], system_prompt="{prompt}", output_file="r.csv", **overrides
+    )
+    if clash is None:
+        inference_module.run_inference(config)
+        assert pd.read_csv("r.csv")["__parse_ok"].tolist() == ["x"]
+        return
+    with pytest.raises(ValueError, match=rf"dataset_columns \['{clash}'\] clash with generated"):
+        inference_module.run_inference(config)

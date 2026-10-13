@@ -979,6 +979,24 @@ def generate_vlm_response(
     return response_text
 
 
+def _check_output_columns(config, is_multi_checkpoint):
+    """Fail before generating if a dataset column would be overwritten by a generated one."""
+    generated = [
+        getattr(config, 'response_column', 'response'),
+        getattr(config, 'confidence_column', 'confidence'),
+    ]
+    if is_multi_checkpoint:
+        generated.append(getattr(config, 'checkpoint_column', 'checkpoint'))
+    if getattr(config, 'json_schema', None) is not None:
+        generated += ['__parse_ok', '__schema_error', '__reasoning']
+    clashes = [col for col in config.dataset_columns if col in generated]
+    if clashes:
+        raise ValueError(
+            f"dataset_columns {clashes} clash with generated output columns; rename them "
+            "in the dataset or set response_column / confidence_column in the recipe"
+        )
+
+
 def run_inference(config, debug=False):
     """Run inference on the specified dataset."""
     rank, _, world_size = _distributed_context()
@@ -1038,6 +1056,7 @@ def run_inference(config, debug=False):
             cells = [row.get(schema_column) for row in data_split]
         config.json_schema = infer_json_schema(cells, schema_column)
         print(f"Inferred JSON schema from column '{schema_column}': {json.dumps(config.json_schema)}")
+    _check_output_columns(config, is_multi_checkpoint)
     if world_size > 1:
         print(
             f"Rank {rank}/{world_size}: dynamically processing "
@@ -1232,9 +1251,9 @@ def run_inference(config, debug=False):
                 result[checkpoint_col] = checkpoint_name
 
             # Add response column after dataset columns
-            response_col = getattr(config, 'response_column', '__response')
+            response_col = getattr(config, 'response_column', 'response')
             result[response_col] = response
-            confidence_col = getattr(config, 'confidence_column', '__confidence')
+            confidence_col = getattr(config, 'confidence_column', 'confidence')
             result[confidence_col] = confidence
             if json_schema is not None:
                 result['__parse_ok'], result['__schema_error'] = (

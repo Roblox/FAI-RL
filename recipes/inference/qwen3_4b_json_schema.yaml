@@ -12,7 +12,7 @@ inference:
   # Model Configuration - Vanilla HuggingFace model
   model: "Qwen/Qwen3-4B"
 
-  # Path to save inference results (CSV format with input columns + __response column)
+  # Path to save inference results (CSV format with input columns + response column)
   output_file: "outputs/qwen3-4b-json-schema-infer.csv"
 
   # Dataset Configuration for a local file (relative to the launch directory)

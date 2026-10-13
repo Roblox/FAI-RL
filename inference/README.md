@@ -104,6 +104,7 @@ inference:
   dataset_name: "data/eval.jsonl"   # or s3://bucket/eval.jsonl, or org/hub-dataset
   dataset_split: "test"             # used for Hub ids; ignored for local/S3 files
   dataset_columns: ["question", "response"]
+  response_column: "model_response"   # the dataset already has a "response" column
 ```
 
 > **Running with Local Code**: If running directly from the repository, use `python inference/inference.py` instead of `fai-rl-inference`:
@@ -160,7 +161,7 @@ without `user_prompt` never think. A thinking model thinks first, the text befor
 mode; others fail at startup. Thinking has no separate budget, so output that runs out of
 `max_new_tokens` (while thinking or in the JSON) is flagged `__parse_ok=False`. API
 inference is not supported.
-With a schema, `__confidence` also averages over schema-constrained tokens, so it reads
+With a schema, the confidence column also averages over schema-constrained tokens, so it reads
 higher than in an unconstrained run: use it to rank rows, not as a calibrated probability.
 See `recipes/inference/qwen3_4b_json_schema.yaml`.
 
@@ -185,13 +186,13 @@ outputs/
 
 ### Output Format
 
-Generated columns start with `__` so they never overwrite a dataset column of the same name (before 0.2.24 they were `response` and `confidence`).
+The response and confidence columns default to `response` and `confidence`; set `response_column` / `confidence_column` in the recipe to rename them. Structured-output columns start with `__`. If a column in `dataset_columns` has the same name as a generated column, inference fails at startup instead of overwriting it.
 
 The CSV file contains the following columns:
 - **Input columns**: All columns specified in `dataset_columns` (e.g., `persona`, `prompt`)
 - **Checkpoint column** (multi-checkpoint only): Identifies which checkpoint generated each response (column name specified by `checkpoint_column`, default is `checkpoint`)
-- **Response column**: The model's generated response (column name specified by `response_column`, default is `__response`)
-- **Confidence column**: Geometric mean of the generated-token probabilities, from 0 to 1 (column name specified by `confidence_column`, default is `__confidence`). API inference leaves this value blank when the endpoint does not return token probabilities.
+- **Response column**: The model's generated response (column name specified by `response_column`, default is `response`)
+- **Confidence column**: Geometric mean of the generated-token probabilities, from 0 to 1 (column name specified by `confidence_column`, default is `confidence`). API inference leaves this value blank when the endpoint does not return token probabilities.
 - **`__parse_ok` / `__schema_error` / `__reasoning`** (only with `json_schema`): see [Structured (JSON) Output](#structured-json-output)
 - **Metadata**: Generation parameters used (temperature, top_p, max_new_tokens)
 
@@ -200,7 +201,7 @@ The CSV file contains the following columns:
 When running inference on multiple checkpoints, all results are combined into a single CSV file with an additional `checkpoint` column:
 
 ```csv
-persona,prompt,checkpoint,__response,__confidence
+persona,prompt,checkpoint,response,confidence
 "helpful assistant","What is AI?","models/checkpoint-100","AI is artificial intelligence...",0.87
 "helpful assistant","What is AI?","models/checkpoint-200","AI stands for artificial...",0.81
 "helpful assistant","What is AI?","models/checkpoint-300","Artificial Intelligence is...",0.79

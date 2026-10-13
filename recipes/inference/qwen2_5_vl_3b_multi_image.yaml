@@ -25,8 +25,8 @@ inference:
   s3_endpoint_url: null     # Custom S3-compatible endpoint (null = AWS S3)
   dataset_split: "test"
   dataset_columns: ["image_a", "image_b", "question"]
-  response_column: "response"
-  confidence_column: "confidence"
+  response_column: "__response"           # Model response (default: "response")
+  confidence_column: "__confidence"       # Response confidence (default: "confidence")
 
   # Multimodal config: image_columns lists every column holding an image URL/path
   # (each cell may also be a list). All images across these columns are fed to the

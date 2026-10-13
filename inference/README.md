@@ -104,7 +104,7 @@ inference:
   dataset_name: "data/eval.jsonl"   # or s3://bucket/eval.jsonl, or org/hub-dataset
   dataset_split: "test"             # used for Hub ids; ignored for local/S3 files
   dataset_columns: ["question", "response"]
-  response_column: "model_response"   # the dataset already has a "response" column
+  response_column: "__response"   # the dataset already has a "response" column
 ```
 
 > **Running with Local Code**: If running directly from the repository, use `python inference/inference.py` instead of `fai-rl-inference`:

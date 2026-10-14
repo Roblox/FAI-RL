@@ -53,3 +53,21 @@ def validate_api_config(config) -> None:
     if hasattr(config, 'api_key') and config.api_key:
         validate_api_key(config.api_key)
 
+
+def validate_structured_output_config(config) -> None:
+    """Parse json_schema in place and reject settings it cannot be combined with."""
+    if config.json_schema is None and config.json_schema_from_column is None:
+        return
+    if config.json_schema is not None and config.json_schema_from_column is not None:
+        raise ValueError("set json_schema or json_schema_from_column, not both")
+
+    from utils.structured_output import parse_json_schema
+
+    if config.json_schema is not None:
+        config.json_schema = parse_json_schema(config.json_schema)
+    if config.enable_thinking and not (
+        config.user_prompt or config.image_columns or config.video_columns
+    ):
+        raise ValueError("json_schema with enable_thinking: true needs chat mode (set user_prompt)")
+    if config.model is not None and config.api_key is not None:
+        raise ValueError("json_schema is only supported for local models, not API endpoints")

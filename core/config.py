@@ -10,7 +10,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from utils.config_validation import validate_api_config
+from utils.config_validation import validate_api_config, validate_structured_output_config
 
 
 @dataclass
@@ -474,6 +474,10 @@ class InferenceConfig:
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     response_column: str = "response"
     confidence_column: str = "confidence"  # Geometric mean generated-token probability
+    # Structured-output columns, written only when json_schema is set.
+    parse_ok_column: str = "__parse_ok"  # Whether the response is schema-valid JSON
+    schema_error_column: str = "__schema_error"  # Why the row failed, empty when valid
+    reasoning_column: str = "__reasoning"  # Thinking text before </think>
     checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint inference
 
     # Multimodal (VLM) inference. Setting image_columns enables VLM mode: it names
@@ -527,6 +531,14 @@ class InferenceConfig:
     # Qwen. None preserves the model/template default and avoids passing a
     # model-specific kwarg to existing templates.
     enable_thinking: Optional[bool] = None
+    # Optional JSON Schema (a mapping or JSON string) enforced while decoding.
+    json_schema: Optional[Union[str, Dict[str, Any]]] = None
+    # Or infer it at startup from the JSON objects in this dataset column.
+    json_schema_from_column: Optional[str] = None
+    json_schema_infer_enums: bool = True  # False: inferred strings never become enums
+
+    def __post_init__(self):
+        validate_structured_output_config(self)
 
     @property
     def split_mode(self) -> bool:

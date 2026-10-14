@@ -104,6 +104,7 @@ inference:
   dataset_name: "data/eval.jsonl"   # or s3://bucket/eval.jsonl, or org/hub-dataset
   dataset_split: "test"             # used for Hub ids; ignored for local/S3 files
   dataset_columns: ["question", "response"]
+  response_column: "__response"   # the dataset already has a "response" column
 ```
 
 > **Running with Local Code**: If running directly from the repository, use `python inference/inference.py` instead of `fai-rl-inference`:
@@ -140,6 +141,40 @@ inference:
 Omit `enable_thinking` to preserve the model chat template's default. Templates
 that do not implement this option ignore it.
 
+### Structured (JSON) Output
+
+Set `json_schema` (a mapping or a JSON string) to constrain local text and VLM
+generation to JSON that matches the schema. Requires `pip install "FAI-RL[structured]"`.
+
+```yaml
+inference:
+  json_schema: {type: object, properties: {decision: {enum: [allow, block]}}, required: [decision]}
+```
+
+Each row gets `__parse_ok` and `__schema_error` columns; rows whose generation fails
+are kept and flagged, and only `__parse_ok` rows count as successful in the summary.
+Thinking follows `enable_thinking` as it does without a schema; when it is unset,
+the chat template's default applies (Qwen3 thinks by default), and flat prompts
+without `user_prompt` never think. A thinking model thinks first, the text before
+`</think>` goes to a `__reasoning` column, and only the JSON after it is validated.
+`enable_thinking: true` needs a `<think>…</think>` model such as Qwen3 and chat
+mode; others fail at startup. Thinking has no separate budget, so output that runs out of
+`max_new_tokens` (while thinking or in the JSON) is flagged `__parse_ok=False`. API
+inference is not supported.
+With a schema, the confidence column also averages over schema-constrained tokens, so it reads
+higher than in an unconstrained run: use it to rank rows, not as a calibrated probability.
+See `recipes/inference/qwen3_4b_json_schema.yaml`.
+
+Instead of `json_schema`, set `json_schema_from_column: <column>` to infer the schema at
+startup from JSON objects in that dataset column (for example, reference outputs). The
+whole column is read (```json fences are stripped) and at least half of its non-empty cells
+must be JSON objects. Keys found in every row are `required`, values seen as both integers and
+decimals become `number`, mixed types become `anyOf`, and strings with at most 20 distinct
+values that repeat on average become an `enum`. The inferred schema is printed and saved
+in the summary JSON, so you can copy it into `json_schema` and adjust it. Each inferred enum is
+also logged as a warning, because generation can then only produce those values; set
+`json_schema_infer_enums: false` to keep inferred strings as plain strings.
+
 ## 📊 Output
 
 ### Output Files
@@ -153,11 +188,25 @@ outputs/
 
 ### Output Format
 
+Every generated column name can be set in the recipe:
+
+```yaml
+inference:
+  response_column: "response"            # Model response (default: "response")
+  confidence_column: "confidence"        # Response confidence (default: "confidence")
+  parse_ok_column: "__parse_ok"          # json_schema only (default: "__parse_ok")
+  schema_error_column: "__schema_error"  # json_schema only (default: "__schema_error")
+  reasoning_column: "__reasoning"        # json_schema with thinking (default: "__reasoning")
+```
+
+If a column in `dataset_columns` has the same name as a generated column, inference fails at startup instead of overwriting it.
+
 The CSV file contains the following columns:
 - **Input columns**: All columns specified in `dataset_columns` (e.g., `persona`, `prompt`)
 - **Checkpoint column** (multi-checkpoint only): Identifies which checkpoint generated each response (column name specified by `checkpoint_column`, default is `checkpoint`)
 - **Response column**: The model's generated response (column name specified by `response_column`, default is `response`)
 - **Confidence column**: Geometric mean of the generated-token probabilities, from 0 to 1 (column name specified by `confidence_column`, default is `confidence`). API inference leaves this value blank when the endpoint does not return token probabilities.
+- **Structured-output columns** (only with `json_schema`): `__parse_ok`, `__schema_error` and `__reasoning` by default (set by `parse_ok_column`, `schema_error_column`, `reasoning_column`); see [Structured (JSON) Output](#structured-json-output)
 - **Metadata**: Generation parameters used (temperature, top_p, max_new_tokens)
 
 ### Multi-Checkpoint Inference

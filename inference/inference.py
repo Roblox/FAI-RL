@@ -37,6 +37,16 @@ from transformers import (
 from utils.api_utils import generate_response_by_api
 from utils.image_utils import fetch_image
 from utils.media_utils import collect_media_sources
+from utils.structured_output import (
+    column_cells,
+    compile_json_schema,
+    enum_fields,
+    infer_json_schema,
+    json_schema_logits_processor,
+    resolve_thinking,
+    split_reasoning,
+    validate_json_response,
+)
 from utils.video_utils import fetch_video
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
@@ -711,6 +721,7 @@ def generate_response(
     config=None,
     messages=None,
     include_confidence=False,
+    logits_processor=None,
 ):
     """
     Generates a response from the model given a prompt.
@@ -748,6 +759,7 @@ def generate_response(
             pad_token_id=tokenizer.pad_token_id,
             return_dict_in_generate=True,
             output_scores=True,
+            logits_processor=logits_processor,
         )
     
     # Slice off the prompt tokens
@@ -910,6 +922,7 @@ def generate_vlm_response(
     videos=None,
     video_metadata=None,
     include_confidence=False,
+    logits_processor=None,
 ):
     """Generate a response from a VLM given a text prompt and image(s)/video(s).
 
@@ -958,6 +971,7 @@ def generate_vlm_response(
             pad_token_id=tokenizer.pad_token_id,
             return_dict_in_generate=True,
             output_scores=True,
+            logits_processor=logits_processor,
         )
 
     generated_tokens = outputs.sequences[0][input_token_length:]
@@ -965,6 +979,27 @@ def generate_vlm_response(
     if include_confidence:
         return response_text, _generation_confidence(model, outputs)
     return response_text
+
+
+def _check_output_columns(config, is_multi_checkpoint):
+    """Fail before generating if a dataset column would be overwritten by a generated one."""
+    generated = [
+        getattr(config, 'response_column', 'response'),
+        getattr(config, 'confidence_column', 'confidence'),
+    ]
+    if is_multi_checkpoint:
+        generated.append(getattr(config, 'checkpoint_column', 'checkpoint'))
+    if getattr(config, 'json_schema', None) is not None:
+        generated += [config.parse_ok_column, config.schema_error_column, config.reasoning_column]
+    duplicates = sorted({col for col in generated if generated.count(col) > 1})
+    if duplicates:
+        raise ValueError(f"output columns {duplicates} are set more than once; give each a unique name")
+    clashes = [col for col in config.dataset_columns if col in generated]
+    if clashes:
+        raise ValueError(
+            f"dataset_columns {clashes} clash with generated output columns; rename them "
+            "in the dataset or set response_column / confidence_column in the recipe"
+        )
 
 
 def run_inference(config, debug=False):
@@ -1010,6 +1045,18 @@ def run_inference(config, debug=False):
     print(f"Loading dataset: {config.dataset_name}")
     data_split = load_raw_dataset(config)
     print(f"Loaded {len(data_split)} rows")
+    schema_column = getattr(config, 'json_schema_from_column', None)
+    if schema_column:
+        cells = column_cells(data_split, schema_column)
+        infer_enums = getattr(config, 'json_schema_infer_enums', True)
+        config.json_schema = infer_json_schema(cells, schema_column, infer_enums)
+        print(f"Inferred JSON schema from column '{schema_column}': {json.dumps(config.json_schema)}")
+        for path, values in enum_fields(config.json_schema):
+            logger.warning(
+                f"Inferred enum for {path}: {values}. Generation can only produce these values; "
+                "set json_schema_infer_enums: false or pass json_schema if others are possible."
+            )
+    _check_output_columns(config, is_multi_checkpoint)
     if world_size > 1:
         print(
             f"Rank {rank}/{world_size}: dynamically processing "
@@ -1020,8 +1067,11 @@ def run_inference(config, debug=False):
     
     # Process all checkpoints
     all_results = []
+    json_schema = getattr(config, 'json_schema', None)
     
     for checkpoint_idx, checkpoint_path in enumerate(checkpoint_paths):
+        compiled_schema = None
+        thinking = False
         # Load model for this checkpoint (if not using API)
         if use_api:
             print(f"Using API inference with model: {config.model}")
@@ -1046,6 +1096,15 @@ def run_inference(config, debug=False):
                 model, tokenizer = load_vlm_model_and_processor(config)
             else:
                 model, tokenizer = load_model_and_tokenizer(config)
+
+            # Compile before the row loop so a bad schema is not caught per row.
+            if json_schema is not None:
+                thinking = resolve_thinking(
+                    tokenizer,
+                    getattr(config, 'enable_thinking', None),
+                    chat_mode=is_vlm or config.split_mode,
+                )
+                compiled_schema = compile_json_schema(model, tokenizer, json_schema, thinking)
         
         # Process the dataset for this checkpoint
         checkpoint_results = []
@@ -1081,6 +1140,13 @@ def run_inference(config, debug=False):
             # Generate response
             try:
                 confidence = None
+                schema_result = None
+                reasoning = ""
+                logits_processor = (
+                    json_schema_logits_processor(compiled_schema)
+                    if compiled_schema is not None
+                    else None
+                )
                 if debug:
                     print(f"\n{'='*50}")
                     print(f"DEBUG - Example {dataset_idx + 1}")
@@ -1116,6 +1182,7 @@ def run_inference(config, debug=False):
                             videos=videos,
                             video_metadata=video_metadata,
                             include_confidence=True,
+                            logits_processor=logits_processor,
                         )
                     else:
                         response, confidence = generate_vlm_response(
@@ -1127,6 +1194,7 @@ def run_inference(config, debug=False):
                             videos=videos,
                             video_metadata=video_metadata,
                             include_confidence=True,
+                            logits_processor=logits_processor,
                         )
                 else:
                     if messages is not None:
@@ -1136,6 +1204,7 @@ def run_inference(config, debug=False):
                             config=config,
                             messages=messages,
                             include_confidence=True,
+                            logits_processor=logits_processor,
                         )
                     else:
                         response, confidence = generate_response(
@@ -1144,7 +1213,11 @@ def run_inference(config, debug=False):
                             full_prompt,
                             config,
                             include_confidence=True,
+                            logits_processor=logits_processor,
                         )
+
+                if thinking:
+                    reasoning, response = split_reasoning(response)
 
                 if debug:
                     print("Response (truncated):")
@@ -1157,45 +1230,54 @@ def run_inference(config, debug=False):
                         safe_preview = response_str
                     print(safe_preview)
                     print(f"{'='*50}\n")
-                
-                # Store the result with dataset columns first, then response column
-                result = {}
-                
-                # Add dataset columns first
-                for col in config.dataset_columns:
-                    result[col] = example.get(col, "")
-                
-                # Add checkpoint column if multi-checkpoint inference
-                if is_multi_checkpoint:
-                    checkpoint_col = getattr(config, 'checkpoint_column', 'checkpoint')
-                    result[checkpoint_col] = checkpoint_name
-                
-                # Add response column after dataset columns
-                response_col = getattr(config, 'response_column', 'response')
-                result[response_col] = response
-                confidence_col = getattr(config, 'confidence_column', 'confidence')
-                result[confidence_col] = confidence
-                if world_size > 1:
-                    result[_RESULT_ORDER_COLUMN] = (
-                        checkpoint_idx * len(data_split) + dataset_idx
-                    )
-                
-                checkpoint_results.append(result)
-                
-                if world_size > 1:
-                    print(
-                        f"Rank {rank}: processed {local_i + 1} local examples "
-                        f"(dataset row {dataset_idx + 1}/{len(data_split)})"
-                    )
-                else:
-                    print(
-                        f"Processed {local_i + 1}/{len(data_split)} examples "
-                        f"(dataset row {dataset_idx + 1}/{len(data_split)})"
-                    )
-                
+
             except Exception as e:
                 print(f"Error processing example {dataset_idx}: {e}")
-                continue
+                if json_schema is None:
+                    continue
+                response, confidence = "", None
+                schema_result = (False, f"generation failed: {type(e).__name__}: {e}")
+
+            # Store the result with dataset columns first, then response column
+            result = {}
+
+            # Add dataset columns first
+            for col in config.dataset_columns:
+                result[col] = example.get(col, "")
+
+            # Add checkpoint column if multi-checkpoint inference
+            if is_multi_checkpoint:
+                checkpoint_col = getattr(config, 'checkpoint_column', 'checkpoint')
+                result[checkpoint_col] = checkpoint_name
+
+            # Add response column after dataset columns
+            response_col = getattr(config, 'response_column', 'response')
+            result[response_col] = response
+            confidence_col = getattr(config, 'confidence_column', 'confidence')
+            result[confidence_col] = confidence
+            if json_schema is not None:
+                result[config.parse_ok_column], result[config.schema_error_column] = (
+                    schema_result or validate_json_response(response, json_schema)
+                )
+            if thinking:
+                result[config.reasoning_column] = reasoning
+            if world_size > 1:
+                result[_RESULT_ORDER_COLUMN] = (
+                    checkpoint_idx * len(data_split) + dataset_idx
+                )
+
+            checkpoint_results.append(result)
+
+            if world_size > 1:
+                print(
+                    f"Rank {rank}: processed {local_i + 1} local examples "
+                    f"(dataset row {dataset_idx + 1}/{len(data_split)})"
+                )
+            else:
+                print(
+                    f"Processed {local_i + 1}/{len(data_split)} examples "
+                    f"(dataset row {dataset_idx + 1}/{len(data_split)})"
+                )
         
         # Add results from this checkpoint to overall results
         all_results.extend(checkpoint_results)
@@ -1273,14 +1355,17 @@ def run_inference(config, debug=False):
     
     # Calculate total expected examples (dataset size * number of checkpoints)
     total_expected = len(data_split) * len(checkpoint_paths)
+    successful_examples = (
+        int(df[config.parse_ok_column].sum()) if json_schema is not None and len(df) else len(df)
+    )
     
     # Create summary
     summary = {
         'total_examples': len(data_split),
         'num_checkpoints': len(checkpoint_paths),
         'total_expected_results': total_expected,
-        'successful_examples': len(df),
-        'failed_examples': total_expected - len(df),
+        'successful_examples': successful_examples,
+        'failed_examples': total_expected - successful_examples,
         'config': config.to_dict(),
         'inference_type': inference_type,
         'model_info': model_info,
@@ -1336,7 +1421,7 @@ def load_inference_recipe_with_overrides(args):
     # Write temporary recipe file with overrides applied
     import tempfile
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp_file:
-        yaml.dump(recipe_dict, tmp_file)
+        yaml.dump(recipe_dict, tmp_file, sort_keys=False)
         tmp_recipe_path = tmp_file.name
     
     try:

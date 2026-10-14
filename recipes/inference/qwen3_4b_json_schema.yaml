@@ -1,0 +1,47 @@
+# Structured (JSON) Output with Qwen3-4B
+# Setting `json_schema` constrains decoding so every response is JSON that matches
+# the schema, and adds __parse_ok / __schema_error columns to the output CSV.
+#
+#   pip install "FAI-RL[structured]"
+#   fai-rl-inference --recipe recipes/inference/qwen3_4b_json_schema.yaml
+#
+# Qwen3-4B is a text model, so this example classifies each question in
+# example_inference_data.csv without fetching its image.
+
+inference:
+  # Model Configuration - Vanilla HuggingFace model
+  model: "Qwen/Qwen3-4B"
+
+  # Path to save inference results (CSV format with input columns + response column)
+  output_file: "outputs/qwen3-4b-json-schema-infer.csv"
+
+  # Dataset Configuration for a local file (relative to the launch directory)
+  dataset_name: "recipes/inference/example_inference_data.csv"
+  dataset_split: ""                    # Used for Hub ids only; ignored for local files
+  dataset_columns: ["question"]        # Columns available to the prompt below
+
+  # Output column names (must not match a dataset_columns entry)
+  response_column: "__response"           # Model response (default: "response")
+  confidence_column: "__confidence"       # Response confidence (default: "confidence")
+  parse_ok_column: "__parse_ok"           # Schema-valid JSON? (default: "__parse_ok")
+  schema_error_column: "__schema_error"   # Why the row failed (default: "__schema_error")
+  reasoning_column: "__reasoning"         # Thinking text (default: "__reasoning")
+
+  # Chat mode prompt; the model's chat template is applied
+  user_prompt: "Classify this question about an image: {question}"
+  enable_thinking: false               # Qwen3-4B is hybrid: true thinks first (text goes to __reasoning)
+
+  # JSON Schema enforced while decoding (a YAML mapping or a JSON string)
+  json_schema:
+    type: object
+    properties:
+      task: {type: string, enum: [describe, identify, count, other]}
+      needs_image: {type: boolean}
+    required: [task, needs_image]
+    additionalProperties: false
+
+  # Generation Parameters
+  temperature: 1.0            # Sampling temperature (0.0 = deterministic)
+  top_p: 0.9                  # Nucleus sampling threshold
+  max_new_tokens: 256         # Leave room for the complete JSON object
+  do_sample: false            # Greedy decoding for reproducible labels

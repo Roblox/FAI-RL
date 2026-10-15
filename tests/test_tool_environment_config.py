@@ -158,6 +158,55 @@ def test_tool_environment_requires_grpo_and_v2_reward(tmp_path):
         ExperimentConfig.from_yaml(write_recipe(tmp_path, recipe))
 
 
+def tool_sft_recipe():
+    recipe = base_recipe()
+    recipe["training"]["algorithm"] = "sft"
+    recipe["data"] = {
+        "datasets": [{"name": "Roblox/tool-conversations"}],
+        "messages_column": "messages",
+    }
+    recipe.pop("reward_api")
+    return recipe
+
+
+def test_tool_environment_sft_needs_conversations_but_no_reward(tmp_path):
+    config = ExperimentConfig.from_yaml(write_recipe(tmp_path, tool_sft_recipe()))
+    assert config.tool_environment.server_id == "inventory"
+    assert config.data.messages_column == "messages"
+
+    recipe = tool_sft_recipe()
+    recipe["data"].pop("messages_column")
+    with pytest.raises(ValueError, match="data.messages_column"):
+        ExperimentConfig.from_yaml(write_recipe(tmp_path, recipe))
+
+    recipe = tool_sft_recipe()
+    recipe["data"]["tools_column"] = "tools"
+    with pytest.raises(ValueError, match="tools_column cannot be combined"):
+        ExperimentConfig.from_yaml(write_recipe(tmp_path, recipe))
+
+    recipe = tool_sft_recipe()
+    recipe["model"]["base_model_name"] = "Qwen/Qwen3-8B"
+    with pytest.raises(ValueError, match="Qwen3.8-27B"):
+        ExperimentConfig.from_yaml(write_recipe(tmp_path, recipe))
+
+
+def test_messages_column_is_text_sft_only(tmp_path):
+    recipe = tool_sft_recipe()
+    recipe["training"]["algorithm"] = "dpo"
+    recipe.pop("tool_environment")
+    with pytest.raises(ValueError, match="messages_column is supported only for text SFT"):
+        ExperimentConfig.from_yaml(write_recipe(tmp_path, recipe))
+
+
+def test_production_cli_loader_accepts_tool_environment_sft(tmp_path):
+    args = SimpleNamespace(recipe=write_recipe(tmp_path, tool_sft_recipe()), overrides=[])
+
+    config = load_recipe_with_overrides(args)
+
+    assert config.training.algorithm == "sft"
+    assert config.tool_environment.tools[0].name == "lookup_item"
+
+
 def test_reward_api_positional_headers_remain_backward_compatible():
     config = RewardAPIConfig(
         "https://reward.example/score",

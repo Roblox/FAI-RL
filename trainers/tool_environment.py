@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ import jsonschema
 import requests
 
 from core.config import ToolEnvironmentConfig
+from utils.tool_conversations import ManagedToolCatalog
 
 _DEFAULT_SERVICE_ACCOUNT_TOKEN_FILE = (
     "/var/run/secrets/kubernetes.io/serviceaccount/token"
@@ -57,6 +59,28 @@ def tool_catalog_prompt(config: ToolEnvironmentConfig) -> str:
         "call_tool function with tool_name set to a catalog name and arguments "
         "matching that tool's input_schema. Do not invent tool names.\n"
         + json.dumps(catalog, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
+def managed_tool_catalog(config: ToolEnvironmentConfig) -> ManagedToolCatalog:
+    """The tool view a GRPO rollout gives the model, for SFT to train on.
+
+    Tool schemas come from the environment's public methods, collected the way
+    TRL's GRPOTrainer collects them and rendered by the chat template the same
+    way, so SFT and GRPO show the model identical tool definitions.
+    """
+    from transformers.utils import get_json_schema
+
+    environment = GatewayToolEnvironment(config)
+    tools = [
+        get_json_schema(member)
+        for name, member in inspect.getmembers(environment, predicate=inspect.ismethod)
+        if name != "reset" and not name.startswith("_")
+    ]
+    return ManagedToolCatalog(
+        instructions=tool_catalog_prompt(config),
+        tools=tools,
+        input_schemas={tool.name: tool.input_schema for tool in config.tools},
     )
 
 

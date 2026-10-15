@@ -253,6 +253,10 @@ FAI-RL provides pre-configured recipes and has been validated with the following
   source fields accompany the trajectory; `[]` sends none.
 - Per-episode turn/call/time limits, per-call deadlines, idempotency IDs, and
   bounded retries prevent runaway environments.
+- SFT can warm-start the same environment from recorded conversations: with
+  `tool_environment` and `data.messages_column`, recorded calls are rewritten
+  into the `call_tool` view a GRPO rollout sees, without calling the gateway.
+  See [Tool-Calling SFT](trainers/README.md#tool-calling-sft).
 
 **Dataset Templates:**
 - `GSM8KTemplate` - Math problem formatting with chain-of-thought

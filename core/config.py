@@ -167,6 +167,17 @@ class DataConfig:
     # error (see __post_init__).
     user_prompt: Optional[str] = None
     assistant_prompt: Optional[str] = None
+    # Conversational (tool-calling) text SFT. messages_column names a column of
+    # OpenAI-format chat messages: system/user/assistant/tool roles, assistant
+    # tool_calls, and an optional per-message weight (0 keeps an assistant turn
+    # as history only). Every other assistant turn becomes one example with loss
+    # on that turn alone. tools_column optionally names per-row OpenAI function
+    # definitions; with tool_environment the environment's catalog is used
+    # instead. system_prompt, if set, is prepended to conversations that lack a
+    # system message (verbatim, not a template). Exclusive with
+    # user/assistant_prompt.
+    messages_column: Optional[str] = None
+    tools_column: Optional[str] = None
     dataset_num_proc: int = 1
 
     # Multimodal (sft_vlm) image-fetch settings. image_cache_dir, when set,
@@ -213,6 +224,13 @@ class DataConfig:
                 f"(missing: {missing}). Set both to enable split/completion-only "
                 "mode, or neither to use the legacy flat system_prompt template."
             )
+        if self.messages_column and self.split_mode:
+            raise ValueError(
+                "data.messages_column cannot be combined with data.user_prompt/"
+                "assistant_prompt; conversations already contain every turn"
+            )
+        if self.tools_column and not self.messages_column:
+            raise ValueError("data.tools_column requires data.messages_column")
 
     @property
     def split_mode(self) -> bool:
@@ -246,6 +264,8 @@ class DataConfig:
             "system_prompt": self.system_prompt,
             "user_prompt": self.user_prompt,
             "assistant_prompt": self.assistant_prompt,
+            "messages_column": self.messages_column,
+            "tools_column": self.tools_column,
             "dataset_num_proc": self.dataset_num_proc,
             "image_cache_dir": self.image_cache_dir,
             "image_fetch_timeout": self.image_fetch_timeout,
@@ -799,10 +819,29 @@ class ExperimentConfig:
     tool_environment: Optional[ToolEnvironmentConfig] = None
 
     def __post_init__(self):
+        algorithm = (self.training.algorithm or "").lower()
+        if self.data.messages_column and algorithm != "sft":
+            raise ValueError("data.messages_column is supported only for text SFT")
         if self.tool_environment is None:
             return
-        if (self.training.algorithm or "").lower() != "grpo":
-            raise ValueError("tool_environment is supported only for GRPO")
+        if self.model.base_model_name != "Qwen/Qwen3.8-27B":
+            raise ValueError(
+                "tool_environment initially supports only Qwen/Qwen3.8-27B"
+            )
+        if algorithm == "sft" and self.data.messages_column:
+            # SFT trains on recorded tool calls and results; it calls no gateway
+            # and has no reward, but renders tools exactly as GRPO does.
+            if self.data.tools_column:
+                raise ValueError(
+                    "data.tools_column cannot be combined with tool_environment; "
+                    "the environment defines the tool catalog"
+                )
+            return
+        if algorithm != "grpo":
+            raise ValueError(
+                "tool_environment is supported only for GRPO and for SFT on "
+                "tool-calling conversations (data.messages_column)"
+            )
         if self.local_reward_function is not None:
             raise ValueError(
                 "tool_environment requires a trajectory reward API, not a local reward"
@@ -825,10 +864,6 @@ class ExperimentConfig:
         if self.reward_api.headers:
             raise ValueError(
                 "tool_environment reward_api must not contain static headers"
-            )
-        if self.model.base_model_name != "Qwen/Qwen3.8-27B":
-            raise ValueError(
-                "tool_environment initially supports only Qwen/Qwen3.8-27B"
             )
 
     @classmethod

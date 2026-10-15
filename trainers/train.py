@@ -17,17 +17,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from core.config import (
-    DataConfig,
-    DatasetInfo,
-    ExperimentConfig,
-    LocalRewardFunctionConfig,
-    ModelConfig,
-    RewardAPIConfig,
-    S3Config,
-    TrainingConfig,
-    WandbConfig,
-)
+from core.config import ExperimentConfig
 from trainers.cpt_trainer import CPTTrainer
 from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
@@ -305,36 +295,8 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
             "Provide it via recipe file or CLI: training.algorithm='sft' (options: cpt, sft, sft_vlm, dpo, grpo, gspo)"
         )
     
-    # Handle datasets configuration
-    data_config = recipe_dict.get('data', {}).copy()
-    if 'datasets' in data_config and data_config['datasets']:
-        # Convert to DatasetInfo objects if they're dicts
-        if isinstance(data_config['datasets'][0], dict):
-            data_config['datasets'] = [
-                DatasetInfo(**ds) for ds in data_config['datasets']
-            ]
-    else:
-        # Default to empty list if no datasets specified
-        data_config['datasets'] = []
-    
-    # Create config objects with defaults
-    config = ExperimentConfig(
-        model=ModelConfig(**recipe_dict.get('model', {})),
-        data=DataConfig(**data_config),
-        training=TrainingConfig(**recipe_dict.get('training', {})),
-        wandb=WandbConfig(**recipe_dict.get('wandb', {})),
-        s3=S3Config(**recipe_dict.get('s3', {})),
-        reward_api=(
-            RewardAPIConfig(**recipe_dict['reward_api'])
-            if recipe_dict.get('reward_api')
-            else None
-        ),
-        local_reward_function=(
-            LocalRewardFunctionConfig(**recipe_dict['local_reward_function'])
-            if recipe_dict.get('local_reward_function')
-            else None
-        ),
-    )
+    recipe_dict.setdefault('data', {}).setdefault('datasets', [])
+    config = ExperimentConfig.from_dict(recipe_dict)
     if config.training.algorithm.lower() in {"grpo", "gspo"}:
         if config.reward_api and config.local_reward_function:
             raise ValueError(

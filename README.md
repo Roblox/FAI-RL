@@ -52,7 +52,7 @@ conda create -n fai-rl python=3.12 -y
 conda activate fai-rl
 ```
 
-> Python 3.9–3.12 are supported.
+> Python 3.10–3.12 are supported.
 
 ### 2. Clone the repository
 
@@ -234,6 +234,29 @@ FAI-RL provides pre-configured recipes and has been validated with the following
 - Prompts, completions, and dataset context are scored outside the training code
 - Retries, timeouts, headers, and response fields are recipe-driven
 - FAI-RL development tests can import a local Python reward callable from YAML
+
+**Managed tool-calling environments (GRPO):**
+- A versioned `tool_environment` recipe exposes only gateway-registered remote
+  tools through one bounded `call_tool` model function.
+- TRL runs the multi-turn generation loop and masks gateway observations so
+  GRPO loss applies only to model-generated policy tokens.
+- Tool names and public JSON schemas are snapshotted in the recipe. Gateway
+  identity comes from the rotating Kubernetes service-account token file,
+  never from the recipe or a static environment variable.
+- Before attaching that identity, the recipe gateway must exactly match
+  `FAI_RL_TOOL_GATEWAY_ALLOWED_URLS`, which the managed control plane supplies.
+- Arguments are validated against the snapshotted JSON schema and request and
+  response bodies are byte-bounded.
+- `reward_api.version: v2` sends one tool trajectory per completion to the
+  external reward service.
+- A dataset entry's explicit `reward_context_columns` allowlist controls which
+  source fields accompany the trajectory; `[]` sends none.
+- Per-episode turn/call/time limits, per-call deadlines, idempotency IDs, and
+  bounded retries prevent runaway environments.
+- SFT can warm-start the same environment from recorded conversations: with
+  `tool_environment` and `data.messages_column`, recorded calls are rewritten
+  into the `call_tool` view a GRPO rollout sees, without calling the gateway.
+  See [Tool-Calling SFT](trainers/README.md#tool-calling-sft).
 
 **Dataset Templates:**
 - `GSM8KTemplate` - Math problem formatting with chain-of-thought

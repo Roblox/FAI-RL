@@ -141,6 +141,16 @@ class DataConfig:
     # error (see __post_init__).
     user_prompt: Optional[str] = None
     assistant_prompt: Optional[str] = None
+    # Conversational (tool-calling) text SFT. messages_column names a column of
+    # OpenAI-format chat messages: system/user/assistant/tool roles, assistant
+    # tool_calls, and an optional per-message weight (0 keeps an assistant turn
+    # as history only). Every other assistant turn becomes one example with loss
+    # on that turn alone. tools_column optionally names per-row OpenAI function
+    # definitions. system_prompt, if set, is prepended to conversations that
+    # lack a system message (verbatim, not a template). Exclusive with
+    # user/assistant_prompt.
+    messages_column: Optional[str] = None
+    tools_column: Optional[str] = None
     dataset_num_proc: int = 1
 
     # Multimodal (sft_vlm) image-fetch settings. image_cache_dir, when set,
@@ -187,6 +197,13 @@ class DataConfig:
                 f"(missing: {missing}). Set both to enable split/completion-only "
                 "mode, or neither to use the legacy flat system_prompt template."
             )
+        if self.messages_column and self.split_mode:
+            raise ValueError(
+                "data.messages_column cannot be combined with data.user_prompt/"
+                "assistant_prompt; conversations already contain every turn"
+            )
+        if self.tools_column and not self.messages_column:
+            raise ValueError("data.tools_column requires data.messages_column")
 
     @property
     def split_mode(self) -> bool:
@@ -219,6 +236,8 @@ class DataConfig:
             "system_prompt": self.system_prompt,
             "user_prompt": self.user_prompt,
             "assistant_prompt": self.assistant_prompt,
+            "messages_column": self.messages_column,
+            "tools_column": self.tools_column,
             "dataset_num_proc": self.dataset_num_proc,
             "image_cache_dir": self.image_cache_dir,
             "image_fetch_timeout": self.image_fetch_timeout,
@@ -610,6 +629,10 @@ class ExperimentConfig:
     s3: S3Config = field(default_factory=S3Config)
     reward_api: Optional[RewardAPIConfig] = None
     local_reward_function: Optional[LocalRewardFunctionConfig] = None
+
+    def __post_init__(self):
+        if self.data.messages_column and (self.training.algorithm or "").lower() != "sft":
+            raise ValueError("data.messages_column is supported only for text SFT")
     
     @classmethod
     def from_yaml(cls, config_path: str) -> 'ExperimentConfig':

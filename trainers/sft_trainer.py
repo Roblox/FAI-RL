@@ -1,7 +1,8 @@
 import os, sys
+from collections import Counter
 import torch
 import wandb
-from datasets import load_dataset, concatenate_datasets, Dataset
+from datasets import load_dataset, concatenate_datasets, Dataset, Features, Value
 from trl import SFTConfig, SFTTrainer as TRLSFTTrainer
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import TaskType
@@ -15,6 +16,10 @@ from core.config import ExperimentConfig
 from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
 from utils.dataset_utils import load_raw_dataset
+from utils.tool_conversations import (
+    normalize_conversation_row,
+    tokenize_conversation_rows,
+)
 
 
 class SFTTrainer(BaseTrainer):
@@ -75,8 +80,85 @@ class SFTTrainer(BaseTrainer):
                 self._tmpl_warn_emitted = True
             return template
 
+    def _log_reasons(self, reasons, what: str, source: str):
+        counts = Counter(reason for reason in reasons if reason)
+        if not counts:
+            return
+        summary = "; ".join(f"{reason} ({count})" for reason, count in counts.most_common(5))
+        self.logger.warning(
+            f"Skipped {sum(counts.values())} {what} from {source}: {summary}"
+        )
+
+    def _setup_conversation_data(self):
+        """Prepare OpenAI-format tool-calling conversations (data.messages_column)."""
+        data = self.config.data
+
+        conversations = []
+        for dataset_info in data.datasets:
+            self.logger.info(f"Loading conversation dataset: {dataset_info.name}")
+            dataset = load_raw_dataset(dataset_info)
+            for kind, column in (("messages", data.messages_column), ("tools", data.tools_column)):
+                if column and column not in dataset.column_names:
+                    raise ValueError(
+                        f"data.{kind}_column {column!r} not found in {dataset_info.name}; "
+                        f"columns: {dataset.column_names}"
+                    )
+            dataset = dataset.map(
+                normalize_conversation_row,
+                fn_kwargs={
+                    "messages_column": data.messages_column,
+                    "tools_column": data.tools_column,
+                    "system_prompt": data.system_prompt,
+                },
+                remove_columns=dataset.column_names,
+                features=Features(
+                    {"conversation": Value("string"), "invalid_reason": Value("string")}
+                ),
+            )
+            self._log_reasons(dataset["invalid_reason"], "conversations", dataset_info.name)
+            dataset = dataset.filter(lambda row: row["invalid_reason"] is None)
+            conversations.append(dataset.remove_columns("invalid_reason"))
+
+        conversations = concatenate_datasets(conversations)
+        if len(conversations) == 0:
+            raise ValueError(
+                "data.messages_column produced no trainable tool-calling conversations"
+            )
+        self.logger.info(f"Loaded {len(conversations)} tool-calling conversations")
+
+        # Hold out whole conversations so turns of one conversation never span
+        # both splits.
+        train_conversations, eval_conversations = self.apply_eval_holdout(conversations)
+        self.train_dataset = self._tokenize_conversations(train_conversations, "train")
+        self.eval_dataset = (
+            self._tokenize_conversations(eval_conversations, "eval")
+            if eval_conversations is not None
+            else None
+        )
+
+    def _tokenize_conversations(self, conversations, split: str):
+        turns = conversations.map(
+            tokenize_conversation_rows,
+            batched=True,
+            fn_kwargs={"tokenizer": self.tokenizer, "max_length": self.config.data.max_length},
+            remove_columns=conversations.column_names,
+        )
+        self._log_reasons(turns["dropped_reason"], "assistant turns", f"the {split} split")
+        turns = turns.filter(lambda row: row["dropped_reason"] is None)
+        turns = turns.remove_columns("dropped_reason")
+        if len(turns) == 0:
+            raise ValueError(
+                f"no {split} assistant turns fit data.max_length={self.config.data.max_length}"
+            )
+        self.logger.info(f"Prepared {len(turns)} {split} assistant turns")
+        return turns
+
     def setup_data(self):
         """Load and prepare training datasets."""
+        if self.config.data.messages_column:
+            self._setup_conversation_data()
+            return
+
         datasets = []
         total_examples = 0
         total_skipped = 0
@@ -210,10 +292,15 @@ class SFTTrainer(BaseTrainer):
             ddp_find_unused_parameters=self.config.training.ddp_find_unused_parameters,
             max_length=self.config.data.max_length,
             dataset_num_proc=self.config.data.dataset_num_proc,
-            # In split mode rows are prompt/completion pairs; mask the prompt so
-            # loss is computed only on the assistant completion. (Flat mode leaves
-            # this at TRL's default of False -> loss over the whole sequence.)
-            completion_only_loss=True if self.config.data.split_mode else None,
+            # In split mode rows are prompt/completion pairs and conversational
+            # rows carry a completion_mask; mask the prompt so loss is computed
+            # only on the assistant completion. (Flat mode leaves this at TRL's
+            # default of False -> loss over the whole sequence.)
+            completion_only_loss=(
+                True
+                if self.config.data.split_mode or self.config.data.messages_column
+                else None
+            ),
         ))
 
     def setup_trainer(self):

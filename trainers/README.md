@@ -57,6 +57,7 @@ HuggingFace Hub datasets:
 Local file datasets:
 - **CPT**: `recipes/training/cpt/qwen3_4B_local_file.yaml`
 - **SFT**: `recipes/training/sft/llama3_3B_local_file.yaml`
+- **SFT (tool calling)**: `recipes/training/sft/llama3_3B_tool_calling.yaml` — see [Tool-Calling SFT](#tool-calling-sft)
 - **DPO**: `recipes/training/dpo/llama3_3B_local_file.yaml`
 - **GRPO**: `recipes/training/grpo/llama3_3B_local_file.yaml`
 - **GSPO**: `recipes/training/gspo/llama3_3B_local_file.yaml`
@@ -94,7 +95,7 @@ Replace the following values for your specific use case:
 
 **Algorithm-Specific Notes:**
 - **CPT**: Domain adaptation via next-token prediction on raw text; requires a `text_column` in dataset; no system prompt or chat template applied
-- **SFT**: Best for initial instruction tuning; requires `prompt_column` and `answer_column` in dataset
+- **SFT**: Best for initial instruction tuning; requires `prompt_column` and `answer_column` in dataset, or `data.messages_column` for [tool-calling conversations](#tool-calling-sft)
 - **DPO**: Preference-based method; requires `prompt_column`, `chosen_column`, and `rejected_column`
 - **GRPO/GSPO**: Requires `prompt_column`, an optional `answer_column` or other
   scoring context, and exactly one of `reward_api` or `local_reward_function`.
@@ -140,6 +141,57 @@ number per completion:
 The service should be stateless or idempotent and sized for requests from every
 distributed training worker. HTTP errors, invalid JSON, missing rewards, and
 score-count mismatches fail training after the configured retries.
+
+### Tool-Calling SFT
+
+Text SFT can train on recorded tool-calling conversations in the OpenAI chat
+fine-tuning format.
+Set `data.messages_column` and, optionally, `data.tools_column`:
+
+```yaml
+data:
+  datasets:
+    - name: "data/sft/example_tool_calling.jsonl"
+  messages_column: "messages"
+  tools_column: "tools"
+  max_length: 4096
+training:
+  algorithm: "sft"
+```
+
+Each row holds `system`/`user`/`assistant`/`tool` messages and the function
+definitions the model may call:
+
+```json
+{"messages": [
+  {"role": "user", "content": "Where is order 123?"},
+  {"role": "assistant", "tool_calls": [{"id": "call_1", "type": "function",
+    "function": {"name": "get_order", "arguments": "{\"order_id\": \"123\"}"}}]},
+  {"role": "tool", "tool_call_id": "call_1", "content": "{\"status\": \"shipped\"}"},
+  {"role": "assistant", "content": "Order 123 has shipped."}],
+ "tools": [{"type": "function", "function": {"name": "get_order", "...": "..."}}]}
+```
+
+Every assistant message becomes one training example: the prompt is the
+conversation before it, rendered with the model's chat template and `tools`,
+and the loss covers only that assistant turn. Tool results, user turns, and
+earlier assistant turns are never trained on, on any chat template. Set
+`"weight": 0` on an assistant message to keep it as history only. A
+conversation with N assistant turns therefore costs N forward passes.
+
+- `arguments` may be a JSON string (OpenAI) or an object. Non-string tool
+  results are JSON-encoded.
+- `messages` and `tools` may also be JSON-encoded strings. Use strings to keep
+  explicit `null` values: struct-typed sources such as Parquet pad differing
+  nested objects with nulls, which FAI-RL removes.
+- `system_prompt` is prepended to conversations without a system message.
+  `user_prompt`/`assistant_prompt` templates cannot be combined with
+  `messages_column`.
+- Rows that are malformed are skipped with a summarized warning: unknown roles,
+  a tool message without a preceding tool call, invalid arguments, a call to a
+  tool missing from the row's `tools`, or no trainable assistant turn. Turns
+  longer than `max_length`, including their prompt, are dropped instead of
+  truncated so a cut-off tool call is never trained.
 
 ### Local Reward Function (FAI-RL Testing Only)
 

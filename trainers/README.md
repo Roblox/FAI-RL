@@ -193,6 +193,9 @@ conversation with N assistant turns therefore costs N forward passes.
   longer than `max_length`, including their prompt, are dropped instead of
   truncated so a cut-off tool call is never trained.
 
+To run a trained model on the same rows and parse the tool calls it generates,
+see [Tool-Calling Inference](../inference/README.md#tool-calling-inference).
+
 ### Local Reward Function (FAI-RL Testing Only)
 
 For local tests, a recipe can import a Python callable instead of making HTTP

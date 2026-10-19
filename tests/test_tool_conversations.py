@@ -9,6 +9,8 @@ from utils.tool_conversations import (
     assistant_turns,
     normalize_conversation,
     normalize_conversation_row,
+    normalize_prompt_conversation,
+    parse_tool_calls,
     tokenize_conversation_rows,
 )
 
@@ -349,4 +351,95 @@ def test_drops_turns_that_do_not_fit_or_rerender_history():
     assert mismatch["dropped_reason"] == [
         "chat template does not preserve the prompt prefix",
         "chat template does not preserve the prompt prefix",
+    ]
+
+
+def test_prompt_conversation_drops_trailing_assistant_turns():
+    conversation = normalize_prompt_conversation(
+        _openai_messages(), tools=[GET_ORDER_TOOL], system_prompt="Use tools."
+    )
+
+    assert [m["role"] for m in conversation["messages"]] == ["system", "user", "assistant", "tool"]
+    assert conversation["tools"] == [GET_ORDER_TOOL]
+
+    # Inference prompts need no trainable assistant turn.
+    user_only = normalize_prompt_conversation([{"role": "user", "content": "hi"}])
+    assert user_only == {"messages": [{"role": "user", "content": "hi"}], "tools": None}
+
+
+def test_prompt_conversation_needs_a_turn_to_respond_to():
+    with pytest.raises(InvalidConversation, match="no user or tool turn"):
+        normalize_prompt_conversation(
+            [{"role": "system", "content": "s"}, {"role": "assistant", "content": "a"}]
+        )
+
+
+def _call(name, **arguments):
+    return {"type": "function", "function": {"name": name, "arguments": arguments}}
+
+
+CANCEL_ORDER_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "cancel_order",
+        "parameters": {
+            "type": "object",
+            "properties": {"order_id": {"type": "string"}, "refund": {"type": "boolean"}},
+        },
+    },
+}
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # Qwen3 / Hermes: JSON inside <tool_call> tags, after an empty think block.
+        (
+            '<think>\n\n</think>\n\n<tool_call>\n{"name": "get_order", "arguments": '
+            '{"order_id": "123"}}\n</tool_call>\n'
+            '<tool_call>\n{"name": "cancel_order", "arguments": "{\\"order_id\\": \\"123\\"}"}\n</tool_call>',
+            [_call("get_order", order_id="123"), _call("cancel_order", order_id="123")],
+        ),
+        # Qwen3.5+: XML parameters; declared strings stay strings, others parse as JSON.
+        (
+            "\n</think>\n\n<tool_call>\n<function=cancel_order>\n<parameter=order_id>\n123\n"
+            "</parameter>\n<parameter=refund>\ntrue\n</parameter>\n</function>\n</tool_call>\n",
+            [_call("cancel_order", order_id="123", refund=True)],
+        ),
+        # Llama 3.x: the whole response is one JSON call with "parameters".
+        (
+            '{"name": "get_order", "parameters": {"order_id": "123"}}',
+            [_call("get_order", order_id="123")],
+        ),
+        # Mistral: a JSON list of calls.
+        (
+            '[{"name": "get_order", "arguments": {"order_id": "1"}}]',
+            [_call("get_order", order_id="1")],
+        ),
+        ("Order 123 has shipped.", []),
+        ('{"name": "Ada"}', []),  # a JSON answer without arguments is not a call
+        ("<tool_call>\n{not json}\n</tool_call>", []),
+        ('<tool_call>\n{"name": "get_order", "arguments": [1]}\n</tool_call>', []),
+    ],
+)
+def test_parse_tool_calls_reads_common_chat_template_formats(text, expected):
+    assert parse_tool_calls(text, tools=[GET_ORDER_TOOL, CANCEL_ORDER_TOOL]) == expected
+
+
+def test_parse_tool_calls_prefers_tokenizer_response_schema():
+    class SchemaTokenizer:
+        response_schema = {"type": "object"}
+
+        def parse_response(self, text):
+            return {"role": "assistant", "tool_calls": [_call("get_order", order_id=text)]}
+
+    assert parse_tool_calls("9", tokenizer=SchemaTokenizer()) == [_call("get_order", order_id="9")]
+
+    class BrokenSchemaTokenizer(SchemaTokenizer):
+        def parse_response(self, text):
+            raise ValueError("no match")
+
+    text = '{"name": "get_order", "arguments": {"order_id": "9"}}'
+    assert parse_tool_calls(text, tokenizer=BrokenSchemaTokenizer()) == [
+        _call("get_order", order_id="9")
     ]

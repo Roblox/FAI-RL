@@ -16,7 +16,7 @@ inference:
   output_file: "outputs/qwen3-4b-json-schema-infer.csv"
 
   # Dataset Configuration for a local file (relative to the launch directory)
-  dataset_name: "recipes/inference/example_inference_data.csv"
+  dataset_name: "data/sft/example_inference_data.csv"
   dataset_split: ""                    # Used for Hub ids only; ignored for local files
   dataset_columns: ["question"]        # Columns available to the prompt below
 

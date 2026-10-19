@@ -235,6 +235,12 @@ FAI-RL provides pre-configured recipes and has been validated with the following
 - Retries, timeouts, headers, and response fields are recipe-driven
 - FAI-RL development tests can import a local Python reward callable from YAML
 
+**Tool-Calling SFT:**
+- Text SFT trains on OpenAI-format conversations with tool calls and results
+  (`data.messages_column`, optional per-row `data.tools_column`)
+- Loss covers only assistant turns, on any chat template; tool results are context
+- See [Tool-Calling SFT](trainers/README.md#tool-calling-sft)
+
 **Dataset Templates:**
 - `GSM8KTemplate` - Math problem formatting with chain-of-thought
 - `OpenMathInstructTemplate` - Mathematical instruction formatting

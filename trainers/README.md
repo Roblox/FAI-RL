@@ -151,7 +151,7 @@ Set `data.messages_column` and, optionally, `data.tools_column`:
 ```yaml
 data:
   datasets:
-    - name: "data/sft/example_tool_calling.jsonl"
+    - name: "data/sft/example_tool_calling_training_data.jsonl"
   messages_column: "messages"
   tools_column: "tools"
   max_length: 4096

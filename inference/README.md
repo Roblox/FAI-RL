@@ -90,7 +90,7 @@ Models trained on tool-calling conversations with the `sft` trainer (`data.messa
 
 ```yaml
 inference:
-  dataset_name: "recipes/inference/example_tool_calling_data.jsonl"
+  dataset_name: "data/sft/example_tool_calling_data.jsonl"
   dataset_columns: ["id"]
   messages_column: "messages"   # system/user/assistant/tool messages, assistant tool_calls
   tools_column: "tools"         # per-row OpenAI function definitions (optional)

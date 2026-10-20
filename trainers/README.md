@@ -151,7 +151,7 @@ Set `data.messages_column` and, optionally, `data.tools_column`:
 ```yaml
 data:
   datasets:
-    - name: "data/sft/example_tool_calling.jsonl"
+    - name: "data/sft/example_tool_calling_training_data.jsonl"
   messages_column: "messages"
   tools_column: "tools"
   max_length: 4096
@@ -192,6 +192,9 @@ conversation with N assistant turns therefore costs N forward passes.
   tool missing from the row's `tools`, or no trainable assistant turn. Turns
   longer than `max_length`, including their prompt, are dropped instead of
   truncated so a cut-off tool call is never trained.
+
+To run a trained model on the same rows and parse the tool calls it generates,
+see [Tool-Calling Inference](../inference/README.md#tool-calling-inference).
 
 ### Local Reward Function (FAI-RL Testing Only)
 

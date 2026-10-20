@@ -28,7 +28,7 @@ model:
 # example whose loss covers only that turn (see trainers/README.md).
 data:
   datasets:
-    - name: "data/sft/example_tool_calling.jsonl"       # JSONL rows: {"messages": [...], "tools": [...]}
+    - name: "data/sft/example_tool_calling_training_data.jsonl"  # JSONL rows: {"messages": [...], "tools": [...]}
 
   messages_column: "messages"                           # system/user/assistant/tool messages with tool_calls
   tools_column: "tools"                                 # Per-row OpenAI function definitions (optional)

@@ -7,9 +7,13 @@ optional OpenAI function ``tools`` definitions. Each assistant message with
 whose loss covers only that assistant turn. Expanding per turn masks tool
 results and earlier turns on every chat template, including templates without
 ``{% generation %}`` markers.
+
+Inference renders the same conversations up to the next assistant turn and
+parses the tool calls the model generates back into this format.
 """
 
 import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -120,10 +124,40 @@ def normalize_conversation(
     ``targets`` lists the indices of trainable assistant messages. Raises
     ``InvalidConversation`` with the first problem found.
     """
+    tools = normalize_tools(tools)
+    normalized, targets = _normalize_messages(messages, tools, system_prompt)
+    if not targets:
+        raise InvalidConversation("conversation has no trainable assistant turn")
+    return {"messages": normalized, "targets": targets, "tools": tools}
+
+
+def normalize_prompt_conversation(
+    messages: Any,
+    tools: Any = None,
+    system_prompt: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Return ``{"messages", "tools"}`` to generate the next assistant turn from.
+
+    Trailing assistant messages are dropped, so a held-out SFT row predicts its
+    final assistant turn.
+    """
+    tools = normalize_tools(tools)
+    normalized, _ = _normalize_messages(messages, tools, system_prompt)
+    while normalized and normalized[-1]["role"] == "assistant":
+        normalized.pop()
+    if all(message["role"] == "system" for message in normalized):
+        raise InvalidConversation("conversation has no user or tool turn to respond to")
+    return {"messages": normalized, "tools": tools}
+
+
+def _normalize_messages(
+    messages: Any,
+    tools: Optional[List[Dict[str, Any]]],
+    system_prompt: Optional[str],
+) -> Tuple[List[Dict[str, Any]], List[int]]:
     messages = _load_json_value(messages, "messages")
     if not isinstance(messages, list) or not messages:
         raise InvalidConversation("messages must be a non-empty list")
-    tools = normalize_tools(tools)
     declared = {tool["function"]["name"] for tool in tools} if tools else None
 
     if system_prompt and not (
@@ -196,9 +230,7 @@ def normalize_conversation(
                 targets.append(len(normalized))
         normalized.append(out)
 
-    if not targets:
-        raise InvalidConversation("conversation has no trainable assistant turn")
-    return {"messages": normalized, "targets": targets, "tools": tools}
+    return normalized, targets
 
 
 def assistant_turns(
@@ -283,3 +315,87 @@ def tokenize_conversation_rows(
             out["completion_mask"].append([0] * len(prompt_ids) + [1] * len(completion_ids))
             out["dropped_reason"].append(reason)
     return out
+
+
+_TOOL_CALL_BLOCK = re.compile(r"<tool_call>(.*?)(?:</tool_call>|$)", re.DOTALL)
+_XML_FUNCTION = re.compile(r"<function=([^>\s]+)>(.*?)(?:</function>|$)", re.DOTALL)
+_XML_PARAMETER = re.compile(r"<parameter=([^>\s]+)>\n?(.*?)\n?</parameter>", re.DOTALL)
+
+
+def parse_tool_calls(
+    text: str,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    tokenizer=None,
+) -> List[Dict[str, Any]]:
+    """Return the tool calls in a generated response, normalized like training.
+
+    A tokenizer with a ``response_schema`` parses its own output. Otherwise this
+    reads ``<tool_call>`` blocks holding JSON (Qwen3, Hermes) or
+    ``<function=...>`` XML (Qwen3.5 and later), or a response that is entirely
+    one JSON call or a list of them (Llama 3.x, Mistral). Calls that do not
+    parse are left out.
+    """
+    if getattr(tokenizer, "response_schema", None) is not None:
+        try:
+            return _valid_calls(tokenizer.parse_response(text).get("tool_calls") or [])
+        except Exception:
+            pass
+
+    blocks = _TOOL_CALL_BLOCK.findall(text)
+    if blocks:
+        calls: List[Any] = []
+        for block in blocks:
+            if "<function=" in block:
+                calls.extend(_xml_calls(block, tools))
+            else:
+                calls.append(_json_or_none(block))
+        return _valid_calls(calls)
+
+    value = _json_or_none(text)
+    calls = value if isinstance(value, list) else [value]
+    # A bare JSON answer is a call only if it names its arguments.
+    return _valid_calls(
+        [c for c in calls if isinstance(c, dict) and ("arguments" in c or "parameters" in c)]
+    )
+
+
+def _json_or_none(text: str) -> Any:
+    try:
+        return json.loads(text.strip())
+    except ValueError:
+        return None
+
+
+def _xml_calls(block: str, tools: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Read Qwen3.5-style calls, whose parameter values are raw text."""
+    properties = {
+        tool["function"]["name"]: tool["function"].get("parameters", {}).get("properties", {})
+        for tool in tools or []
+    }
+    calls = []
+    for name, body in _XML_FUNCTION.findall(block):
+        arguments = {}
+        for key, value in _XML_PARAMETER.findall(body):
+            declared_type = properties.get(name, {}).get(key, {}).get("type")
+            parsed = None if declared_type == "string" else _json_or_none(value)
+            arguments[key] = value if parsed is None else parsed
+        calls.append({"name": name, "arguments": arguments})
+    return calls
+
+
+def _valid_calls(calls: List[Any]) -> List[Dict[str, Any]]:
+    valid = []
+    for call in calls:
+        if isinstance(call, dict) and "function" not in call and "name" in call:
+            call = {
+                "type": "function",
+                "function": {
+                    "name": call["name"],
+                    "arguments": call.get("arguments", call.get("parameters", {})),
+                },
+            }
+        try:
+            valid.append(_normalize_tool_call(call, "tool_call"))
+        except InvalidConversation:
+            continue
+    return valid

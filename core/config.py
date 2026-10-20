@@ -488,11 +488,19 @@ class InferenceConfig:
     # assistant_prompt. When user_prompt is unset, inference stays in the legacy
     # flat mode (system_prompt is the single templated prompt). See split_mode.
     user_prompt: Optional[str] = None
+    # Tool-calling mode. messages_column holds OpenAI-format conversations (the
+    # SFT trainer's format) and tools_column their function definitions. Each
+    # row's conversation, minus trailing assistant turns, is rendered with its
+    # tools and the model generates the next assistant turn. system_prompt is
+    # prepended verbatim to conversations without a system message.
+    messages_column: Optional[str] = None
+    tools_column: Optional[str] = None
 
     # Dataset column configuration
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     response_column: str = "response"
     confidence_column: str = "confidence"  # Geometric mean generated-token probability
+    tool_calls_column: str = "__tool_calls"  # messages_column only: parsed calls as JSON
     # Structured-output columns, written only when json_schema is set.
     parse_ok_column: str = "__parse_ok"  # Whether the response is schema-valid JSON
     schema_error_column: str = "__schema_error"  # Why the row failed, empty when valid
@@ -558,6 +566,27 @@ class InferenceConfig:
 
     def __post_init__(self):
         validate_structured_output_config(self)
+        if self.tools_column and not self.messages_column:
+            raise ValueError("inference.tools_column requires inference.messages_column")
+        if self.messages_column:
+            conflicts = [
+                name
+                for name in (
+                    "user_prompt",
+                    "image_columns",
+                    "video_columns",
+                    "json_schema",
+                    "json_schema_from_column",
+                )
+                if getattr(self, name)
+            ]
+            if self.model is not None and self.api_key is not None:
+                conflicts.append("api_key")
+            if conflicts:
+                raise ValueError(
+                    f"inference.messages_column cannot be combined with {', '.join(conflicts)}; "
+                    "tool-calling inference runs local text models on whole conversations"
+                )
 
     @property
     def split_mode(self) -> bool:

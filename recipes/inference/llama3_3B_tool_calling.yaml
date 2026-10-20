@@ -1,0 +1,30 @@
+# Inference Configuration — Tool Calling
+# Runs a model trained with recipes/training/sft/llama3_3B_tool_calling.yaml on
+# OpenAI-format conversations. Each row's `messages` (minus trailing assistant
+# turns) is rendered with the row's `tools` through the model's chat template,
+# and the model generates the next assistant turn: a tool call or a reply.
+# The raw text goes to response_column and the parsed calls, as a JSON list in
+# the training format, go to tool_calls_column ("[]" when the model replied).
+
+inference:
+  # Model Configuration - Single Checkpoint
+  model_paths:
+    - "models/llama3-3B-inst-sft-tool-calling-lora-v1"
+
+  # Path to save inference results (CSV format with input columns + response columns)
+  output_file: "outputs/llama3-3B-inst-sft-tool-calling-lora-v1-infer.csv"
+
+  # Dataset Configuration
+  dataset_name: "data/sft/example_tool_calling_inference_data.jsonl"
+  dataset_columns: ["messages", "tools"]  # Input columns copied to the output CSV
+  messages_column: "messages"             # system/user/assistant/tool messages with tool_calls
+  tools_column: "tools"                   # Per-row OpenAI function definitions (optional)
+  response_column: "__response"           # Raw generated text (default: "response")
+  confidence_column: "__confidence"       # Response confidence (default: "confidence")
+  tool_calls_column: "__tool_calls"       # Parsed tool calls (default: "__tool_calls")
+
+  # Generation Parameters
+  temperature: 1.0            # Sampling temperature (0.0 = deterministic)
+  top_p: 0.9                  # Nucleus sampling threshold
+  max_new_tokens: 256         # Max tokens to generate per response
+  do_sample: false            # Greedy decoding for reproducible tool calls

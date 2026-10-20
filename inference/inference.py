@@ -47,6 +47,11 @@ from utils.structured_output import (
     split_reasoning,
     validate_json_response,
 )
+from utils.tool_conversations import (
+    InvalidConversation,
+    normalize_prompt_conversation,
+    parse_tool_calls,
+)
 from utils.video_utils import fetch_video
 
 # Suppress Pydantic warnings from dependencies (TRL/transformers)
@@ -722,6 +727,7 @@ def generate_response(
     messages=None,
     include_confidence=False,
     logits_processor=None,
+    tools=None,
 ):
     """
     Generates a response from the model given a prompt.
@@ -729,18 +735,22 @@ def generate_response(
     In flat mode a raw ``prompt`` string is tokenized directly. In split (chat)
     mode a ``messages`` role list is rendered with the tokenizer's chat template
     (add_generation_prompt=True) so system/user turns are honored and special
-    tokens are added exactly once.
+    tokens are added exactly once. ``tools`` (OpenAI function definitions) are
+    passed to the chat template with the messages.
     """
 
     # Tokenize the input prompt
     if messages is not None:
+        template_kwargs = _chat_template_kwargs(config)
+        if tools:
+            template_kwargs["tools"] = tools
         inputs = tokenizer.apply_chat_template(
             messages,
             add_generation_prompt=True,
             tokenize=True,
             return_tensors="pt",
             return_dict=True,
-            **_chat_template_kwargs(config),
+            **template_kwargs,
         ).to(model.device)
     else:
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -991,6 +1001,8 @@ def _check_output_columns(config, is_multi_checkpoint):
         generated.append(getattr(config, 'checkpoint_column', 'checkpoint'))
     if getattr(config, 'json_schema', None) is not None:
         generated += [config.parse_ok_column, config.schema_error_column, config.reasoning_column]
+    if getattr(config, 'messages_column', None):
+        generated.append(config.tool_calls_column)
     duplicates = sorted({col for col in generated if generated.count(col) > 1})
     if duplicates:
         raise ValueError(f"output columns {duplicates} are set more than once; give each a unique name")
@@ -1118,9 +1130,23 @@ def run_inference(config, debug=False):
             )
         ):
             example = data_split[dataset_idx]
-            # Split (chat) mode: build system/user turns. Legacy flat mode: build
-            # a single templated prompt string from system_prompt.
-            if config.split_mode:
+            tools = None
+            # Tool-calling mode: the row's conversation. Split (chat) mode: build
+            # system/user turns. Legacy flat mode: build a single templated prompt
+            # string from system_prompt.
+            if config.messages_column:
+                try:
+                    conversation = normalize_prompt_conversation(
+                        example.get(config.messages_column),
+                        tools=example.get(config.tools_column) if config.tools_column else None,
+                        system_prompt=config.system_prompt or None,
+                    )
+                except InvalidConversation as e:
+                    print(f"Error processing example {dataset_idx}: {e}")
+                    continue
+                messages, tools = conversation["messages"], conversation["tools"]
+                full_prompt = None
+            elif config.split_mode:
                 messages = build_chat_messages(config, example)
                 system_text = messages[0]["content"] if messages[0]["role"] == "system" else None
                 user_text = messages[-1]["content"]
@@ -1155,6 +1181,8 @@ def run_inference(config, debug=False):
                         print("CHAT MESSAGES:")
                         for msg in messages:
                             print(f"[{msg['role']}] {msg['content']}")
+                            if msg.get('tool_calls'):
+                                print(f"[{msg['role']} tool_calls] {json.dumps(msg['tool_calls'])}")
                     else:
                         print("FULL PROMPT:")
                         print(f"{full_prompt}")
@@ -1205,6 +1233,7 @@ def run_inference(config, debug=False):
                             messages=messages,
                             include_confidence=True,
                             logits_processor=logits_processor,
+                            tools=tools,
                         )
                     else:
                         response, confidence = generate_response(
@@ -1242,8 +1271,12 @@ def run_inference(config, debug=False):
             result = {}
 
             # Add dataset columns first
+            conversation_columns = {config.messages_column, config.tools_column} - {None}
             for col in config.dataset_columns:
-                result[col] = example.get(col, "")
+                value = example.get(col, "")
+                if col in conversation_columns and not isinstance(value, str):
+                    value = json.dumps(value, ensure_ascii=False)
+                result[col] = value
 
             # Add checkpoint column if multi-checkpoint inference
             if is_multi_checkpoint:
@@ -1261,6 +1294,10 @@ def run_inference(config, debug=False):
                 )
             if thinking:
                 result[config.reasoning_column] = reasoning
+            if config.messages_column:
+                result[config.tool_calls_column] = json.dumps(
+                    parse_tool_calls(response, tools, tokenizer), ensure_ascii=False
+                )
             if world_size > 1:
                 result[_RESULT_ORDER_COLUMN] = (
                     checkpoint_idx * len(data_split) + dataset_idx

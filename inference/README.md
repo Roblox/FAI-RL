@@ -84,6 +84,24 @@ Both are `str.format()` templates keyed by `dataset_columns` (e.g. `user_prompt:
 
 Leave `user_prompt` unset to keep the legacy flat `system_prompt` behavior — existing recipes are unaffected. See `recipes/inference/llama3_3B_chat.yaml`.
 
+### Tool-Calling Inference
+
+Models trained on tool-calling conversations with the `sft` trainer (`data.messages_column`) run on the same OpenAI-format rows. Set **`messages_column`** (and optionally **`tools_column`**) instead of `user_prompt`:
+
+```yaml
+inference:
+  dataset_name: "data/sft/example_tool_calling_inference_data.jsonl"
+  dataset_columns: ["messages", "tools"]
+  messages_column: "messages"   # system/user/assistant/tool messages, assistant tool_calls
+  tools_column: "tools"         # per-row OpenAI function definitions (optional)
+```
+
+For each row, the conversation is rendered with its tools through the model's chat template (`add_generation_prompt=True`), and the model generates the next assistant turn. Trailing assistant messages are dropped first, so a held-out SFT row predicts its final assistant turn; to evaluate a mid-conversation tool call, end the row at the user or tool message before it. `system_prompt`, if set, is prepended verbatim to conversations without a system message, as in training. Rows that are not valid conversations are skipped with an error message.
+
+The raw generated text goes to `response_column`. The tool calls parsed from it go to `tool_calls_column` (default `__tool_calls`) as a JSON list in the training format, `[{"type": "function", "function": {"name": ..., "arguments": {...}}}]`, or `[]` when the model replied in text. The messages and tools columns, when listed in `dataset_columns`, are written as JSON too. A tokenizer with a `response_schema` parses its own output; otherwise the parser reads `<tool_call>` blocks holding JSON (Qwen3, Hermes) or `<function=...>` XML (Qwen3.5 and later), and responses that are entirely a JSON call or list of calls (Llama 3.x, Mistral). Calls that do not parse are left out, and calls to undeclared tools are kept so they can be scored.
+
+Tool-calling inference is for local text models: it cannot be combined with `user_prompt`, `image_columns`/`video_columns`, `json_schema`/`json_schema_from_column`, or API endpoints. See `recipes/inference/llama3_3B_tool_calling.yaml`.
+
 ### Dataset sources
 
 Inference uses the same dataset loader as training. Set `inference.dataset_name` to a HuggingFace Hub id, a local file path, or an `s3://` URI — the file extension selects the loader.
@@ -197,6 +215,7 @@ inference:
   parse_ok_column: "__parse_ok"          # json_schema only (default: "__parse_ok")
   schema_error_column: "__schema_error"  # json_schema only (default: "__schema_error")
   reasoning_column: "__reasoning"        # json_schema with thinking (default: "__reasoning")
+  tool_calls_column: "__tool_calls"      # messages_column only (default: "__tool_calls")
 ```
 
 If a column in `dataset_columns` has the same name as a generated column, inference fails at startup instead of overwriting it.
@@ -207,6 +226,7 @@ The CSV file contains the following columns:
 - **Response column**: The model's generated response (column name specified by `response_column`, default is `response`)
 - **Confidence column**: Geometric mean of the generated-token probabilities, from 0 to 1 (column name specified by `confidence_column`, default is `confidence`). API inference leaves this value blank when the endpoint does not return token probabilities.
 - **Structured-output columns** (only with `json_schema`): `__parse_ok`, `__schema_error` and `__reasoning` by default (set by `parse_ok_column`, `schema_error_column`, `reasoning_column`); see [Structured (JSON) Output](#structured-json-output)
+- **Tool-calls column** (only with `messages_column`): parsed tool calls as a JSON list (set by `tool_calls_column`, default `__tool_calls`); see [Tool-Calling Inference](#tool-calling-inference)
 - **Metadata**: Generation parameters used (temperature, top_p, max_new_tokens)
 
 ### Multi-Checkpoint Inference

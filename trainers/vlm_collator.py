@@ -6,14 +6,18 @@ processors (e.g. ``Qwen2_5_VLProcessor``, ``Gemma4Processor``) accept a
 ``videos=`` argument that yields ``pixel_values_videos`` / ``video_grid_thw``.
 
 Rather than fork ~90 lines of TRL's batching logic (which is coupled to the
-pinned ``trl==1.2.0``), this collator reuses that logic unchanged and injects
+pinned ``trl==1.16.0``), this collator reuses that logic unchanged and injects
 ``videos=`` into the single processor tokenization call via a transparent proxy.
-When a batch carries no videos the base behavior is used verbatim, so the
-image-only path is completely unaffected.
+TRL tokenizes conversational (``messages``) rows inside
+``processor.apply_chat_template(tokenize=True)``, which the proxy cannot reach,
+so video batches of that kind are first rendered to text and take TRL's
+standard-text path instead. When a batch carries no videos the base behavior is
+used verbatim, so the image-only path is completely unaffected.
 """
 
 from typing import Any, List, Optional, Tuple
 
+from trl.data_utils import prepare_multimodal_messages
 from trl.trainer.sft_trainer import DataCollatorForVisionLanguageModeling
 
 
@@ -99,10 +103,35 @@ class VideoAwareVLMCollator(DataCollatorForVisionLanguageModeling):
             return None, None
         return videos, (metadata if saw_metadata else None)
 
+    def _render_conversations(self, examples: List[dict]) -> List[dict]:
+        """Replace each row's ``messages`` with its chat-template text.
+
+        TRL's conversational path calls ``apply_chat_template`` on the wrapped
+        processor, which tokenizes without ``videos=``. As text rows, the batch
+        goes through ``processor(images=..., text=...)``, which the proxy
+        intercepts.
+        """
+        if self.assistant_only_loss:
+            raise ValueError(
+                "assistant_only_loss is not supported for video batches: assistant masks "
+                "come from apply_chat_template(tokenize=True), which never receives videos."
+            )
+        rendered = []
+        for example in examples:
+            messages = prepare_multimodal_messages(example["messages"], images=example["images"])
+            row = {key: value for key, value in example.items() if key != "messages"}
+            row[self.dataset_text_field] = self.processor.apply_chat_template(
+                messages, chat_template=self.chat_template, tokenize=False
+            )
+            rendered.append(row)
+        return rendered
+
     def _collate_language_modeling(self, examples: List[dict]) -> dict:
         videos, video_metadata = self._extract_videos(examples)
         if videos is None:
             return super()._collate_language_modeling(examples)
+        if "messages" in examples[0]:
+            examples = self._render_conversations(examples)
         original = self.processor
         self.processor = _VideoInjectingProcessor(original, videos, video_metadata)
         try:

@@ -175,3 +175,44 @@ def test_extract_videos_unpacks_frames_and_metadata():
     )
     assert videos == [["clip-a"], []]
     assert metadata == [[{"fps": 24.0, "frames_indices": [0, 8]}], []]
+
+
+def test_collator_feeds_videos_for_conversational_rows():
+    import torch
+
+    from trainers.vlm_collator import VideoAwareVLMCollator
+
+    seen = []
+
+    class FakeProc:
+        # Like transformers' ProcessorMixin: tokenize=True tokenizes inside
+        # apply_chat_template, bypassing any wrapper around the processor.
+        def apply_chat_template(self, conversation, tokenize=False, **kwargs):
+            if tokenize:
+                return self(text=["rendered"] * len(conversation), images=None)
+            return "rendered"
+
+        def __call__(self, text, **kwargs):
+            seen.append({"text": text, **kwargs})
+            ids = torch.ones(len(text), 3, dtype=torch.long)
+            return {"input_ids": ids, "attention_mask": torch.ones_like(ids)}
+
+    collator = VideoAwareVLMCollator(processor=FakeProc())
+    batch = collator(
+        [
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "video"}, {"type": "text", "text": "Describe."}],
+                    }
+                ],
+                "images": [],
+                "videos": ["clip-a"],
+            }
+        ]
+    )
+
+    assert seen[0]["text"] == ["rendered"]
+    assert seen[0]["videos"] == [["clip-a"]]
+    assert batch["labels"].tolist() == [[1, 1, 1]]

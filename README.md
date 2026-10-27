@@ -52,7 +52,7 @@ conda create -n fai-rl python=3.12 -y
 conda activate fai-rl
 ```
 
-> Python 3.9–3.12 are supported.
+> Python 3.11–3.12 are supported.
 
 ### 2. Clone the repository
 

@@ -348,13 +348,22 @@ class BaseTrainer(ABC):
     def _warm_hub_cache_rank0_first(self) -> None:
         """Pre-download a HuggingFace Hub model on local rank 0 before peers load it.
 
-        Multi-rank jobs (torchrun/deepspeed) call from_pretrained on every rank at
-        once. On a cold cache those concurrent Hub resolves race / get throttled
-        and can return None for a file like preprocessor_config.json, crashing the
-        losing ranks with "Can't load image processor ...". Here local rank 0
-        fetches the full snapshot, signals peers via a sentinel file, then every
-        rank switches to offline mode so the subsequent from_pretrained calls are
-        pure cache reads (no Hub access left to race on).
+        Multi-rank jobs (torchrun/deepspeed/Ray Train) call from_pretrained on
+        every rank at once. On a cold cache those concurrent Hub resolves race /
+        get throttled and can return None for a file like preprocessor_config.json,
+        crashing the losing ranks with "Can't load image processor ...". Here
+        local rank 0 downloads the full snapshot and checks that every file the
+        Hub lists is on disk before it releases peers via a sentinel file, so
+        their from_pretrained calls resolve against a complete cache.
+
+        The check matters because snapshot_download returns an existing snapshot
+        folder without verifying it whenever its own repo listing call fails
+        (timeout, 429, 5xx). Peers then die with "does not appear to have a file
+        named model-000NN-of-000MM.safetensors".
+
+        The sentinel is keyed on the launch's rendezvous env, so one left in the
+        temp dir by an earlier run can't release peers before this run's rank 0
+        has verified the cache.
 
         No-op for single-process runs (local_rank == -1) and for local *full*
         model directories. A local PEFT adapter dir still needs the Hub base
@@ -365,24 +374,17 @@ class BaseTrainer(ABC):
         if model_name is None:
             return
 
-        import hashlib
-        import tempfile
         import time
 
-        uri_hash = hashlib.md5(model_name.encode()).hexdigest()[:12]
-        sentinel_dir = os.path.join(tempfile.gettempdir(), f"fai-rl-hub-{uri_hash}")
+        sentinel_dir = self._hub_warm_sentinel_dir(model_name)
         sentinel = os.path.join(sentinel_dir, ".download_complete")
 
         if self.local_rank == 0:
-            if not os.path.exists(sentinel):
-                from huggingface_hub import snapshot_download
-                self.logger.info("Warming HF cache for %s on rank 0...", model_name)
-                snapshot_download(model_name)
-                os.makedirs(sentinel_dir, exist_ok=True)
-                open(sentinel, "w").close()
-                self.logger.info("HF cache warm; released peer ranks.")
-            else:
-                self.logger.info("Reusing warm HF cache (sentinel present).")
+            self.logger.info("Warming HF cache for %s on rank 0...", model_name)
+            self._download_complete_hub_snapshot(model_name)
+            os.makedirs(sentinel_dir, exist_ok=True)
+            open(sentinel, "w").close()
+            self.logger.info("HF cache warm; released peer ranks.")
         else:
             self.logger.info(
                 "Local rank %d waiting for HF cache warm by rank 0...", self.local_rank
@@ -397,10 +399,63 @@ class BaseTrainer(ABC):
                         f"Timed out after {timeout}s waiting for HF cache warm at {sentinel_dir}"
                     )
 
-        # Cache is warm on every rank now; read purely from disk so concurrent
-        # from_pretrained calls don't re-hit (and race on) the Hub.
+        # huggingface_hub and transformers read these once at import, so this
+        # process's from_pretrained calls still reach the Hub and rely on the
+        # verified cache above. Only child processes and libraries that read
+        # the env at call time (e.g. vLLM) are switched to offline.
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+    @staticmethod
+    def _hub_warm_sentinel_dir(model_name: str) -> str:
+        """Per-launch temp dir whose sentinel file marks the Hub cache as warm."""
+        import hashlib
+        import tempfile
+
+        launch = ":".join(
+            os.environ.get(key, "")
+            for key in ("MASTER_ADDR", "MASTER_PORT", "TORCHELASTIC_RUN_ID")
+        )
+        key_hash = hashlib.md5(f"{model_name}|{launch}".encode()).hexdigest()[:12]
+        return os.path.join(tempfile.gettempdir(), f"fai-rl-hub-{key_hash}")
+
+    def _download_complete_hub_snapshot(self, model_name: str, attempts: int = 3) -> str:
+        """snapshot_download model_name, retrying until every file the Hub lists is on disk."""
+        import time
+        from huggingface_hub import HfApi, snapshot_download
+        from huggingface_hub.errors import RepositoryNotFoundError, RevisionNotFoundError
+
+        for attempt in range(1, attempts + 1):
+            error: Optional[Exception] = None
+            try:
+                info = HfApi().model_info(model_name)
+                snapshot_dir = snapshot_download(model_name)
+            except (RepositoryNotFoundError, RevisionNotFoundError):
+                raise
+            except Exception as e:
+                error = e
+                problem = f"{type(e).__name__}: {e}"
+            else:
+                missing = [
+                    sibling.rfilename
+                    for sibling in info.siblings or []
+                    if not os.path.exists(os.path.join(snapshot_dir, sibling.rfilename))
+                ]
+                if not missing:
+                    return snapshot_dir
+                problem = f"{snapshot_dir} is missing {len(missing)} file(s), e.g. {missing[:3]}"
+
+            if attempt == attempts:
+                raise RuntimeError(
+                    f"Could not download a complete snapshot of {model_name} "
+                    f"after {attempts} attempts: {problem}"
+                ) from error
+            delay = 15 * attempt
+            self.logger.warning(
+                "HF snapshot of %s incomplete (%s); retrying in %ds (attempt %d/%d)",
+                model_name, problem, delay, attempt + 1, attempts,
+            )
+            time.sleep(delay)
 
     def _hub_model_id_for_cache_warm(self) -> Optional[str]:
         """Hub id that peer ranks will from_pretrained, or None if no Hub warm is needed."""

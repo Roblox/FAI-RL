@@ -1,0 +1,111 @@
+# Image GRPO (grpo_vlm) LoRA recipe for Gemma-4-31B-it.
+#
+# Each row is a user prompt plus one or more images; the model generates a text
+# completion and the reward API scores it. Launch multi-GPU through the trainer
+# so it routes to the DeepSpeed launcher:
+#
+#   python trainers/train.py --num-gpus 4 \
+#     --recipe recipes/training/grpo_vlm/gemma_4_31b_it_lora.yaml
+#
+# Swap in your own dataset and reward endpoint.
+model:
+  base_model_name: "google/gemma-4-31B-it"
+  torch_dtype: "bfloat16"
+  low_cpu_mem_usage: true
+  load_in_4bit: false
+  # Gemma 4's full-attention layers use head dim 512, above FlashAttention-2's
+  # limit, so train with SDPA.
+  use_flash_attention: false
+
+  freeze_vision_tower: true
+
+  use_lora: true
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  lora_bias: "none"
+
+data:
+  datasets:
+    # Placeholder dataset. The schema is a prompt column, one or more
+    # image_columns (URL, s3:// URI, local path, or embedded bytes), and any
+    # other columns the reward needs (here `response`), which reach the reward
+    # API under `context`. List several image_columns for multi-image rows.
+    - name: "data/sft_vlm/example_training_image_url.csv"
+      prompt_column: "question"
+      image_columns: ["image"]
+
+  image_fetch_timeout: 15
+  image_fetch_retries: 3
+  max_image_pixels: 1048576
+
+  # Optional system turn, a .format() template keyed by the dataset's columns.
+  system_prompt: "You are a helpful multimodal assistant. Answer based on the images."
+
+  # Completions may use max_length - max_prompt_length tokens (here 1024).
+  max_length: 4608
+  max_prompt_length: 3584
+
+training:
+  algorithm: "grpo_vlm"
+  output_dir: "models/gemma-4-31b-it-grpo-vlm-lora"
+  deepspeed_config: "configs/deepspeed/zero3_auto_config.json"
+
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 1.0e-5
+  num_train_epochs: 1
+  max_steps: -1
+  warmup_steps: 10
+
+  logging_steps: 1
+  save_steps: 100
+
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+  dataloader_num_workers: 4
+  dataloader_pin_memory: true
+  dataloader_drop_last: true
+
+  # Must divide per_device_train_batch_size x gradient_accumulation_steps x GPUs
+  # (1 x 8 x 4 = 32 completions per step, so 4 prompts x 8 completions).
+  num_generations: 8
+  beta: 0.0
+
+reward_api:
+  endpoint: "https://reward.example.com/v1/score"
+  timeout_seconds: 60
+  max_retries: 2
+  retry_backoff_seconds: 1
+  verify_ssl: true
+  headers: {}
+  extra_body: {}
+  response_field: "rewards"
+
+wandb:
+  enabled: false
+  project: "fai-rl"
+  entity: null
+  name: "gemma-4-31b-it-grpo-vlm-lora"
+  tags: ["GRPO", "VLM", "gemma-4-31b"]
+  api_key: null
+  base_url: "https://api.wandb.ai"
+
+s3:
+  enabled: false
+  bucket: ""
+  prefix: ""
+  region: null
+  endpoint_url: null
+  upload_checkpoints: false
+  upload_final_model: false
+  delete_local_after_upload: false

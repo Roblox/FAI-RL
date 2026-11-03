@@ -62,6 +62,12 @@ Fine-tunes a vision-language model on `(image, text) -> response` data, and supp
 | `grpo/llama3_3B_local_file.yaml` | Local file | `.jsonl/.json/.csv/.parquet` |
 | `grpo/llama3_3B_s3_file.yaml` | S3 | `s3://bucket/key.jsonl` |
 
+### GRPO_VLM (image GRPO)
+
+| Recipe | Dataset source | Notes |
+|--------|---------------|-------|
+| `grpo_vlm/gemma_4_31b_it_lora.yaml` | Local file | LoRA, Gemma-4-31B-it, ZeRO-3, HTTP reward |
+
 ### GSPO (Group Sequence Policy Optimization)
 
 | Recipe | Dataset source | Notes |

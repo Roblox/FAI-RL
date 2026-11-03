@@ -1,6 +1,6 @@
 # FAI-RL Training
 
-Training implementations supporting CPT (Continuous Pre-Training), SFT (Supervised Fine-Tuning), SFT_VLM (multimodal vision-language SFT), DPO (Direct Preference Optimization), GRPO (Group Relative Policy Optimization), and GSPO (Group Sequence Policy Optimization) methods.
+Training implementations supporting CPT (Continuous Pre-Training), SFT (Supervised Fine-Tuning), SFT_VLM (multimodal vision-language SFT), DPO (Direct Preference Optimization), GRPO (Group Relative Policy Optimization), GRPO_VLM (image GRPO), and GSPO (Group Sequence Policy Optimization) methods.
 
 > **Multimodal (SFT_VLM):** image + text fine-tuning of vision-language models has its own recipes and dataset schema. See the [SFT_VLM recipe guide](../recipes/training/README.md#multimodal-datasets-sft_vlm).
 
@@ -89,7 +89,7 @@ Replace the following values for your specific use case:
   - **DPO**: Use `prompt_column`, `chosen_column`, and `rejected_column`
   - **GRPO/GSPO**: `prompt_column` is required. `answer_column` is optional;
     all dataset columns are forwarded to the configured reward function as scoring context.
-- `training.algorithm` → choose from: `cpt`, `sft`, `sft_vlm`, `dpo`, `grpo`, `gspo`
+- `training.algorithm` → choose from: `cpt`, `sft`, `sft_vlm`, `dpo`, `grpo`, `grpo_vlm`, `gspo`
 - `training.output_dir` → your desired model output directory
 - `wandb.*` → your Weights & Biases configuration (or set `enabled: false` to disable)
 
@@ -145,6 +145,19 @@ finite number per completion:
 The service should be stateless or idempotent and sized for requests from every
 distributed training worker. HTTP errors, invalid JSON, missing rewards, and
 score-count mismatches fail training after the configured retries.
+
+### Image GRPO (grpo_vlm)
+
+`grpo_vlm` trains a vision-language model with GRPO. Each row needs the
+`prompt_column` text and one or more `image_columns` (URL, `s3://` URI, local
+path, or embedded bytes, as in `sft_vlm`); `system_prompt`, if set, adds a
+system turn templated from the row's columns. Rows without a readable image
+are dropped before training. Video columns are not supported.
+
+The reward receives text only, the same as text GRPO: each completion is the
+assistant's text, prompts are the system and user turns without the images,
+and the image columns are not part of `context`. Every other column is. See
+`recipes/training/grpo_vlm/gemma_4_31b_it_lora.yaml`.
 
 ### Tool-Calling SFT
 
@@ -285,6 +298,7 @@ Relative paths are resolved from the directory where `fai-rl-train` is launched.
 | **CPT** | `text` |
 | **DPO** | `prompt`, `chosen`, `rejected` |
 | **GRPO** | `prompt` (plus any reward context columns) |
+| **GRPO_VLM** | `prompt`, one or more `image_columns` (plus any reward context columns) |
 | **GSPO** | `prompt` (plus any reward context columns) |
 
 **Example — SFT from a local JSONL file**

@@ -31,6 +31,7 @@ from core.config import (
 from trainers.cpt_trainer import CPTTrainer
 from trainers.dpo_trainer import DPOTrainer
 from trainers.grpo_trainer import GRPOTrainer
+from trainers.grpo_vlm_trainer import GRPOVLMTrainer
 from trainers.gspo_trainer import GSPOTrainer
 from trainers.sft_trainer import SFTTrainer
 from trainers.sft_vlm_trainer import SFTVLMTrainer
@@ -302,7 +303,7 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
     if not recipe_dict.get('training', {}).get('algorithm'):
         raise ValueError(
             "training.algorithm is required. "
-            "Provide it via recipe file or CLI: training.algorithm='sft' (options: cpt, sft, sft_vlm, dpo, grpo, gspo)"
+            "Provide it via recipe file or CLI: training.algorithm='sft' (options: cpt, sft, sft_vlm, dpo, grpo, grpo_vlm, gspo)"
         )
     
     # Handle datasets configuration
@@ -335,7 +336,7 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
             else None
         ),
     )
-    if config.training.algorithm.lower() in {"grpo", "gspo"}:
+    if config.training.algorithm.lower() in {"grpo", "grpo_vlm", "gspo"}:
         if config.reward_api and config.local_reward_function:
             raise ValueError(
                 "Configure only one of reward_api or local_reward_function"
@@ -469,6 +470,8 @@ def main():
             trainer_class = DPOTrainer
         elif algorithm == "grpo":
             trainer_class = GRPOTrainer
+        elif algorithm == "grpo_vlm":
+            trainer_class = GRPOVLMTrainer
         elif algorithm == "gspo":
             trainer_class = GSPOTrainer
         elif algorithm == "sft":

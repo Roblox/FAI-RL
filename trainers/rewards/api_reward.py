@@ -9,6 +9,19 @@ import requests
 
 from core.config import RewardAPIConfig
 
+# Keyword arguments TRL's GRPOTrainer adds to every reward call that are not
+# dataset columns. ``context`` carries dataset columns only.
+_NON_DATASET_KWARGS = frozenset(
+    {
+        "logger",
+        "trainer_state",
+        "log_extra",
+        "log_metric",
+        "environments",
+        "completion_ids",
+    }
+)
+
 
 def _json_safe(value: Any) -> Any:
     """Convert common tensor/array containers into JSON-compatible values."""
@@ -34,17 +47,35 @@ class APIRewardFunction:
         self.config = config
         self.logger = logger or logging.getLogger(__name__)
         self.__name__ = "api_reward"
+        self._skipped_columns = set()
 
     def _headers(self) -> Dict[str, str]:
         return {"Content-Type": "application/json", **self.config.headers}
 
+    def _context(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """JSON-safe dataset columns; columns that cannot be encoded are omitted."""
+        context = {}
+        for key, value in kwargs.items():
+            if key in _NON_DATASET_KWARGS:
+                continue
+            try:
+                context[key] = _json_safe(value)
+            except TypeError:
+                if key not in self._skipped_columns:
+                    self._skipped_columns.add(key)
+                    self.logger.warning(
+                        "Reward API context omits column '%s': its values are not "
+                        "JSON-serializable (for example image bytes)",
+                        key,
+                    )
+        return context
+
     def __call__(self, prompts, completions, **kwargs) -> List[float]:
-        context = {key: value for key, value in kwargs.items() if key != "logger"}
         payload = {
             **_json_safe(self.config.extra_body),
             "prompts": _json_safe(prompts),
             "completions": _json_safe(completions),
-            "context": _json_safe(context),
+            "context": self._context(kwargs),
         }
 
         last_error = None

@@ -131,8 +131,12 @@ Each training worker sends one POST per reward batch:
 ```
 
 All unused dataset columns passed through TRL are included in `context`, so the
-service can implement arbitrary task-specific scoring. It must return one finite
-number per completion:
+service can implement arbitrary task-specific scoring. TRL's own reward
+arguments (`trainer_state`, `log_extra`, `log_metric`, `environments`,
+`completion_ids`) are not dataset columns and are not sent. A column whose
+values cannot be encoded as JSON, such as embedded image bytes, is left out of
+`context` with a one-time warning naming the column. The service must return one
+finite number per completion:
 
 ```json
 {"rewards": [1.0]}

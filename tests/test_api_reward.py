@@ -52,6 +52,67 @@ def test_api_reward_sends_context_without_requiring_auth(monkeypatch):
     assert captured["json"]["context"] == {"answer": ["a", "b"]}
 
 
+def test_api_reward_omits_trl_internal_kwargs_from_context(monkeypatch):
+    from transformers import TrainerState
+
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured.update(kwargs)
+        return _Response({"rewards": [1, 0]})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    reward = APIRewardFunction(
+        RewardAPIConfig(endpoint="https://reward.example/score")
+    )
+
+    # The keyword arguments TRL's GRPOTrainer passes to every reward function.
+    scores = reward(
+        prompts=["prompt-a", "prompt-b"],
+        completions=["completion-a", "completion-b"],
+        completion_ids=[[1, 2], [3]],
+        answer=["a", "b"],
+        trainer_state=TrainerState(),
+        log_extra=lambda *args, **kwargs: None,
+        log_metric=lambda *args, **kwargs: None,
+        environments=[object(), object()],
+    )
+
+    assert scores == [1.0, 0.0]
+    assert captured["json"]["context"] == {"answer": ["a", "b"]}
+
+
+def test_api_reward_skips_columns_that_are_not_json(monkeypatch, caplog):
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured.update(kwargs)
+        return _Response({"rewards": [1]})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    reward = APIRewardFunction(
+        RewardAPIConfig(endpoint="https://reward.example/score")
+    )
+
+    with caplog.at_level(logging.WARNING, logger="trainers.rewards.api_reward"):
+        reward(
+            ["prompt"],
+            ["completion"],
+            response=['{"is_violative": false}'],
+            image_0=[{"bytes": b"\x89PNG-secret", "path": None}],
+        )
+        reward(
+            ["prompt"],
+            ["completion"],
+            response=['{"is_violative": false}'],
+            image_0=[{"bytes": b"\x89PNG-secret", "path": None}],
+        )
+
+    assert captured["json"]["context"] == {"response": ['{"is_violative": false}']}
+    assert caplog.text.count("image_0") == 1
+    assert "PNG-secret" not in caplog.text
+
+
 def test_api_reward_rejects_wrong_score_count(monkeypatch):
     monkeypatch.setattr(
         requests,

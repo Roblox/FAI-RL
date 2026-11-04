@@ -136,6 +136,7 @@ class GRPOVLMTrainer(VLMMediaMixin, GRPOTrainer):
             col for col in dataset.column_names if col not in image_columns
         ]
         system_prompt = self.config.data.system_prompt
+        answer_col = getattr(dataset_info, "answer_column", None)
 
         def fn(example):
             sources = []
@@ -149,7 +150,9 @@ class GRPOVLMTrainer(VLMMediaMixin, GRPOTrainer):
                     if coerced is not None:
                         sources.append(coerced)
             user_text = example.get(prompt_column)
+            mapped = {"answer": example[answer_col]} if answer_col and answer_col in example else {}
             return {
+                **mapped,
                 "_image_sources": sources,
                 "_system_text": (
                     self._build_text(system_prompt, dataset_columns, example)

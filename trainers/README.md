@@ -156,7 +156,11 @@ are dropped before training. Video columns are not supported.
 
 The reward receives text only, the same as text GRPO: each completion is the
 assistant's text, prompts are the system and user turns without the images,
-and the image columns are not part of `context`. Every other column is. See
+and the image columns are not part of `context`. Every other column is, and
+`answer_column`, if set, is sent as `context.answer`. Unlike text GRPO, where
+`prompts` are chat-template strings, `prompts` here is a list of
+`{"role", "content"}` message dicts per row; a reward that parses `prompts` as
+strings must be adapted. See
 `recipes/training/grpo_vlm/gemma_4_31b_it_lora.yaml`.
 
 ### Tool-Calling SFT

@@ -85,6 +85,30 @@ def test_setup_data_without_system_prompt_sends_user_turn_only(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize(
+    "answer_column, expected",
+    [("label", {"answer": "cat", "label": "cat"}), (None, {"label": "cat"})],
+)
+def test_setup_data_maps_answer_column_like_text_grpo(monkeypatch, answer_column, expected):
+    data = DataConfig(
+        datasets=[
+            DatasetInfo(
+                name="d",
+                prompt_column="user",
+                answer_column=answer_column,
+                image_columns=["image"],
+            )
+        ]
+    )
+    rows = [{"user": "What is it?", "image": {"bytes": _png_bytes(), "path": None}, "label": "cat"}]
+    trainer = _trainer(data, rows, monkeypatch)
+
+    trainer.setup_data()
+
+    row = trainer.train_dataset[0]
+    assert {k: row[k] for k in ("answer", "label") if k in row} == expected
+
+
 def test_setup_data_drops_rows_without_usable_images_or_prompt(monkeypatch):
     data = DataConfig(
         datasets=[DatasetInfo(name="d", prompt_column="user", image_columns=["image"])]

@@ -131,7 +131,7 @@ The default value (`https://api.wandb.ai`) points to the public W&B cloud. This 
 
 ### Training
 
-Train a model using any of the supported algorithms (CPT, SFT, SFT_VLM, DPO, GRPO, GSPO):
+Train a model using any of the supported algorithms (CPT, SFT, SFT_VLM, DPO, GRPO, GRPO_VLM, GSPO):
 
 ```bash
 # Single GPU training with LoRA
@@ -175,7 +175,7 @@ fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --debug
 
 ## Supported Algorithms
 
-FAI-RL supports six training algorithms for language model fine-tuning:
+FAI-RL supports seven training algorithms for language model fine-tuning:
 
 | Algorithm | Full Name | Description | Best For |
 |-----------|-----------|-------------|----------|
@@ -184,6 +184,7 @@ FAI-RL supports six training algorithms for language model fine-tuning:
 | **SFT_VLM** | Multimodal Supervised Fine-Tuning | Supervised fine-tuning of vision-language models on `(image/video, text) -> response` data (supports multiple images or videos per row; set `image_columns` and/or `video_columns`) | Instruction-tuning VLMs, image and video understanding tasks |
 | **DPO** | Direct Preference Optimization | Alignment via preference learning without explicit reward models | Human preference alignment, chat model training |
 | **GRPO** | Group Relative Policy Optimization | Efficient preference learning with group-based comparison | Reasoning tasks, competitive response generation |
+| **GRPO_VLM** | Multimodal GRPO | GRPO for vision-language models: a prompt plus one or more images per row (`image_columns`); the reward scores the text completion | Training VLM classifiers and graders against a reward |
 | **GSPO** | Group Sequence Policy Optimization | Advanced sequence-level policy optimization | Complex multi-step reasoning, mathematical problem-solving |
 
 ### Training Configurations
@@ -316,7 +317,7 @@ FAI-RL/
 │       ├── mmlu.py
 │       └── gsm8k.py
 ├── recipes/                   # YAML configuration files
-│   ├── training/              # Training recipes (cpt/, sft/, sft_vlm/, dpo/, grpo/, gspo/)
+│   ├── training/              # Training recipes (cpt/, sft/, sft_vlm/, dpo/, grpo/, grpo_vlm/, gspo/)
 │   ├── inference/             # Inference recipes
 │   └── evaluation/            # Evaluation recipes (mmlu/, gsm8k/)
 ├── configs/                   # DeepSpeed configurations

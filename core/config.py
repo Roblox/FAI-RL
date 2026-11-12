@@ -470,14 +470,46 @@ class InferenceConfig:
     model_paths: Optional[List[str]] = None
     model: Optional[str] = None
     
-    # API configuration
+    # API configuration. API mode is enabled by model plus api_key or
+    # api_key_env (the name of an env var holding the key, read at run time so
+    # the key never appears in the recipe).
     api_endpoint: Optional[str] = None
     api_key: Optional[str] = None
+    api_key_env: Optional[str] = None
+    api_auth_header: str = "Authorization"
+    api_auth_prefix: str = "Bearer "
+    api_extra_headers: Dict[str, str] = field(default_factory=dict)
+    api_extra_body: Dict[str, Any] = field(default_factory=dict)  # Merged into the request JSON
+    api_timeout_seconds: float = 120.0
+    # Retries on 429, 408, 5xx, timeouts and connection errors, with
+    # exponential backoff and jitter; Retry-After is honored.
+    api_max_retries: int = 6
+    api_retry_backoff_seconds: float = 2.0
+    api_concurrency: int = 1  # Concurrent in-flight requests
+    api_requests_per_minute: Optional[int] = None  # Client-side request rate cap
+    api_max_tokens_field: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+
+    # Per-row API output columns.
+    row_id_column: str = "__row_id"  # 0-based index of the input row
+    status_column: str = "__status"  # "ok", "truncated" or "error"
+    error_column: str = "__error"
+    finish_reason_column: str = "__finish_reason"
+    usage_columns: str = "__"  # Prefix of the prompt_tokens / completion_tokens columns
+    # When set, ok rows carry the system/user/assistant conversation as a JSON
+    # list in this column (the SFT trainer's data.messages_column format).
+    messages_output_column: Optional[str] = None
+    # API mode only. >0 flushes every N finished rows to shards/part-NNNNN.jsonl
+    # next to output_file (and S3) and resumes by skipping their row ids.
+    shard_rows: int = 0
+    # API mode only. Progress JSON written after every shard; a bare file name
+    # is placed next to output_file.
+    progress_file: Optional[str] = None
     
     # Dataset configuration
     dataset_name: str = "Roblox/FAI-RL-inference-dataset"
     dataset_subset: Optional[str] = None
     dataset_split: str = "test"
+    max_rows: Optional[int] = None  # Only the first N rows of the split are processed
     output_file: str = "outputs/inference_results.json"
     system_prompt: str = ""
     # Split (chat) mode. When user_prompt is set, inference builds each row as a
@@ -504,7 +536,8 @@ class InferenceConfig:
     # Structured-output columns, written only when json_schema is set.
     parse_ok_column: str = "__parse_ok"  # Whether the response is schema-valid JSON
     schema_error_column: str = "__schema_error"  # Why the row failed, empty when valid
-    reasoning_column: str = "__reasoning"  # Thinking text before </think>
+    # Thinking text before </think> (json_schema) or the API's reasoning_content
+    reasoning_column: str = "__reasoning"
     checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint inference
 
     # Multimodal (VLM) inference. Setting image_columns enables VLM mode: it names
@@ -549,9 +582,10 @@ class InferenceConfig:
     s3_prefix: str = ""
     s3_uploader: str = "auto"
 
-    # Generation parameters
-    temperature: float = 1.0
-    top_p: float = 0.9
+    # Generation parameters. In API mode a None temperature / top_p is omitted
+    # from the request.
+    temperature: Optional[float] = 1.0
+    top_p: Optional[float] = 0.9
     max_new_tokens: int = 200
     do_sample: bool = True
     # Optional chat-template switch used by hybrid reasoning models such as
@@ -580,13 +614,77 @@ class InferenceConfig:
                 )
                 if getattr(self, name)
             ]
-            if self.model is not None and self.api_key is not None:
-                conflicts.append("api_key")
+            if self.uses_api:
+                conflicts.append("api_key" if self.api_key is not None else "api_key_env")
             if conflicts:
                 raise ValueError(
                     f"inference.messages_column cannot be combined with {', '.join(conflicts)}; "
                     "tool-calling inference runs local text models on whole conversations"
                 )
+        self._validate_api_settings()
+
+    def _validate_api_settings(self):
+        if self.api_key is not None and self.api_key_env is not None:
+            raise ValueError("set inference.api_key or inference.api_key_env, not both")
+        if self.api_key_env is not None and not str(self.api_key_env).strip():
+            raise ValueError("inference.api_key_env must name an environment variable")
+        if not isinstance(self.api_auth_header, str) or not self.api_auth_header.strip():
+            raise ValueError("inference.api_auth_header must be a non-empty header name")
+        if not isinstance(self.api_auth_prefix, str):
+            raise ValueError("inference.api_auth_prefix must be a string")
+        if not isinstance(self.api_extra_headers, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in self.api_extra_headers.items()
+        ):
+            raise ValueError("inference.api_extra_headers must map header names to strings")
+        if not isinstance(self.api_extra_body, dict):
+            raise ValueError("inference.api_extra_body must be a mapping")
+        if not self.api_timeout_seconds or self.api_timeout_seconds <= 0:
+            raise ValueError("inference.api_timeout_seconds must be > 0")
+        if not isinstance(self.api_max_retries, int) or self.api_max_retries < 0:
+            raise ValueError("inference.api_max_retries must be an integer >= 0")
+        if self.api_retry_backoff_seconds is None or self.api_retry_backoff_seconds < 0:
+            raise ValueError("inference.api_retry_backoff_seconds must be >= 0")
+        if not isinstance(self.api_concurrency, int) or self.api_concurrency < 1:
+            raise ValueError("inference.api_concurrency must be an integer >= 1")
+        if self.api_requests_per_minute is not None and (
+            not isinstance(self.api_requests_per_minute, int) or self.api_requests_per_minute < 1
+        ):
+            raise ValueError("inference.api_requests_per_minute must be an integer >= 1 or null")
+        if self.api_max_tokens_field not in ("max_tokens", "max_completion_tokens"):
+            raise ValueError(
+                "inference.api_max_tokens_field must be 'max_tokens' or 'max_completion_tokens'"
+            )
+        if self.max_rows is not None and (
+            isinstance(self.max_rows, bool) or not isinstance(self.max_rows, int)
+            or self.max_rows < 1
+        ):
+            raise ValueError("inference.max_rows must be an integer >= 1 or null")
+        if not isinstance(self.shard_rows, int) or self.shard_rows < 0:
+            raise ValueError("inference.shard_rows must be an integer >= 0")
+        api_only = [
+            name
+            for name in ("messages_output_column", "progress_file")
+            if getattr(self, name)
+        ]
+        if self.shard_rows:
+            api_only.append("shard_rows")
+        if api_only and not self.uses_api:
+            raise ValueError(
+                f"inference.{', '.join(api_only)} require API mode "
+                "(model plus api_key or api_key_env)"
+            )
+        if self.uses_api and self.model_paths:
+            raise ValueError(
+                "API inference (model plus api_key/api_key_env) cannot be combined "
+                "with model_paths"
+            )
+
+    @property
+    def uses_api(self) -> bool:
+        """True when inference calls a hosted API instead of loading a model."""
+        return self.model is not None and (
+            self.api_key is not None or self.api_key_env is not None
+        )
 
     @property
     def split_mode(self) -> bool:
@@ -594,7 +692,11 @@ class InferenceConfig:
         return bool(self.user_prompt)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+        values = {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+        # Never serialize secrets into summaries or logs.
+        values["api_key"] = "***" if self.api_key else None
+        values["api_extra_headers"] = {key: "***" for key in self.api_extra_headers}
+        return values
 
 
 @dataclass
@@ -699,7 +801,11 @@ class ExperimentConfig:
         """Load inference configuration from YAML file."""
         with open(config_path, 'r') as f:
             config_dict = yaml.safe_load(f)
-        
+        return cls.inference_config_from_dict(config_dict)
+
+    @classmethod
+    def inference_config_from_dict(cls, config_dict: Dict[str, Any]) -> 'InferenceConfig':
+        """Build and validate an inference configuration from a parsed recipe."""
         config = InferenceConfig(**config_dict['inference'])
         
         # Validate API configuration

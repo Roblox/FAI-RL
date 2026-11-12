@@ -51,22 +51,11 @@ def build_hosted_llm_request(prompt: str, config, system_prompt: str = None) -> 
     # This is a working implementation that matches OpenAI's API format.
     # Modify this if your hosted LLM uses a different format.
 
-    messages = []
-    if system_prompt:
-        messages.append({"content": system_prompt, "role": "system"})
-    messages.append({"content": prompt, "role": "user"})
-    data = {
-        "model": config.model,
-        "max_tokens": getattr(config, 'max_new_tokens', 1000),
-        "temperature": getattr(config, 'temperature', 1.0),
-        "messages": messages
-    }
+    # max_new_tokens is sent as config.api_max_tokens_field (default
+    # "max_tokens"); temperature / top_p set to None are omitted.
+    from utils.api_utils import openai_compatible_request
 
-    # Add optional parameters if they exist in config
-    if hasattr(config, 'top_p'):
-        data["top_p"] = config.top_p
-
-    return data
+    return openai_compatible_request(prompt, config, system_prompt)
     
     # ========================================================================
     # CUSTOM FORMAT EXAMPLES - Uncomment and modify for your hosted LLM
@@ -124,13 +113,9 @@ def parse_hosted_llm_response(response_json: Dict[str, Any]) -> Optional[str]:
     
     try:
         return response_json['choices'][0]['message']['content']
-    except (KeyError, IndexError, TypeError) as e:
-        logger.warning(f"Failed to parse response with OpenAI format: {e}")
-        if isinstance(response_json, dict):
-            logger.warning(f"Response structure keys: {list(response_json.keys())}")
-        else:
-            logger.warning(f"Response structure type: {type(response_json).__name__}")
-        return ""
+    except (KeyError, IndexError, TypeError):
+        # None falls back to the default parser, which reports the row as failed.
+        return None
     
     # ========================================================================
     # CUSTOM FORMAT EXAMPLES - Uncomment and modify for your hosted LLM
@@ -149,7 +134,7 @@ def parse_hosted_llm_response(response_json: Dict[str, Any]) -> Optional[str]:
     # return response_json.get('generated_text', '')
 
 
-def build_hosted_llm_headers(api_key: str) -> Optional[Dict[str, str]]:
+def build_hosted_llm_headers(api_key: str, config=None) -> Optional[Dict[str, str]]:
     """
     Build custom headers for your hosted LLM.
     
@@ -158,6 +143,8 @@ def build_hosted_llm_headers(api_key: str) -> Optional[Dict[str, str]]:
     
     Args:
         api_key: Your API key for authentication
+        config: Inference config; api_auth_header / api_auth_prefix name the
+            auth header and its prefix (default "Authorization: Bearer <key>")
         
     Returns:
         Dictionary with your custom headers, or None for default
@@ -168,9 +155,11 @@ def build_hosted_llm_headers(api_key: str) -> Optional[Dict[str, str]]:
     # This is a working implementation that matches OpenAI's API format.
     # Modify this if your hosted LLM uses different headers.
     
+    auth_header = getattr(config, "api_auth_header", None) or "Authorization"
+    auth_prefix = getattr(config, "api_auth_prefix", "Bearer ")
     return {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
+        auth_header: f"{auth_prefix or ''}{api_key}",
     }
     
     # ========================================================================

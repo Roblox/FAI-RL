@@ -193,11 +193,64 @@ in the summary JSON, so you can copy it into `json_schema` and adjust it. Each i
 also logged as a warning, because generation can then only produce those values; set
 `json_schema_infer_enums: false` to keep inferred strings as plain strings.
 
+### Hosted API Inference
+
+Setting `model` plus `api_key` (or `api_key_env`) sends each row to `api_endpoint`
+instead of loading a model. The provider is detected from the endpoint hostname
+(OpenAI, Gemini, Anthropic); any other host gets an OpenAI-compatible chat-completions
+request (`utils/hosted_llm_config.py`). See `recipes/inference/llama3_3B_api.yaml` and,
+for a gateway that takes the key in a custom header, `recipes/inference/openai_compatible_distill.yaml`:
+
+```bash
+export GATEWAY_API_KEY=...   # read at run time, never written anywhere
+fai-rl-inference --recipe recipes/inference/openai_compatible_distill.yaml \
+  inference.dataset_name=data/prompts.jsonl
+```
+
+API fields (under `inference:`, all optional):
+
+| field | default | meaning |
+|---|---|---|
+| `api_key_env` | `null` | Read the key from this environment variable instead of `api_key` (set one, not both). A missing or empty variable fails at startup. |
+| `api_auth_header` / `api_auth_prefix` | `Authorization` / `"Bearer "` | Header carrying the key and the text before it. Non-default values apply to every provider; for example `X-Api-Key` and `""`. |
+| `api_extra_headers` | `{}` | Extra request headers. |
+| `api_extra_body` | `{}` | Merged into the request JSON (e.g. `{reasoning_effort: high}`). |
+| `api_timeout_seconds` | `120` | Per-request timeout. |
+| `api_max_retries` | `6` | Retries on 429, 408, 5xx, timeouts and connection errors, with exponential backoff and jitter. `Retry-After` is honored. Other 4xx errors are not retried. |
+| `api_retry_backoff_seconds` | `2.0` | Base backoff (doubles per attempt, capped at 60s). |
+| `api_concurrency` | `1` | Concurrent in-flight requests. |
+| `api_requests_per_minute` | `null` | Client-side request rate cap. |
+| `api_max_tokens_field` | `max_tokens` | Request field for `max_new_tokens` (`max_tokens` or `max_completion_tokens`). |
+| `temperature` / `top_p` | `1.0` / `0.9` | `null` omits the field from the request. |
+| `messages_output_column` | `null` | Write the system/user/assistant conversation as a JSON list per ok row (`null` on error and truncated rows), ready for SFT `data.messages_column`. |
+| `shard_rows` | `0` | `>0` writes every N finished rows to `shards/part-NNNNN.jsonl` next to `output_file` (and to `s3://{s3_bucket}/{s3_prefix}/shards/` with `s3_upload_results`). A rerun reads existing shards (local, then missing ones from S3) and skips their row ids. |
+| `max_rows` | `null` | Only the first N rows of the selected split are processed (local and API inference). `progress.json` `total` is `min(N, rows)`; shard rows beyond the cap are ignored on resume. |
+| `progress_file` | `null` | Progress JSON written (and uploaded) after every shard: `total, done, ok, truncated, error, prompt_tokens, completion_tokens, updated_at, state` (`running` / `completed`). A bare file name goes next to `output_file`. |
+
+Each API row also gets these columns (names configurable): `__row_id` (0-based input
+row, `row_id_column`), `__status` (`ok` / `truncated` / `error`, `status_column`), `__error`
+(`error_column`), `__finish_reason` (`finish_reason_column`), `__prompt_tokens` and
+`__completion_tokens` (prefix `usage_columns`), and `__reasoning` (`reasoning_content`
+when returned, `reasoning_column`). Failed rows are kept with `__status: error`; the run
+still exits 0 and the summary's `failed_examples` counts them. A row whose answer stopped
+at `max_new_tokens` (finish reason `length`, `max_tokens` or `MAX_TOKENS`) gets
+`__status: truncated`: it keeps the partial `__response`, its `messages_output_column` is
+`null` so SFT skips it, and `truncated_examples` and progress `truncated` count it. Thinking
+models (Gemini 3.x) spend part of `max_new_tokens` on hidden reasoning, so give them 2048 or
+more. It exits non-zero on setup
+errors and when every request of the first shard (or the first 100 requests without
+shards) fails with HTTP 401/403. The API key and header values are redacted (`***`) in
+the summary `config`, logs, error columns and logged overrides.
+
+API mode is single-process (use `api_concurrency`, not `--num-gpus`) and cannot be
+combined with `model_paths`, `messages_column`, `json_schema` or image/video columns.
+
 ## 📊 Output
 
 ### Output Files
 
-Inference generates a CSV file at the specified `output_file` path:
+Inference writes `output_file` as JSONL when it ends in `.jsonl` (one JSON object per
+row) and as CSV otherwise, plus `<output stem>_summary.json`:
 
 ```
 outputs/

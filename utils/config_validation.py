@@ -69,5 +69,7 @@ def validate_structured_output_config(config) -> None:
         config.user_prompt or config.image_columns or config.video_columns
     ):
         raise ValueError("json_schema with enable_thinking: true needs chat mode (set user_prompt)")
-    if config.model is not None and config.api_key is not None:
+    if config.model is not None and (
+        config.api_key is not None or getattr(config, "api_key_env", None) is not None
+    ):
         raise ValueError("json_schema is only supported for local models, not API endpoints")

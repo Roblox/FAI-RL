@@ -20,13 +20,13 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-import yaml
 import pandas as pd
 import requests
 import re
 import warnings
 import subprocess
 import datetime
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Dict, Any, Union
 from transformers import (
     AutoTokenizer,
@@ -34,7 +34,8 @@ from transformers import (
     AutoProcessor,
     AutoModelForImageTextToText,
 )
-from utils.api_utils import generate_response_by_api
+from utils import result_shards
+from utils.api_utils import ApiRequestError, HostedApiClient
 from utils.image_utils import fetch_image
 from utils.media_utils import collect_media_sources
 from utils.structured_output import (
@@ -1003,6 +1004,12 @@ def _check_output_columns(config, is_multi_checkpoint):
         generated += [config.parse_ok_column, config.schema_error_column, config.reasoning_column]
     if getattr(config, 'messages_column', None):
         generated.append(config.tool_calls_column)
+    if _uses_api(config):
+        generated += [
+            *_api_status_columns(config),
+            config.reasoning_column,
+            *([config.messages_output_column] if config.messages_output_column else []),
+        ]
     duplicates = sorted({col for col in generated if generated.count(col) > 1})
     if duplicates:
         raise ValueError(f"output columns {duplicates} are set more than once; give each a unique name")
@@ -1014,6 +1021,293 @@ def _check_output_columns(config, is_multi_checkpoint):
         )
 
 
+def _load_inference_rows(config):
+    """Load the dataset split, keeping only the first max_rows rows when set."""
+    data_split = load_raw_dataset(config)
+    max_rows = getattr(config, 'max_rows', None)
+    if max_rows is not None and len(data_split) > max_rows:
+        if hasattr(data_split, 'select'):
+            data_split = data_split.select(range(max_rows))
+        else:
+            data_split = data_split[:max_rows]
+        print(f"Limiting inference to the first {max_rows} rows (max_rows)")
+    return data_split
+
+
+def _uses_api(config) -> bool:
+    """API mode: a model id plus api_key or api_key_env."""
+    return getattr(config, 'model', None) is not None and (
+        getattr(config, 'api_key', None) is not None
+        or getattr(config, 'api_key_env', None) is not None
+    )
+
+
+def _api_status_columns(config):
+    return [
+        config.row_id_column,
+        config.status_column,
+        config.error_column,
+        config.finish_reason_column,
+        f"{config.usage_columns}prompt_tokens",
+        f"{config.usage_columns}completion_tokens",
+    ]
+
+
+# Rows checked for "every request failed authentication" when shard_rows is 0.
+_API_FAIL_FAST_ROWS = 100
+_API_LOG_EVERY_ROWS = 100
+
+
+def _api_row_prompt(config, example):
+    """Return (system_text, user_text) for one API request."""
+    if config.split_mode:
+        messages = build_chat_messages(config, example)
+        system_text = messages[0]["content"] if messages[0]["role"] == "system" else None
+        return system_text, messages[-1]["content"]
+    return None, format_template_prompt(config.system_prompt, example, config)
+
+
+# OpenAI "length", Anthropic "max_tokens", Gemini "MAX_TOKENS".
+_TOKEN_LIMIT_FINISH_REASONS = {"length", "max_tokens"}
+
+
+def _hit_token_limit(finish_reason):
+    return isinstance(finish_reason, str) and finish_reason.lower() in _TOKEN_LIMIT_FINISH_REASONS
+
+
+def _api_infer_row(client, config, example, row_id, debug=False):
+    """Run one row through the API; returns (result row, failed authentication)."""
+    system_text, user_text = _api_row_prompt(config, example)
+    completion, error, auth_failure = None, None, False
+    try:
+        completion = client.complete(user_text, system_text)
+    except ApiRequestError as e:
+        error, auth_failure = str(e), e.is_auth_failure
+    except Exception as e:  # noqa: BLE001 - one bad row must not stop the run
+        error = client.redact(f"{type(e).__name__}: {e}")
+
+    truncated = bool(completion) and _hit_token_limit(completion.finish_reason)
+    if truncated:
+        error = (
+            f"stopped at max_new_tokens ({config.max_new_tokens}) before the answer finished; "
+            "thinking models spend part of it on reasoning"
+        )
+    row = {col: example.get(col, "") for col in config.dataset_columns}
+    row[config.response_column] = completion.text if completion else None
+    row[config.confidence_column] = None
+    row[config.row_id_column] = row_id
+    row[config.status_column] = "error" if not completion else "truncated" if truncated else "ok"
+    row[config.error_column] = error
+    row[config.finish_reason_column] = completion.finish_reason if completion else None
+    row[f"{config.usage_columns}prompt_tokens"] = completion.prompt_tokens if completion else None
+    row[f"{config.usage_columns}completion_tokens"] = (
+        completion.completion_tokens if completion else None
+    )
+    row[config.reasoning_column] = completion.reasoning if completion else None
+    if config.messages_output_column:
+        conversation = None
+        if completion and not truncated:
+            conversation = [
+                *([{"role": "system", "content": system_text}] if system_text else []),
+                {"role": "user", "content": user_text},
+                {"role": "assistant", "content": completion.text},
+            ]
+        row[config.messages_output_column] = conversation
+
+    if error:
+        logger.warning(f"Row {row_id} {'truncated' if truncated else 'failed'}: {error}")
+    elif debug:
+        preview = completion.text[:200] + ("...[truncated]" if len(completion.text) > 200 else "")
+        print(f"DEBUG - Row {row_id} response (truncated): {preview}")
+    return row, auth_failure
+
+
+def _run_api_inference(config, debug=False):
+    """Hosted-API inference: concurrent requests, retries, shards, resume, progress.
+
+    Exits normally when some rows fail (they carry status "error"); raises on
+    setup errors and when every request of the first shard fails authentication.
+    """
+    # Resolves api_key_env first so a missing key fails before any work.
+    client = HostedApiClient(config)
+    print(f"Using API inference with model: {config.model}")
+
+    print(f"Loading dataset: {config.dataset_name}")
+    data_split = _load_inference_rows(config)
+    total = len(data_split)
+    print(f"Loaded {total} rows")
+    _check_output_columns(config, False)
+    if not config.split_mode and not has_template_placeholders(config.system_prompt):
+        raise ValueError(
+            "system_prompt configuration is missing in the template, "
+            "or the required placeholder is not present in system_prompt."
+        )
+
+    output_file = config.output_file
+    output_dir = os.path.dirname(output_file)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    s3 = result_shards.S3Target.from_config(config)
+    row_id_col, status_col, usage_prefix = (
+        config.row_id_column, config.status_column, config.usage_columns
+    )
+    shard_rows = config.shard_rows
+    shard_dir = result_shards.shard_dir(output_file)
+    progress_file = result_shards.progress_path(output_file, config.progress_file)
+
+    counts = result_shards.RowCounts()
+    done_ids = set()
+    next_part = 0
+    if shard_rows:
+        if s3 is not None:
+            copied = s3.download_missing_shards(shard_dir)
+            if copied:
+                print(f"Downloaded {copied} existing shard(s) from S3")
+        for row in result_shards.iter_shard_rows(shard_dir, row_id_col, total):
+            done_ids.add(row[row_id_col])
+            counts.add(row, status_col, usage_prefix)
+        next_part = result_shards.next_shard_index(shard_dir)
+        if done_ids:
+            print(f"Resuming: {len(done_ids)}/{total} rows already finished in {shard_dir}")
+
+    def publish_progress(state):
+        if not progress_file:
+            return
+        record = result_shards.progress_record(total, counts, state)
+        result_shards.write_text_atomic(progress_file, json.dumps(record, indent=2))
+        if s3 is not None:
+            s3.upload(progress_file, os.path.basename(progress_file))
+
+    def flush_shard(rows):
+        nonlocal next_part
+        path = result_shards.write_shard(shard_dir, next_part, rows, row_id_col)
+        if s3 is not None:
+            s3.upload(path, f"{result_shards.SHARD_DIR}/{os.path.basename(path)}")
+        next_part += 1
+        publish_progress("running")
+        print(
+            f"Wrote {path}: {counts.done}/{total} rows done "
+            f"({counts.describe()})"
+        )
+
+    publish_progress("running")
+    pending = [idx for idx in range(total) if idx not in done_ids]
+    print(
+        f"Sending {len(pending)} requests to {config.api_endpoint} "
+        f"(concurrency={config.api_concurrency})"
+    )
+    fail_fast_rows = min(len(pending), shard_rows or _API_FAIL_FAST_ROWS)
+    first_results = []  # auth-failure flags of the first finished rows
+    buffer = []  # finished rows not yet in a shard
+    results = []  # every row when shard_rows is 0
+
+    def check_fail_fast(force=False):
+        if fail_fast_rows == 0 or len(first_results) < (1 if force else fail_fast_rows):
+            return
+        if all(first_results):
+            raise RuntimeError(
+                f"API authentication failed (HTTP 401/403) for all {len(first_results)} "
+                f"requests of the first shard to {config.api_endpoint}; check the API key "
+                "and auth header settings (api_key / api_key_env / api_auth_header)"
+            )
+
+    pool = ThreadPoolExecutor(max_workers=config.api_concurrency)
+    try:
+        in_flight = {}
+        queue = iter(pending)
+        max_in_flight = config.api_concurrency * 2
+
+        def submit_more():
+            while len(in_flight) < max_in_flight:
+                idx = next(queue, None)
+                if idx is None:
+                    return
+                future = pool.submit(_api_infer_row, client, config, data_split[idx], idx, debug)
+                in_flight[future] = idx
+
+        submit_more()
+        new_rows = 0
+        while in_flight:
+            finished, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+            for future in finished:
+                in_flight.pop(future)
+                row, auth_failure = future.result()
+                new_rows += 1
+                if len(first_results) < fail_fast_rows:
+                    first_results.append(auth_failure)
+                    check_fail_fast()
+                counts.add(row, status_col, usage_prefix)
+                if shard_rows:
+                    buffer.append(row)
+                    if len(buffer) >= shard_rows:
+                        flush_shard(buffer)
+                        buffer = []
+                else:
+                    results.append(row)
+                    if new_rows % _API_LOG_EVERY_ROWS == 0:
+                        print(
+                            f"Processed {counts.done}/{total} rows "
+                            f"({counts.describe()})"
+                        )
+            submit_more()
+        check_fail_fast(force=True)
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+    if buffer:
+        flush_shard(buffer)
+
+    if shard_rows:
+        counts = result_shards.RowCounts()
+
+        def merged_rows():
+            for row in result_shards.iter_shard_rows(shard_dir, row_id_col, total):
+                counts.add(row, status_col, usage_prefix)
+                yield row
+
+        if result_shards.is_jsonl(output_file):
+            result_shards.write_jsonl_lines(
+                output_file, (result_shards.dumps_row(row) for row in merged_rows())
+            )
+        else:
+            result_shards.write_results(list(merged_rows()), output_file)
+    else:
+        results.sort(key=lambda row: row[row_id_col])
+        result_shards.write_results(results, output_file)
+
+    print(f"\nResults saved to: {output_file}")
+    print(f"Finished {counts.done}/{total} rows: {counts.describe()}")
+
+    summary = {
+        'total_examples': total,
+        'num_checkpoints': 1,
+        'total_expected_results': total,
+        'successful_examples': counts.ok,
+        'truncated_examples': counts.truncated,
+        'failed_examples': counts.error,
+        'prompt_tokens': counts.prompt_tokens,
+        'completion_tokens': counts.completion_tokens,
+        'config': config.to_dict(),
+        'inference_type': 'api',
+        'model_info': config.model,
+        'dataset_name': config.dataset_name,
+        'dataset_columns_used': config.dataset_columns,
+        'system_prompt': config.system_prompt,
+    }
+    summary_file = result_shards.summary_path(output_file)
+    result_shards.write_text_atomic(
+        summary_file, json.dumps(result_shards.json_safe(summary), indent=2, ensure_ascii=False)
+    )
+    print(f"Summary saved to: {summary_file}")
+
+    if s3 is not None:
+        for local_file in (output_file, summary_file):
+            s3.upload(local_file, os.path.basename(local_file))
+        print(f"Results uploaded to s3://{s3.bucket}/{s3.prefix}/")
+    publish_progress("completed")
+    return summary
+
+
 def run_inference(config, debug=False):
     """Run inference on the specified dataset."""
     rank, _, world_size = _distributed_context()
@@ -1021,10 +1315,8 @@ def run_inference(config, debug=False):
         _clear_rank_results(config.output_file, rank, world_size)
     run_id = _distributed_run_id(rank, world_size)
 
-    # Determine if we should use API or local model
-    # API requires both model and api_key
-    use_api = (hasattr(config, 'model') and config.model is not None) and \
-              (hasattr(config, 'api_key') and config.api_key is not None)
+    # API mode: model plus api_key or api_key_env
+    use_api = _uses_api(config)
 
     # Multimodal (VLM) mode is enabled by setting image_columns in the recipe.
     is_vlm = is_vlm_inference(config)
@@ -1033,6 +1325,13 @@ def run_inference(config, debug=False):
             "VLM inference (image_columns set) is only supported for local models, "
             "not API endpoints. Remove image_columns or use model_paths."
         )
+    if use_api:
+        if world_size > 1:
+            raise ValueError(
+                "API inference runs in a single process; raise inference.api_concurrency "
+                "instead of launching multiple workers"
+            )
+        return _run_api_inference(config, debug=debug)
 
     # Determine checkpoint paths to process
     checkpoint_paths = []
@@ -1055,7 +1354,7 @@ def run_inference(config, debug=False):
     # Load dataset once (shared across all checkpoints). Same loader as training:
     # local/S3 files by extension (.jsonl, .json, .csv, .parquet); Hub ids + split.
     print(f"Loading dataset: {config.dataset_name}")
-    data_split = load_raw_dataset(config)
+    data_split = _load_inference_rows(config)
     print(f"Loaded {len(data_split)} rows")
     schema_column = getattr(config, 'json_schema_from_column', None)
     if schema_column:
@@ -1189,13 +1488,7 @@ def run_inference(config, debug=False):
                     print(f"\n{'-'*30}")
 
                 # Choose the appropriate response generation method based on config
-                if use_api:
-                    response = generate_response_by_api(
-                        prompt=user_text if messages is not None else full_prompt,
-                        config=config,
-                        system_prompt=system_text if messages is not None else None,
-                    )
-                elif is_vlm:
+                if is_vlm:
                     # `tokenizer` holds the processor in VLM mode.
                     images = fetch_example_images(config, example)
                     videos, video_metadata = fetch_example_videos(config, example)
@@ -1371,7 +1664,10 @@ def run_inference(config, debug=False):
         df = pd.DataFrame(all_results)
 
     # Only rank 0 reaches this point in a distributed run.
-    df.to_csv(config.output_file, index=False, encoding='utf-8', quoting=csv.QUOTE_ALL)
+    if result_shards.is_jsonl(config.output_file):
+        result_shards.write_results(df.to_dict(orient="records"), config.output_file)
+    else:
+        df.to_csv(config.output_file, index=False, encoding='utf-8', quoting=csv.QUOTE_ALL)
     
     print(f"\nResults saved to: {config.output_file}")
     print(f"Processed {len(df)} examples successfully")
@@ -1411,8 +1707,7 @@ def run_inference(config, debug=False):
         'system_prompt': config.system_prompt
     }
     
-    # Save summary (keep as JSON, base filename on CSV output)
-    summary_file = config.output_file.replace('.csv', '_summary.json')
+    summary_file = result_shards.summary_path(config.output_file)
     with open(summary_file, 'w', encoding='utf-8') as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
@@ -1455,20 +1750,8 @@ def load_inference_recipe_with_overrides(args):
     if args.overrides:
         recipe_dict = apply_overrides_to_recipe(recipe_dict, args.overrides)
     
-    # Write temporary recipe file with overrides applied
-    import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp_file:
-        yaml.dump(recipe_dict, tmp_file, sort_keys=False)
-        tmp_recipe_path = tmp_file.name
-    
-    try:
-        # Load using existing config loader
-        config = ExperimentConfig.load_inference_config(tmp_recipe_path)
-    finally:
-        # Clean up temporary file
-        os.unlink(tmp_recipe_path)
-    
-    return config
+    # Build the config in memory so recipe secrets are never copied to disk.
+    return ExperimentConfig.inference_config_from_dict(recipe_dict)
 
 
 def main():
@@ -1490,8 +1773,7 @@ def main():
     config = load_inference_recipe_with_overrides(args)
     
     # Determine inference type
-    use_api = hasattr(config, 'api_key') and config.api_key and \
-              hasattr(config, 'model') and config.model
+    use_api = _uses_api(config)
     
     if rank == 0:
         print("Starting inference with the following configuration:")

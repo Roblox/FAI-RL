@@ -485,6 +485,20 @@ def download_s3_bytes(
     return resp["Body"].read()
 
 
+def list_s3_keys(
+    bucket: str,
+    prefix: str,
+    region: Optional[str] = None,
+    endpoint_url: Optional[str] = None,
+) -> list:
+    """Return every object key under s3://<bucket>/<prefix>."""
+    client = _get_s3_client(region, endpoint_url)
+    keys = []
+    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
+        keys.extend(obj["Key"] for obj in page.get("Contents", []))
+    return keys
+
+
 def upload_file_to_s3(
     local_path: str,
     bucket: str,

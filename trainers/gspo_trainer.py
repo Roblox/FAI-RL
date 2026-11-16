@@ -192,6 +192,7 @@ class GSPOTrainer(BaseTrainer):
             # GRPO specific parameters
             num_generations=self.config.training.num_generations,
             max_completion_length=self.config.data.max_length - self.config.data.max_prompt_length,
+            temperature=float(self.config.training.temperature),
             # GSPO specific parameters
             importance_sampling_level=self.config.training.importance_sampling_level,
             epsilon=float(self.config.training.epsilon),

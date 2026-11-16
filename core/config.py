@@ -274,8 +274,9 @@ class TrainingConfig:
     # GRPO/GSPO specific parameters (optional for other algorithms)
     num_generations: int = 8                    # Number of generations for GRPO/GSPO
     
-    # Shared GRPO/GSPO parameter
+    # Shared GRPO/GSPO parameters
     beta: float = 0.0                           # KL regularization coefficient
+    temperature: float = 1.0                    # Rollout sampling temperature; also scales logits for the policy log-probs
 
     # GSPO specific parameters (optional for other algorithms)
     # Reference: https://swift.readthedocs.io/en/v3.7/Instruction/GRPO/AdvancedResearch/GSPO.html
@@ -336,6 +337,8 @@ class TrainingConfig:
             self.eval_enabled = self.early_stopping
         if self.early_stopping and not self.eval_enabled:
             raise ValueError("training.early_stopping requires eval_enabled: true")
+        if self.temperature <= 0:
+            raise ValueError(f"training.temperature must be > 0, got {self.temperature}")
     
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}

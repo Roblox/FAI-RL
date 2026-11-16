@@ -100,7 +100,9 @@ Replace the following values for your specific use case:
 - **GRPO/GSPO**: Requires `prompt_column`, an optional `answer_column` or other
   scoring context, and exactly one of `reward_api` or `local_reward_function`.
   HTTP rewards are the production path; local Python functions are intended only
-  for FAI-RL development and testing.
+  for FAI-RL development and testing. `training.temperature` (default `1.0`,
+  must be > 0) sets the rollout sampling temperature for `grpo`, `grpo_vlm`, and
+  `gspo`; TRL also divides the policy logits by it when computing log-probs.
 
 ### GRPO/GSPO Reward API
 

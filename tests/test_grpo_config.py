@@ -1,10 +1,18 @@
 import logging
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from core.config import DataConfig, TrainingConfig
 from trainers import grpo_trainer, gspo_trainer
+
+ROLLOUT_RECIPES = sorted(
+    recipe
+    for algorithm in ("grpo", "grpo_vlm", "gspo")
+    for recipe in (Path(__file__).resolve().parents[1] / "recipes" / "training" / algorithm).glob("*.yaml")
+)
 
 
 def _trainer(module, cls_name, **training):
@@ -55,3 +63,15 @@ def test_gspo_forwards_temperature_to_trl_config():
 def test_training_config_rejects_non_positive_temperature(temperature):
     with pytest.raises(ValueError, match="temperature"):
         TrainingConfig(output_dir="out", temperature=temperature)
+
+
+def test_rollout_recipes_exist():
+    assert len(ROLLOUT_RECIPES) >= 10
+
+
+@pytest.mark.parametrize("recipe", ROLLOUT_RECIPES, ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_rollout_recipes_set_temperature(recipe):
+    training = yaml.safe_load(recipe.read_text())["training"]
+
+    assert "temperature" in training
+    assert TrainingConfig(**training).temperature == 1.0

@@ -74,6 +74,7 @@ training:
 
   # GSPO-specific parameters
   num_generations: 8                                    # Group size for sequence grouping
+  temperature: 1.0                                      # Rollout sampling temperature (> 0)
   beta: 0.0                                             # Zero KL regularization (from paper)
   epsilon: 3.0e-4                                       # Clipping lower bound (from paper section 5.1)
   epsilon_high: 4.0e-4                                  # Clipping upper bound (from paper section 5.1)

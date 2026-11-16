@@ -80,6 +80,7 @@ training:
 
   # GRPO-specific parameters
   num_generations: 8                                    # Number of generations for GRPO (default: 8)
+  temperature: 1.0                                      # Rollout sampling temperature (> 0)
                                     
   # GSPO-specific parameters (only used when algorithm: "gspo")
   # Reference: https://swift.readthedocs.io/en/v3.7/Instruction/GRPO/AdvancedResearch/GSPO.html

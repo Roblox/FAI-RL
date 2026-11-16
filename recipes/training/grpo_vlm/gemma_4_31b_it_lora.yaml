@@ -80,6 +80,7 @@ training:
   # (1 x 8 x 4 = 32 completions per step, so 4 prompts x 8 completions).
   num_generations: 8
   beta: 0.0
+  temperature: 1.0  # Rollout sampling temperature (> 0)
 
 reward_api:
   endpoint: "https://reward.example.com/v1/score"

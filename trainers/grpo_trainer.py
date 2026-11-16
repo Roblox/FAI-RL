@@ -188,6 +188,7 @@ class GRPOTrainer(BaseTrainer):
             num_generations=self.config.training.num_generations,
             max_completion_length=self.config.data.max_length - self.config.data.max_prompt_length,
             beta=float(self.config.training.beta),
+            temperature=float(self.config.training.temperature),
         )
 
     def setup_trainer(self):

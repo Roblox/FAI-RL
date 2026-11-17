@@ -332,6 +332,15 @@ class TrainingConfig:
     resume_from_checkpoint: Optional[str] = None
     prediction_loss_only: bool = True
 
+    # Training engine. "trl" runs the TRL trainer classes; "native" runs the
+    # engine primitive loop (engine.cookbook). custom is native-only. The
+    # native engine supports single-device and torchrun DDP, not DeepSpeed.
+    backend: Literal["trl", "native"] = "trl"
+    # algorithm: custom -> "package.module:function" called as fn(config, logger).
+    entrypoint: Optional[str] = None
+    # Native engine: max padded tokens per forward pass (None = one pass per call).
+    micro_batch_tokens: Optional[int] = None
+
     def __post_init__(self):
         if self.eval_enabled is None:
             self.eval_enabled = self.early_stopping
@@ -339,6 +348,16 @@ class TrainingConfig:
             raise ValueError("training.early_stopping requires eval_enabled: true")
         if self.temperature <= 0:
             raise ValueError(f"training.temperature must be > 0, got {self.temperature}")
+        if self.backend not in ("trl", "native"):
+            raise ValueError(f"training.backend must be 'trl' or 'native', got {self.backend!r}")
+        if self.entrypoint is not None:
+            module_name, separator, function_name = self.entrypoint.partition(":")
+            if not separator or not module_name or not function_name:
+                raise ValueError(
+                    "training.entrypoint must use 'package.module:function_name'"
+                )
+        if self.micro_batch_tokens is not None and self.micro_batch_tokens <= 0:
+            raise ValueError("training.micro_batch_tokens must be positive when set")
     
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
@@ -663,8 +682,21 @@ class ExperimentConfig:
     local_reward_function: Optional[LocalRewardFunctionConfig] = None
 
     def __post_init__(self):
-        if self.data.messages_column and (self.training.algorithm or "").lower() != "sft":
+        algorithm = (self.training.algorithm or "").lower()
+        if self.data.messages_column and algorithm != "sft":
             raise ValueError("data.messages_column is supported only for text SFT")
+        if algorithm == "custom" and not self.training.entrypoint:
+            raise ValueError("training.algorithm=custom requires training.entrypoint")
+        native = algorithm == "custom" or self.training.backend == "native"
+        if self.training.backend == "native" and algorithm not in ("sft", "custom"):
+            raise ValueError(
+                f"training.backend=native supports sft and custom, not {algorithm!r}"
+            )
+        if native and self.training.deepspeed_config:
+            raise ValueError(
+                "The native engine (backend=native, custom) does not "
+                "support DeepSpeed; unset training.deepspeed_config (torchrun DDP is used)"
+            )
     
     @classmethod
     def from_yaml(cls, config_path: str) -> 'ExperimentConfig':

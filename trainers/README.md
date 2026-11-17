@@ -89,7 +89,8 @@ Replace the following values for your specific use case:
   - **DPO**: Use `prompt_column`, `chosen_column`, and `rejected_column`
   - **GRPO/GSPO**: `prompt_column` is required. `answer_column` is optional;
     all dataset columns are forwarded to the configured reward function as scoring context.
-- `training.algorithm` → choose from: `cpt`, `sft`, `sft_vlm`, `dpo`, `grpo`, `grpo_vlm`, `gspo`
+- `training.algorithm` → choose from: `cpt`, `sft`, `sft_vlm`, `dpo`, `grpo`, `grpo_vlm`, `gspo`, `custom`
+- `training.backend` → `trl` (default) or `native` (text SFT on the `engine` primitives; see [Training Engines](../README.md#training-engines))
 - `training.output_dir` → your desired model output directory
 - `wandb.*` → your Weights & Biases configuration (or set `enabled: false` to disable)
 
@@ -103,6 +104,8 @@ Replace the following values for your specific use case:
   for FAI-RL development and testing. `training.temperature` (default `1.0`,
   must be > 0) sets the rollout sampling temperature for `grpo`, `grpo_vlm`, and
   `gspo`; TRL also divides the policy logits by it when computing log-probs.
+- **CUSTOM**: Requires `training.entrypoint: "package.module:function"`, called as
+  `function(config, logger)`; see [Write Your Own Training Loop](../README.md#write-your-own-training-loop)
 
 ### GRPO/GSPO Reward API
 

@@ -65,9 +65,29 @@ def apply_overrides_to_recipe(recipe_dict: Dict, overrides: list) -> Dict:
             key, value_str = override.split('=', 1)
             value = parse_value(value_str)
             set_nested_value(recipe_dict, key, value)
-            logger.info("  %s = %r", key, value)
+            logger.info("  %s = %r", key, redact_secrets(key, value))
     
     return recipe_dict
+
+
+# Matched against one dotted key segment split on "_" (so max_new_tokens is
+# not a secret but api_key, auth_token and api_extra_headers are).
+_SECRET_KEY_PARTS = {"key", "secret", "password", "token", "header", "headers", "auth"}
+
+
+def is_secret_key(key: str) -> bool:
+    """Whether an override/recipe key may carry a credential."""
+    last = str(key).split(".")[-1].lower().replace("-", "_")
+    return bool(_SECRET_KEY_PARTS.intersection(last.split("_")))
+
+
+def redact_secrets(key: str, value: Any) -> Any:
+    """Return value with credentials replaced by "***" for logging."""
+    if is_secret_key(key):
+        return "***"
+    if isinstance(value, dict):
+        return {k: redact_secrets(k, v) for k, v in value.items()}
+    return value
 
 
 def load_recipe_from_yaml(yaml_path: str) -> Dict:

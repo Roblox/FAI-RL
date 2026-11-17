@@ -1,0 +1,40 @@
+# Distillation through an OpenAI-compatible gateway (for example LiteLLM)
+# Sends every dataset row, rendered through system_prompt + user_prompt, to a
+# frontier model and writes the responses as an SFT-ready JSONL dataset.
+#
+# The key is read from the environment at run time and never written anywhere:
+#   export GATEWAY_API_KEY=...
+#   fai-rl-inference --recipe recipes/inference/openai_compatible_distill.yaml
+#
+# Rerunning with the same output_file (or S3 prefix) resumes from shards/.
+
+inference:
+  model: "<GATEWAY_MODEL_ID>"     # e.g. a model id served by the gateway
+  api_endpoint: "https://llm-gateway.example.com/v1/chat/completions"
+  api_key_env: GATEWAY_API_KEY
+  api_auth_header: X-Api-Key
+  api_auth_prefix: ""
+  api_concurrency: 8
+  api_max_tokens_field: max_tokens   # max_completion_tokens for OpenAI reasoning models
+  # api_extra_body: {reasoning_effort: medium}
+  api_timeout_seconds: 120
+  api_max_retries: 6
+
+  dataset_name: "data/prompts.jsonl"   # local file, s3:// URI or HuggingFace id
+  dataset_split: train
+  dataset_columns: ["prompt"]
+  system_prompt: "You are a helpful assistant."
+  user_prompt: "{prompt}"
+
+  temperature: 1.0
+  top_p: null        # omitted from the request
+  max_new_tokens: 2048
+
+  output_file: outputs/distill/results.jsonl
+  messages_output_column: __messages
+  shard_rows: 200
+  progress_file: progress.json
+
+  # s3_upload_results: true
+  # s3_bucket: <bucket>
+  # s3_prefix: <prefix>

@@ -50,7 +50,10 @@ logger = setup_logging("FAI-RL.launcher", file_output=False)
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Train CPT, DPO, GRPO, GSPO, SFT, or SFT_VLM (multimodal) model",
+        description=(
+            "Train CPT, DPO, GRPO, GSPO, SFT, SFT_VLM (multimodal), "
+            "or a custom engine loop"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -303,7 +306,8 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
     if not recipe_dict.get('training', {}).get('algorithm'):
         raise ValueError(
             "training.algorithm is required. "
-            "Provide it via recipe file or CLI: training.algorithm='sft' (options: cpt, sft, sft_vlm, dpo, grpo, grpo_vlm, gspo)"
+            "Provide it via recipe file or CLI: training.algorithm='sft' (options: cpt, sft, sft_vlm, "
+            "dpo, grpo, grpo_vlm, gspo, custom)"
         )
     
     # Handle datasets configuration
@@ -463,6 +467,13 @@ def main():
     start_time = time.time()
 
     try:
+        from engine.cookbook import run_recipe, uses_native_engine
+
+        if uses_native_engine(config):
+            run_recipe(config, training_logger.logger.logger)
+            training_logger.logger.info(f"{algorithm.upper()} training completed successfully!")
+            return None
+
         # Create trainer based on algorithm and run training
         if algorithm == "cpt":
             trainer_class = CPTTrainer

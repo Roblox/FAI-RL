@@ -19,6 +19,7 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
 - 📦 **Simple Configuration**: YAML-based configs with CLI override support
 - ⚡ **Memory Efficient**: Full support for LoRA, QLoRA, and DeepSpeed ZeRO-3
 - 🔧 **Highly Extensible**: Custom reward functions, dataset templates, and API integrations
+- 🧩 **Write Your Own Loop**: `forward_backward` / `optim_step` primitives for custom objectives, with multi-GPU and checkpoints handled for you
 
 ## Table of Contents
 
@@ -30,6 +31,7 @@ FAI-RL provides a unified, extensible framework for fine-tuning language models 
   - [Inference](#inference)
   - [Evaluation](#evaluation)
 - [Supported Methods](#supported-methods)
+- [Write Your Own Training Loop](#write-your-own-training-loop)
 - [Supported Models](#supported-models)
 - [Key Features](#key-features)
 - [Project Structure](#-project-structure)
@@ -131,7 +133,7 @@ The default value (`https://api.wandb.ai`) points to the public W&B cloud. This 
 
 ### Training
 
-Train a model using any of the supported algorithms (CPT, SFT, SFT_VLM, DPO, GRPO, GRPO_VLM, GSPO):
+Train a model using any of the supported algorithms (CPT, SFT, SFT_VLM, DPO, GRPO, GRPO_VLM, GSPO, or your own loop):
 
 ```bash
 # Single GPU training with LoRA
@@ -175,7 +177,7 @@ fai-rl-eval --recipe recipes/evaluation/mmlu/llama3_3B.yaml --debug
 
 ## Supported Algorithms
 
-FAI-RL supports seven training algorithms for language model fine-tuning:
+FAI-RL supports these training algorithms for language model fine-tuning (`training.algorithm`):
 
 | Algorithm | Full Name | Description | Best For |
 |-----------|-----------|-------------|----------|
@@ -186,6 +188,16 @@ FAI-RL supports seven training algorithms for language model fine-tuning:
 | **GRPO** | Group Relative Policy Optimization | Efficient preference learning with group-based comparison | Reasoning tasks, competitive response generation |
 | **GRPO_VLM** | Multimodal GRPO | GRPO for vision-language models: a prompt plus one or more images per row (`image_columns`); the reward scores the text completion | Training VLM classifiers and graders against a reward |
 | **GSPO** | Group Sequence Policy Optimization | Advanced sequence-level policy optimization | Complex multi-step reasoning, mathematical problem-solving |
+| **CUSTOM** | Your Own Loop | Runs `training.entrypoint` (`module:function`), a loop written on the [`engine` primitives](#write-your-own-training-loop), with the launcher's multi-GPU, logging, and resume support | New objectives without subclassing a trainer |
+
+### Training Engines
+
+`training.backend` selects the engine that runs a recipe:
+
+- `trl` (default) runs the TRL trainer classes for CPT, SFT, SFT_VLM, DPO, GRPO, GRPO_VLM, and GSPO.
+- `native` runs text SFT on the [`engine` primitives](#write-your-own-training-loop) with the same YAML. The tests check that it reproduces the TRL losses. See `recipes/training/sft/llama3_3B_lora_native.yaml`.
+
+CUSTOM always uses the native engine. It runs on one GPU or on several with `torchrun` (`--num-gpus N`), and does not support DeepSpeed. `training.micro_batch_tokens` caps the padded tokens per forward pass; leave it unset to run each micro-batch in one pass.
 
 ### Training Configurations
 
@@ -198,11 +210,151 @@ All algorithms support three efficiency modes:
 | **QLoRA** | Very Low (~3-4GB for 7B model) | Moderate | Large models on consumer GPUs |
 
 Additional features supported across all algorithms:
-- ✅ Multi-GPU training with DeepSpeed ZeRO-3
+- ✅ Multi-GPU training with DeepSpeed ZeRO-3 (TRL engine) or `torchrun` data parallelism
 - ✅ Gradient checkpointing for memory efficiency
 - ✅ Custom reward functions and dataset templates
 - ✅ Weights & Biases integration for experiment tracking
 - ✅ Automatic S3 checkpoint upload (supports S3-compatible stores)
+
+## Write Your Own Training Loop
+
+The `engine` package is a small training API for writing your own loop. You write the loop and the loss. FAI-RL loads the model (LoRA, QLoRA, or full fine-tuning, from the Hub or S3), runs the forward and backward passes, and steps the optimizer. It also syncs gradients across GPUs and writes checkpoints. Calls are synchronous and run in your own process on your own GPUs.
+
+| Call | What it does |
+|------|--------------|
+| `types.Datum(model_input, loss_fn_inputs)` | One example: the tokens the model reads plus every tensor its loss needs |
+| `client.forward_backward(data, "cross_entropy")` | Adds the gradients of a registered loss |
+| `client.forward_backward_custom(data, loss_fn)` | Adds the gradients of any `loss_fn(data, logprobs) -> (loss, metrics)` |
+| `client.forward(data, loss_fn=None)` | Log-probs and loss metrics without gradients, for evaluation |
+| `client.optim_step(types.AdamParams(...))` | Applies the summed gradients with AdamW, then clears them |
+| `client.save_state(name)` / `client.load_state(path)` | Weights plus optimizer state, for resuming |
+| `client.save_weights_for_sampler(name)` | Weights only, loadable with `from_pretrained` and `fai-rl-inference` |
+
+### A minimal SFT loop
+
+```python
+import engine
+from engine import types
+
+service = engine.ServiceClient(output_dir="models/my-sft")
+client = service.create_lora_training_client("Qwen/Qwen3-4B-Instruct-2507", rank=16)
+tokenizer = client.get_tokenizer()
+
+
+def make_datum(prompt_ids, completion_ids):
+    """Train on the completion only. Position i reads ids[i] and predicts ids[i + 1]."""
+    ids = prompt_ids + completion_ids
+    weights = [0.0] * len(prompt_ids) + [1.0] * len(completion_ids)
+    return types.Datum(
+        model_input=types.ModelInput.from_ints(ids[:-1]),
+        loss_fn_inputs={"target_tokens": ids[1:], "weights": weights[1:]},
+    )
+
+
+def encode(tokenizer, prompt, completion):
+    prompt = tokenizer.apply_chat_template(
+        [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
+    )
+    return make_datum(
+        tokenizer(prompt, add_special_tokens=False)["input_ids"],
+        tokenizer(completion, add_special_tokens=False)["input_ids"] + [tokenizer.eos_token_id],
+    )
+
+
+for step, batch in enumerate(batches):  # each batch: (prompt, completion) pairs, same on every rank
+    data = [encode(tokenizer, p, c) for p, c in engine.shard_for_rank(batch)]
+    tokens = engine.all_reduce_sum(sum(d.loss_fn_inputs["weights"].sum().item() for d in data))
+    for d in data:
+        d.loss_fn_inputs["weights"] /= tokens  # mean over the trained tokens of the whole batch
+    out = client.forward_backward(data, "cross_entropy")
+    client.optim_step(types.AdamParams(learning_rate=1e-4, grad_clip_norm=1.0))
+    print(step, engine.all_reduce_sum(out.metrics["loss:sum"]))
+
+client.save_state("checkpoint-100")      # models/my-sft/checkpoint-100, resumable
+client.save_weights_for_sampler("final")  # models/my-sft/final, for inference
+```
+
+Losses are sums, so scale `weights` to get a mean. The same script runs on 8 GPUs with `torchrun --nproc_per_node=8 my_sft.py`. Each rank trains on its `shard_for_rank` slice of the batch and `optim_step` sums the gradients over all ranks, so the result does not depend on the number of GPUs.
+
+For QLoRA or full fine-tuning, create the client with `service.create_training_client(ModelConfig(...))`. To resume, use `service.create_training_client_from_state_with_optimizer(path)` (or `create_training_client_from_state(path)` to keep only the weights).
+
+### Custom losses
+
+`forward_backward_custom` passes your function each datum's log-probs of its `target_tokens`, and the loss may couple datums. This SimPO-style preference loss compares the chosen and rejected completion of each pair:
+
+```python
+import torch
+import torch.nn.functional as F
+
+
+def simpo_loss(data, logprobs, beta=2.0, gamma=0.5, scale=1.0):
+    """data = [chosen_0, rejected_0, chosen_1, rejected_1, ...]"""
+    avg_logprob = torch.stack([
+        (lp * d.loss_fn_inputs["weights"]).sum() / d.loss_fn_inputs["weights"].sum()
+        for d, lp in zip(data, logprobs)
+    ]).view(-1, 2)
+    margin = beta * (avg_logprob[:, 0] - avg_logprob[:, 1]) - gamma
+    loss = -F.logsigmoid(margin).sum() * scale
+    return loss, {"loss:sum": loss.item(), "accuracy:sum": (margin > 0).sum().item()}
+
+
+data = [encode(tokenizer, p, c) for p, chosen, rejected in pairs for c in (chosen, rejected)]
+data = engine.shard_for_rank(data, group_size=2)  # keep each pair on one rank
+client.forward_backward_custom(data, lambda d, lp: simpo_loss(d, lp, scale=1 / len(pairs)))
+```
+
+`target_tokens` may also have shape `(N, K)` to score `K` candidate tokens per position, for example `" A"` and `" B"` for a judge. When a batch exceeds `micro_batch_tokens`, the client computes custom-loss gradients in two passes, and the result is unchanged. A loss that is a plain sum over datums can be registered with `@engine.register_loss("name", separable=True)` and then called by name in `forward_backward`.
+
+### Run your loop from a recipe (`algorithm: custom`)
+
+To get the recipe features without writing them yourself, implement a `SupervisedObjective` and point a recipe at it. `run_supervised` supplies the global batching, the linear warmup and decay schedule, logging and W&B, held-out eval loss, early stopping, `checkpoint-<step>` saves with S3 upload, and `--auto-resume`:
+
+```python
+# my_project/simpo.py
+from functools import partial
+
+from engine.cookbook.common import SupervisedObjective, run_supervised
+from utils.dataset_utils import load_raw_dataset
+
+# encode() and simpo_loss() as defined in the examples above.
+
+
+class SimPO(SupervisedObjective):
+    def __init__(self, config, tokenizer, logger):
+        self.config, self.tokenizer = config, tokenizer
+
+    def load_rows(self):  # rows with prompt / chosen / rejected columns
+        return load_raw_dataset(self.config.data.datasets[0])
+
+    def _data(self, rows):
+        return [encode(self.tokenizer, r["prompt"], r[k]) for r in rows for k in ("chosen", "rejected")]
+
+    def count_units(self, rows):  # the loss is averaged over pairs
+        return len(rows)
+
+    def train_step(self, client, rows, scale):
+        out = client.forward_backward_custom(self._data(rows), partial(simpo_loss, scale=scale))
+        return out.metrics["loss:sum"]
+
+    def eval_step(self, client, rows):
+        return client.forward(self._data(rows), simpo_loss).metrics["loss:sum"]
+
+
+def run(config, logger):
+    return run_supervised(config, logger, SimPO)
+```
+
+```yaml
+training:
+  algorithm: "custom"
+  entrypoint: "my_project.simpo:run"  # called as run(config, logger)
+  output_dir: "models/my-simpo"
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8
+  learning_rate: 1.0e-5
+```
+
+`fai-rl-train --recipe my_simpo.yaml --num-gpus 8` then runs it like any other recipe. For a completely hand-written loop, build the client from the recipe with `engine.model_loading.build_training_client(config, logger)` inside your entrypoint. `engine/cookbook/sft.py`, the native SFT loop, is a larger example.
 
 ## Supported Models
 
@@ -247,6 +399,7 @@ FAI-RL provides pre-configured recipes and has been validated with the following
 - `OpenMathInstructTemplate` - Mathematical instruction formatting
 
 **Pluggable Components:**
+- [`engine` training primitives](#write-your-own-training-loop) for custom losses and loops (`algorithm: custom`)
 - Extensible trainer base classes for new algorithms
 - HuggingFace Transformers and TRL integration
 - Custom dataset processing pipelines
@@ -304,6 +457,8 @@ Each function includes detailed examples and inline documentation.
 ```
 FAI-RL/
 ├── core/                      # Core framework components
+├── engine/                    # Training primitives (TrainingClient, Datum, losses)
+│   └── cookbook/              # Native loops: SFT and the shared supervised loop
 ├── trainers/                  # Algorithm implementations
 │   ├── rewards/               # Custom reward functions
 │   │   ├── accuracy_rewards.py

@@ -1,10 +1,13 @@
+import contextlib
 import os, sys
 import torch
 import wandb
 import re
 from datasets import load_dataset, Dataset, concatenate_datasets
 from trl import GRPOConfig, GRPOTrainer as TRLGRPOTrainer
+from trl.generation.vllm_generation import VLLMGeneration
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations import deepspeed as hf_deepspeed
 from peft import TaskType
 from typing import Optional, List
 
@@ -33,6 +36,35 @@ def vllm_rollout_kwargs(training) -> dict:
         "vllm_server_port": training.vllm_server_port,
         "vllm_server_timeout": float(training.vllm_server_timeout),
     }
+
+
+@contextlib.contextmanager
+def vllm_engine_outside_zero3():
+    """Build TRL's vLLM engine with HF's ZeRO-3 detection switched off.
+
+    The HfDeepSpeedConfig registered for training is process-global. vLLM's
+    multimodal models (Gemma 4's vision and audio towers) build submodules
+    with transformers' ``from_config``, which then wraps them in
+    ``deepspeed.zero.Init``; the size-0 partitioned parameters fail vLLM's
+    weight loader. Only the engine build is affected: the rest of TRL's
+    trainer construction (the ZeRO-3 reference model) still sees ZeRO-3.
+    """
+    init_vllm = VLLMGeneration._init_vllm
+
+    def init_vllm_outside_zero3(self):
+        # transformers exposes no getter for the registered config, only this weakref.
+        registered = hf_deepspeed._hf_deepspeed_config_weak_ref
+        hf_deepspeed.unset_hf_deepspeed_config()
+        try:
+            return init_vllm(self)
+        finally:
+            hf_deepspeed._hf_deepspeed_config_weak_ref = registered
+
+    VLLMGeneration._init_vllm = init_vllm_outside_zero3
+    try:
+        yield
+    finally:
+        VLLMGeneration._init_vllm = init_vllm
 
 
 class GRPOTrainer(BaseTrainer):
@@ -215,13 +247,14 @@ class GRPOTrainer(BaseTrainer):
 
         reward_func = build_reward_function(self.config, logger=self.logger)
 
-        self.trainer = TRLGRPOTrainer(
-            model=self.model,
-            reward_funcs=[reward_func],
-            args=training_args,
-            train_dataset=self.train_dataset,
-            callbacks=self.build_callbacks(),
-        )
+        with vllm_engine_outside_zero3():
+            self.trainer = TRLGRPOTrainer(
+                model=self.model,
+                reward_funcs=[reward_func],
+                args=training_args,
+                train_dataset=self.train_dataset,
+                callbacks=self.build_callbacks(),
+            )
 
         self.logger.info("GRPO trainer initialized")
 

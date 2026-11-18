@@ -190,7 +190,9 @@ install it with `pip install -e ".[cuda,vllm]"`. On macOS and CPU, FAI-RL turns
   doesn't reserve KV cache for the model's full context window, and
   `vllm_enable_sleep_mode: true` to free vLLM memory during the optimizer step.
   `vllm_tensor_parallel_size` shards each engine across that many training
-  GPUs and must divide `--num-gpus`.
+  GPUs and must divide `--num-gpus`. A ZeRO-3 DeepSpeed config partitions only
+  the training model: each engine still holds the full weights, split only by
+  `vllm_tensor_parallel_size`, inside its `vllm_gpu_memory_utilization` share.
 - `server`: rollouts go to a vLLM server you start on separate GPUs. It
   leaves the training GPUs to training and suits larger models. Start the
   server with the same weights as `model.base_model_name` (download `s3://`

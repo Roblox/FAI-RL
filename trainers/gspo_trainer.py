@@ -19,7 +19,7 @@ from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
 from utils.dataset_utils import load_raw_dataset
 from .rewards.factory import build_reward_function
-from .grpo_trainer import vllm_rollout_kwargs
+from .grpo_trainer import vllm_engine_outside_zero3, vllm_rollout_kwargs
 
 class GSPOTrainer(BaseTrainer):
     """GSPO (Group Sequence Policy Optimization) trainer implementation."""
@@ -209,13 +209,14 @@ class GSPOTrainer(BaseTrainer):
 
         reward_func = build_reward_function(self.config, logger=self.logger)
 
-        self.trainer = TRLGSPOTrainer(
-            model=self.model,
-            reward_funcs=[reward_func],
-            args=training_args,
-            train_dataset=self.train_dataset,
-            callbacks=self.build_callbacks(),
-        )
+        with vllm_engine_outside_zero3():
+            self.trainer = TRLGSPOTrainer(
+                model=self.model,
+                reward_funcs=[reward_func],
+                args=training_args,
+                train_dataset=self.train_dataset,
+                callbacks=self.build_callbacks(),
+            )
 
         self.logger.info("GSPO trainer initialized")
 

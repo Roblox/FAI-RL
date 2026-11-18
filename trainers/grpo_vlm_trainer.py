@@ -12,7 +12,7 @@ if project_root not in sys.path:
 
 from core.config import ExperimentConfig
 from utils.dataset_utils import load_raw_dataset
-from trainers.grpo_trainer import GRPOTrainer
+from trainers.grpo_trainer import GRPOTrainer, vllm_engine_outside_zero3
 from trainers.vlm_media import VLMMediaMixin
 from .rewards.factory import build_reward_function
 
@@ -248,14 +248,15 @@ class GRPOVLMTrainer(VLMMediaMixin, GRPOTrainer):
         training_args = self.setup_training_args()
         reward_func = TextRewardAdapter(build_reward_function(self.config, logger=self.logger))
 
-        self.trainer = TRLGRPOTrainer(
-            model=self.model,
-            reward_funcs=[reward_func],
-            args=training_args,
-            train_dataset=self.train_dataset,
-            processing_class=self.processor,
-            callbacks=self.build_callbacks(),
-        )
+        with vllm_engine_outside_zero3():
+            self.trainer = TRLGRPOTrainer(
+                model=self.model,
+                reward_funcs=[reward_func],
+                args=training_args,
+                train_dataset=self.train_dataset,
+                processing_class=self.processor,
+                callbacks=self.build_callbacks(),
+            )
         self.logger.info("GRPO VLM trainer initialized")
 
     def train(self):

@@ -88,6 +88,9 @@ pip install "FAI-RL[cuda]"
 
 > The `[cuda]` extra is Linux/NVIDIA only. On macOS, omit it: `pip install -e .`
 
+> For faster GRPO/GSPO rollouts, add the `[vllm]` extra (also Linux/NVIDIA only):
+> `pip install -e ".[cuda,vllm]"`. See [vLLM Rollouts](./trainers/README.md#vllm-rollouts).
+
 
 > **Package**: [https://pypi.org/project/FAI-RL/](https://pypi.org/project/FAI-RL/)
 
@@ -211,6 +214,7 @@ All algorithms support three efficiency modes:
 
 Additional features supported across all algorithms:
 - ✅ Multi-GPU training with DeepSpeed ZeRO-3 (TRL engine) or `torchrun` data parallelism
+- ✅ vLLM rollout generation for GRPO, GRPO_VLM, and GSPO, colocated on the training GPUs or on a separate server
 - ✅ Gradient checkpointing for memory efficiency
 - ✅ Custom reward functions and dataset templates
 - ✅ Weights & Biases integration for experiment tracking

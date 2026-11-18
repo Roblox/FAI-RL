@@ -54,6 +54,11 @@ cuda = [
     "deepspeed==0.18.8",
     "mpi4py==4.1.1",
 ]
+# vLLM rollout generation for GRPO/GSPO (training.use_vllm). Linux/NVIDIA only;
+# 0.28.0 is the newest release whose torch/transformers pins match ours.
+vllm = [
+    "vllm==0.28.0",
+]
 # JSON-schema constrained decoding for inference (inference.json_schema)
 structured = [
     "xgrammar==0.2.8",

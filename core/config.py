@@ -284,6 +284,26 @@ class TrainingConfig:
     epsilon_high: float = 4e-4                  # from paper section 5.1
     steps_per_generation: int = 4               # each batch of rollout data is partitioned into four minibatches for gradient updates
     importance_sampling_level: str = "sequence" # GSPO uses sequence-level importance sampling
+
+    # vLLM rollout generation for GRPO / grpo_vlm / GSPO (CUDA only; install the
+    # vllm extra). "colocate" runs a vLLM engine inside every training process,
+    # sharing its GPU. "server" sends rollouts to a separately launched
+    # `trl vllm-serve` and pushes the updated weights to it over NCCL.
+    use_vllm: bool = False
+    vllm_mode: Literal["colocate", "server"] = "colocate"
+    # colocate only: share of each GPU vLLM reserves for its weights and KV cache.
+    vllm_gpu_memory_utilization: float = 0.3
+    vllm_tensor_parallel_size: int = 1
+    # colocate only: vLLM context length. None uses the model's maximum; a value
+    # near data.max_length shrinks the KV cache vLLM must fit.
+    vllm_max_model_length: Optional[int] = None
+    # colocate only: offload vLLM weights and KV cache during the optimizer step.
+    vllm_enable_sleep_mode: bool = False
+    # server only: vllm_server_base_url, when set, overrides host and port.
+    vllm_server_base_url: Optional[str] = None
+    vllm_server_host: str = "0.0.0.0"
+    vllm_server_port: int = 8000
+    vllm_server_timeout: float = 240.0
     
     # Logging and inference
     logging_steps: int = 10
@@ -358,6 +378,19 @@ class TrainingConfig:
                 )
         if self.micro_batch_tokens is not None and self.micro_batch_tokens <= 0:
             raise ValueError("training.micro_batch_tokens must be positive when set")
+        if self.vllm_mode not in ("colocate", "server"):
+            raise ValueError(
+                f"training.vllm_mode must be 'colocate' or 'server', got {self.vllm_mode!r}"
+            )
+        if not 0 < float(self.vllm_gpu_memory_utilization) <= 1:
+            raise ValueError(
+                "training.vllm_gpu_memory_utilization must be in (0, 1], "
+                f"got {self.vllm_gpu_memory_utilization}"
+            )
+        if self.vllm_tensor_parallel_size < 1:
+            raise ValueError("training.vllm_tensor_parallel_size must be at least 1")
+        if self.vllm_max_model_length is not None and self.vllm_max_model_length <= 0:
+            raise ValueError("training.vllm_max_model_length must be positive when set")
     
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
@@ -697,6 +730,13 @@ class ExperimentConfig:
                 "The native engine (backend=native, custom) does not "
                 "support DeepSpeed; unset training.deepspeed_config (torchrun DDP is used)"
             )
+        if self.training.use_vllm:
+            if algorithm not in ("grpo", "grpo_vlm", "gspo"):
+                raise ValueError(
+                    f"training.use_vllm supports grpo, grpo_vlm, and gspo, not {algorithm!r}"
+                )
+            if self.model.load_in_8bit:
+                raise ValueError("training.use_vllm does not support model.load_in_8bit")
     
     @classmethod
     def from_yaml(cls, config_path: str) -> 'ExperimentConfig':

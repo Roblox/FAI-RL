@@ -403,6 +403,9 @@ def adapt_config_for_device(config: Any) -> Any:
             if getattr(config.training, 'deepspeed_config', None):
                 config.training.deepspeed_config = None
                 logger.warning("Disabled DeepSpeed (not supported on MPS)")
+            if getattr(config.training, 'use_vllm', False):
+                config.training.use_vllm = False
+                logger.warning("Disabled vLLM rollouts (not supported on MPS)")
             
             # Check if mixed precision is supported on MPS (requires PyTorch >= 2.8.0)
             if supports_mps_mixed_precision():
@@ -450,6 +453,9 @@ def adapt_config_for_device(config: Any) -> Any:
             if getattr(config.training, 'deepspeed_config', None):
                 config.training.deepspeed_config = None
                 logger.warning("Disabled DeepSpeed (not supported on CPU)")
+            if getattr(config.training, 'use_vllm', False):
+                config.training.use_vllm = False
+                logger.warning("Disabled vLLM rollouts (not supported on CPU)")
             
             # Use float32 on CPU for better performance
             if getattr(config.training, 'bf16', False) or getattr(config.training, 'fp16', False):

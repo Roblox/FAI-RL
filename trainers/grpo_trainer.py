@@ -18,6 +18,23 @@ from utils.logging_utils import setup_logging
 from utils.dataset_utils import load_raw_dataset
 from .rewards.factory import build_reward_function
 
+
+def vllm_rollout_kwargs(training) -> dict:
+    """GRPOConfig fields that move rollout generation to vLLM when use_vllm is set."""
+    return {
+        "use_vllm": training.use_vllm,
+        "vllm_mode": training.vllm_mode,
+        "vllm_gpu_memory_utilization": float(training.vllm_gpu_memory_utilization),
+        "vllm_tensor_parallel_size": training.vllm_tensor_parallel_size,
+        "vllm_max_model_length": training.vllm_max_model_length,
+        "vllm_enable_sleep_mode": training.vllm_enable_sleep_mode,
+        "vllm_server_base_url": training.vllm_server_base_url,
+        "vllm_server_host": training.vllm_server_host,
+        "vllm_server_port": training.vllm_server_port,
+        "vllm_server_timeout": float(training.vllm_server_timeout),
+    }
+
+
 class GRPOTrainer(BaseTrainer):
     """GRPO (Group Relative Policy Optimization) trainer implementation."""
 
@@ -189,6 +206,7 @@ class GRPOTrainer(BaseTrainer):
             max_completion_length=self.config.data.max_length - self.config.data.max_prompt_length,
             beta=float(self.config.training.beta),
             temperature=float(self.config.training.temperature),
+            **vllm_rollout_kwargs(self.config.training),
         )
 
     def setup_trainer(self):

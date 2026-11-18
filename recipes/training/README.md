@@ -58,6 +58,7 @@ Fine-tunes a vision-language model on `(image, text) -> response` data, and supp
 | Recipe | Dataset source | Notes |
 |--------|---------------|-------|
 | `grpo/llama3_3B_lora.yaml` | HuggingFace Hub | LoRA, Llama-3.2-3B |
+| `grpo/llama3_3B_lora_vllm.yaml` | HuggingFace Hub | LoRA, Llama-3.2-3B, vLLM rollouts |
 | `grpo/llama3_3B_full.yaml` | HuggingFace Hub | Full fine-tune, Llama-3.2-3B |
 | `grpo/llama3_3B_local_file.yaml` | Local file | `.jsonl/.json/.csv/.parquet` |
 | `grpo/llama3_3B_s3_file.yaml` | S3 | `s3://bucket/key.jsonl` |

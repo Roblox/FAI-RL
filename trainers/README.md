@@ -104,6 +104,8 @@ Replace the following values for your specific use case:
   for FAI-RL development and testing. `training.temperature` (default `1.0`,
   must be > 0) sets the rollout sampling temperature for `grpo`, `grpo_vlm`, and
   `gspo`; TRL also divides the policy logits by it when computing log-probs.
+  Set `training.use_vllm: true` to generate rollouts with vLLM; see
+  [vLLM Rollouts](#vllm-rollouts).
 - **CUSTOM**: Requires `training.entrypoint: "package.module:function"`, called as
   `function(config, logger)`; see [Write Your Own Training Loop](../README.md#write-your-own-training-loop)
 
@@ -167,6 +169,53 @@ and the image columns are not part of `context`. Every other column is, and
 `{"role", "content"}` message dicts per row; a reward that parses `prompts` as
 strings must be adapted. See
 `recipes/training/grpo_vlm/gemma_4_31b_it_lora.yaml`.
+
+### vLLM Rollouts
+
+By default `grpo`, `grpo_vlm`, and `gspo` generate rollouts with the training
+model's `generate()`. Setting `training.use_vllm: true` generates them with
+[vLLM](https://docs.vllm.ai/) instead, which is usually much faster for long
+completions or large `num_generations`. Before each round of generation TRL
+merges any LoRA adapters and copies the current weights into vLLM, so rollouts
+come from the policy being trained. vLLM requires Linux and an NVIDIA GPU;
+install it with `pip install -e ".[cuda,vllm]"`. On macOS and CPU, FAI-RL turns
+`use_vllm` off with a warning and falls back to `generate()`.
+
+`training.vllm_mode` picks where vLLM runs:
+
+- `colocate` (default): every training process starts its own vLLM engine on
+  its GPU. No extra processes are needed. `vllm_gpu_memory_utilization`
+  (default `0.3`) is the share of each GPU vLLM reserves; the rest is left for
+  training. Set `vllm_max_model_length` to about `data.max_length` so vLLM
+  doesn't reserve KV cache for the model's full context window, and
+  `vllm_enable_sleep_mode: true` to free vLLM memory during the optimizer step.
+  `vllm_tensor_parallel_size` shards each engine across that many training
+  GPUs and must divide `--num-gpus`.
+- `server`: rollouts go to a vLLM server you start on separate GPUs. It
+  leaves the training GPUs to training and suits larger models. Start the
+  server with the same weights as `model.base_model_name` (download `s3://`
+  models first), then point training at it with `vllm_server_base_url` (or
+  `vllm_server_host` / `vllm_server_port`):
+
+  ```bash
+  # GPU 0 serves rollouts
+  CUDA_VISIBLE_DEVICES=0 trl vllm-serve --model meta-llama/Llama-3.2-3B-Instruct
+
+  # GPUs 1-3 train
+  CUDA_VISIBLE_DEVICES=1,2,3 fai-rl-train \
+    --recipe recipes/training/grpo/llama3_3B_lora_vllm.yaml --num-gpus 3 \
+    training.vllm_mode=server training.vllm_server_base_url=http://localhost:8000
+  ```
+
+  Set `CUDA_VISIBLE_DEVICES` for training explicitly: a single-GPU run
+  otherwise pins itself to GPU 0, which the server is using. `trl vllm-serve`
+  prints the equivalent `vllm serve` command if you prefer to run vLLM
+  directly.
+
+vLLM's token probabilities differ slightly from the training model's, so TRL
+corrects the loss with importance sampling by default. 8-bit models
+(`model.load_in_8bit`) are not supported. See
+`recipes/training/grpo/llama3_3B_lora_vllm.yaml`.
 
 ### Tool-Calling SFT
 

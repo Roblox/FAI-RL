@@ -19,6 +19,7 @@ from core.trainer_base import BaseTrainer
 from utils.logging_utils import setup_logging
 from utils.dataset_utils import load_raw_dataset
 from .rewards.factory import build_reward_function
+from .grpo_trainer import vllm_rollout_kwargs
 
 class GSPOTrainer(BaseTrainer):
     """GSPO (Group Sequence Policy Optimization) trainer implementation."""
@@ -199,6 +200,7 @@ class GSPOTrainer(BaseTrainer):
             epsilon_high=float(self.config.training.epsilon_high),
             beta=float(self.config.training.beta),
             steps_per_generation=self.config.training.steps_per_generation,
+            **vllm_rollout_kwargs(self.config.training),
         )
 
     def setup_trainer(self):

@@ -5,6 +5,19 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
+# Checkpoint files that only resuming training reads. Loading a checkpoint's
+# weights, for inference or as a new run's base model, can skip them; with
+# training.save_only_model=false they are most of a full fine-tune's bytes.
+TRAINING_STATE_PATTERNS = (
+    "optimizer.pt",
+    "scheduler.pt",
+    "scaler.pt",
+    "rng_state*.pth",
+    "latest",
+    "zero_to_fp32.py",
+    "global_step*",
+)
+
 
 def _nonempty(path: Path) -> bool:
     return path.is_file() and path.stat().st_size > 0
@@ -67,6 +80,26 @@ def is_resumable_checkpoint(path: Path) -> bool:
         )
     except (OSError, ValueError, TypeError, AttributeError):
         return False
+
+
+def missing_deepspeed_shards(path: Path, world_size: int) -> Optional[str]:
+    """Say why a DeepSpeed checkpoint lacks a rank's optimizer shard, or None.
+
+    Each rank writes its shard to its own node's output_dir. Without a shared
+    filesystem, rank 0 sees only its node's shards, and a resume would fail on
+    the ranks whose shards are missing.
+    """
+    latest = path / "latest"
+    if not latest.is_file():
+        return None
+    try:
+        tag = latest.read_text(encoding="utf-8").strip()
+        shards = len(list((path / tag).glob("*optim_states.pt")))
+    except OSError as exc:
+        return f"its DeepSpeed state is unreadable: {exc}"
+    if shards != world_size:
+        return f"it has {shards} DeepSpeed optimizer shards for {world_size} ranks"
+    return None
 
 
 def find_latest_checkpoint(output_dir: str) -> Optional[str]:

@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import os
 import shlex
@@ -6,16 +7,23 @@ import subprocess
 import tempfile
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from transformers import TrainerCallback, TrainerState, TrainerControl, TrainingArguments
 
+from utils.checkpoint_utils import is_resumable_checkpoint, missing_deepspeed_shards
 from utils.logging_utils import setup_logging
 
 # Configure the logger so messages actually appear. The original bare
 # logging.getLogger had no handlers attached, so S3 log lines went nowhere.
 # file_output=False because the parent training log already captures stdout.
 logger = setup_logging("FAI-RL.s3", file_output=False)
+
+# Written into s3://<bucket>/<prefix>/checkpoint-<step>/ after every other file
+# of a resumable checkpoint is uploaded. --auto-resume restores only
+# checkpoints that have one (utils.checkpoint_restore).
+UPLOAD_MANIFEST_NAME = "upload_manifest.json"
+UPLOAD_MANIFEST_FORMAT = 1
 
 
 def _get_s3_client(region: Optional[str] = None, endpoint_url: Optional[str] = None):
@@ -59,20 +67,24 @@ def upload_directory_to_s3(
     endpoint_url: Optional[str] = None,
     delete_local: bool = False,
     uploader: str = "auto",
-):
+) -> dict[str, int]:
     """Upload all files in *local_dir* to s3://<bucket>/<s3_prefix>/...
 
     The directory structure is preserved under *s3_prefix*. *uploader*
     selects the backend ("auto" picks s5cmd if installed, else boto3).
+
+    Returns the size of each uploaded file, keyed by its path relative to
+    *local_dir*; empty when there was nothing to upload.
     """
     local_path = Path(local_dir)
     if not local_path.is_dir():
         logger.warning("Local directory %s does not exist - skipping upload", local_dir)
-        return
+        return {}
 
     files = [p for p in local_path.rglob("*") if p.is_file()]
     if not files:
-        return
+        return {}
+    sizes = {p.relative_to(local_path).as_posix(): p.stat().st_size for p in files}
 
     backend = _resolve_uploader(uploader)
     logger.info("Uploading %d files from %s to s3://%s/%s (backend=%s)",
@@ -115,6 +127,7 @@ def upload_directory_to_s3(
     if delete_local:
         shutil.rmtree(local_dir, ignore_errors=True)
         logger.info("Deleted local directory %s after upload", local_dir)
+    return sizes
 
 
 def eval_metrics_from_trainer_state(state: TrainerState) -> dict:
@@ -170,6 +183,7 @@ class S3UploadCallback(TrainerCallback):
         upload_final_model: bool = True,
         delete_local_after_upload: bool = False,
         uploader: str = "auto",
+        run_fingerprint: str = "",
     ):
         self.bucket = bucket
         self.prefix = prefix.rstrip("/")
@@ -179,6 +193,7 @@ class S3UploadCallback(TrainerCallback):
         self.upload_final_model = upload_final_model
         self.delete_local_after_upload = delete_local_after_upload
         self.uploader = uploader
+        self.run_fingerprint = run_fingerprint
         # Resolve eagerly so we fail fast at startup if uploader='s5cmd' but
         # the binary isn't installed, instead of mid-training on the first save.
         _resolve_uploader(self.uploader)
@@ -190,11 +205,23 @@ class S3UploadCallback(TrainerCallback):
         self._errors_lock = threading.Lock()
         # step -> eval_loss, rewritten to prefix/checkpoint_eval.json each save.
         self._eval_index: dict[str, float] = {}
+        # Reasons already logged for checkpoints a restart cannot resume from.
+        self._unresumable_reasons: set[str] = set()
 
-    def _run_upload(self, **kwargs):
-        """Thread target that runs the upload and records any failure."""
+    @property
+    def _eval_index_key(self) -> str:
+        return f"{self.prefix}/checkpoint_eval.json" if self.prefix else "checkpoint_eval.json"
+
+    def _run_upload(self, manifest: Optional[dict] = None, **kwargs):
+        """Thread target that runs the upload and records any failure.
+
+        With *manifest*, a successful upload ends by writing it, listing the
+        files that were uploaded, so a restart can tell the copy is complete.
+        """
         try:
-            upload_directory_to_s3(**kwargs)
+            uploaded = upload_directory_to_s3(**kwargs)
+            if manifest is not None and uploaded:
+                self._upload_manifest(kwargs["s3_prefix"], {**manifest, "files": uploaded})
         except BaseException as exc:  # noqa: BLE001 - re-raised on join
             logger.error(
                 "S3 upload to s3://%s/%s failed: %s",
@@ -203,7 +230,29 @@ class S3UploadCallback(TrainerCallback):
             with self._errors_lock:
                 self._upload_errors.append(exc)
 
-    def _schedule_upload(self, local_dir: str, s3_prefix: str, delete_local: bool = False):
+    def _upload_manifest(self, s3_prefix: str, manifest: dict) -> None:
+        fd, tmp_path = tempfile.mkstemp(suffix=".json")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(manifest, fh, indent=2, sort_keys=True)
+            upload_file_to_s3(
+                tmp_path,
+                self.bucket,
+                f"{s3_prefix}/{UPLOAD_MANIFEST_NAME}",
+                region=self.region,
+                endpoint_url=self.endpoint_url,
+                uploader=self.uploader,
+            )
+        finally:
+            os.unlink(tmp_path)
+
+    def _schedule_upload(
+        self,
+        local_dir: str,
+        s3_prefix: str,
+        delete_local: bool = False,
+        manifest: Optional[dict] = None,
+    ):
         """Start a background upload and track the thread."""
         t = threading.Thread(
             target=self._run_upload,
@@ -215,6 +264,7 @@ class S3UploadCallback(TrainerCallback):
                 endpoint_url=self.endpoint_url,
                 delete_local=delete_local,
                 uploader=self.uploader,
+                manifest=manifest,
             ),
             daemon=True,
         )
@@ -267,7 +317,7 @@ class S3UploadCallback(TrainerCallback):
             "best_global_step": metrics.get("best_global_step"),
             "best_metric": metrics.get("best_metric"),
         }
-        index_key = f"{self.prefix}/checkpoint_eval.json" if self.prefix else "checkpoint_eval.json"
+        index_key = self._eval_index_key
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as fh:
@@ -321,7 +371,66 @@ class S3UploadCallback(TrainerCallback):
             checkpoint_dir,
             s3_dest,
             delete_local=self.delete_local_after_upload,
+            manifest=self._resume_manifest(checkpoint_dir, args, state),
         )
+
+    def _resume_manifest(
+        self, checkpoint_dir: str, args: TrainingArguments, state: TrainerState
+    ) -> Optional[dict]:
+        """Return manifest metadata if a restart could resume from this checkpoint."""
+        world_size = int(getattr(args, "world_size", 1) or 1)
+        path = Path(checkpoint_dir)
+        if not is_resumable_checkpoint(path):
+            reason = (
+                "it has no optimizer and scheduler state; "
+                "set training.save_only_model=false to resume after a restart"
+            )
+        else:
+            reason = missing_deepspeed_shards(path, world_size)
+        if reason:
+            if reason not in self._unresumable_reasons:
+                self._unresumable_reasons.add(reason)
+                logger.info(
+                    "Checkpoint step %d uploads without %s: %s",
+                    state.global_step, UPLOAD_MANIFEST_NAME, reason,
+                )
+            return None
+        return {
+            "format": UPLOAD_MANIFEST_FORMAT,
+            "global_step": int(state.global_step),
+            "world_size": world_size,
+            "run_fingerprint": self.run_fingerprint,
+        }
+
+    def on_train_begin(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
+    ):
+        # A resumed run rewrites checkpoint_eval.json on its first save. Seed
+        # the index from the earlier attempt so that rewrite keeps its losses.
+        if not self.upload_checkpoints or not state.is_world_process_zero:
+            return
+        if not state.global_step:
+            return
+        try:
+            raw = download_s3_bytes(
+                f"s3://{self.bucket}/{self._eval_index_key}",
+                region=self.region,
+                endpoint_url=self.endpoint_url,
+            )
+            losses = json.loads(raw).get("eval_loss") or {}
+        except Exception as exc:  # noqa: BLE001 - index is best-effort
+            logger.info("No checkpoint_eval.json to carry over on resume: %s", exc)
+            return
+        for step, loss in losses.items():
+            try:
+                if int(step) <= state.global_step and isinstance(loss, (int, float)):
+                    self._eval_index[str(int(step))] = float(loss)
+            except (TypeError, ValueError):
+                continue
 
     def on_train_end(
         self,
@@ -352,11 +461,14 @@ def download_directory_from_s3(
     region: Optional[str] = None,
     endpoint_url: Optional[str] = None,
     downloader: str = "auto",
+    exclude: Sequence[str] = (),
 ) -> None:
     """Download all objects under an S3 prefix to *local_dir*.
 
     The directory structure under the prefix is preserved. *downloader* selects
-    the backend ("auto" picks s5cmd if installed, else boto3).
+    the backend ("auto" picks s5cmd if installed, else boto3). Objects whose
+    relative path, or any directory in it, matches an *exclude* glob are
+    skipped.
     """
     from urllib.parse import urlparse
 
@@ -378,8 +490,20 @@ def download_directory_from_s3(
         argv = ["s5cmd"]
         if endpoint_url:
             argv.extend(["--endpoint-url", endpoint_url])
-        # s5cmd sync handles recursive directory copies efficiently
-        argv.extend(["sync", f"s3://{bucket}/{prefix}/*", f"{local_dir}/"])
+        stdin = None
+        if exclude:
+            # s5cmd has no exclude that matches nested paths reliably, so list
+            # the keys here and copy them in one batch.
+            lines = []
+            for key, relative in _list_s3_files(bucket, prefix, region, endpoint_url, exclude):
+                local_file = os.path.join(local_dir, relative)
+                os.makedirs(os.path.dirname(local_file), exist_ok=True)
+                lines.append(shlex.join(["cp", f"s3://{bucket}/{key}", local_file]))
+            argv.extend(["--numworkers", "256", "run"])
+            stdin = "\n".join(lines) + "\n"
+        else:
+            # s5cmd sync handles recursive directory copies efficiently
+            argv.extend(["sync", f"s3://{bucket}/{prefix}/*", f"{local_dir}/"])
         env = os.environ.copy()
         if region:
             # An explicitly configured region must win over the compute's
@@ -389,7 +513,7 @@ def download_directory_from_s3(
             # us-east-2 and 301-redirects (BucketRegionError).
             env["AWS_REGION"] = region
             env["AWS_DEFAULT_REGION"] = region
-        result = subprocess.run(argv, env=env, capture_output=True, text=True)
+        result = subprocess.run(argv, env=env, capture_output=True, text=True, input=stdin)
         output = "\n".join(part for part in (result.stdout, result.stderr) if part)
         # s5cmd 2.3.0 `sync` can print an ERROR (notably BucketRegionError) while
         # returning zero. Treat its structured error output as a failure too.
@@ -400,18 +524,12 @@ def download_directory_from_s3(
             )
     else:
         client = _get_s3_client(region, endpoint_url)
-        paginator = client.get_paginator("list_objects_v2")
         total = 0
-        for page in paginator.paginate(Bucket=bucket, Prefix=prefix + "/"):
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                relative = key[len(prefix):].lstrip("/")
-                if not relative:
-                    continue
-                local_file = os.path.join(local_dir, relative)
-                os.makedirs(os.path.dirname(local_file), exist_ok=True)
-                client.download_file(bucket, key, local_file)
-                total += 1
+        for key, relative in _list_s3_files(bucket, prefix, region, endpoint_url, exclude):
+            local_file = os.path.join(local_dir, relative)
+            os.makedirs(os.path.dirname(local_file), exist_ok=True)
+            client.download_file(bucket, key, local_file)
+            total += 1
         logger.info("Downloaded %d files from s3://%s/%s", total, bucket, prefix)
 
     downloaded_files = sum(1 for path in Path(local_dir).rglob("*") if path.is_file())
@@ -419,6 +537,28 @@ def download_directory_from_s3(
         raise RuntimeError(f"S3 download from s3://{bucket}/{prefix} downloaded no files")
 
     logger.info("Download complete: s3://%s/%s -> %s", bucket, prefix, local_dir)
+
+
+def _list_s3_files(
+    bucket: str,
+    prefix: str,
+    region: Optional[str],
+    endpoint_url: Optional[str],
+    exclude: Sequence[str] = (),
+):
+    """Yield (key, path relative to *prefix*) for each object not excluded."""
+    client = _get_s3_client(region, endpoint_url)
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix + "/"):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            relative = key[len(prefix):].lstrip("/")
+            if not relative:
+                continue
+            parts = relative.split("/")
+            if any(fnmatch.fnmatch(part, pattern) for part in parts for pattern in exclude):
+                continue
+            yield key, relative
 
 
 def download_file_from_s3(
@@ -544,4 +684,5 @@ def build_s3_callback(s3_config) -> Optional[S3UploadCallback]:
         upload_final_model=s3_config.upload_final_model,
         delete_local_after_upload=s3_config.delete_local_after_upload,
         uploader=getattr(s3_config, "uploader", "auto"),
+        run_fingerprint=getattr(s3_config, "run_fingerprint", ""),
     )

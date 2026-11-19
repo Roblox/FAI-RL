@@ -139,6 +139,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from utils.logging_utils import setup_logging, SafeLogger
+from utils.checkpoint_utils import TRAINING_STATE_PATTERNS
 from utils.s3_utils import build_s3_callback, download_directory_from_s3
 from utils.tokenizer_utils import prepare_tokenizer_with_model
 from utils.device_utils import (
@@ -323,6 +324,7 @@ class BaseTrainer(ABC):
                     cache_dir,
                     region=region,
                     endpoint_url=endpoint_url,
+                    exclude=TRAINING_STATE_PATTERNS,
                 )
                 open(sentinel, "w").close()
                 self.logger.info("Model download complete, cached at %s", cache_dir)

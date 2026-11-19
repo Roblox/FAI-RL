@@ -352,6 +352,22 @@ def load_recipe_with_overrides(args) -> ExperimentConfig:
     return config
 
 
+def prepare_resume(config: ExperimentConfig, auto_resume: bool, logger) -> None:
+    """Choose the checkpoint to resume from, restoring it from S3 if needed.
+
+    A restarted job runs on fresh disks, so with --auto-resume the newest
+    checkpoint this run uploaded is downloaded into output_dir first.
+    """
+    from utils.checkpoint_restore import restore_checkpoint_from_s3, run_fingerprint
+    from utils.checkpoint_utils import select_resume_checkpoint
+
+    if not config.s3.run_fingerprint:
+        config.s3.run_fingerprint = run_fingerprint(config)
+    if auto_resume:
+        restore_checkpoint_from_s3(config, logger)
+    select_resume_checkpoint(config.training, auto_resume, logger)
+
+
 def main():
     """Main training function."""
     args = parse_args()
@@ -425,8 +441,7 @@ def main():
     else:
         config.training.deepspeed_config = None
 
-    from utils.checkpoint_utils import select_resume_checkpoint
-    select_resume_checkpoint(config.training, args.auto_resume, logger)
+    prepare_resume(config, args.auto_resume, logger)
 
     # Get algorithm from config
     algorithm = config.training.algorithm.lower()

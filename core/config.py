@@ -513,6 +513,11 @@ class S3Config:
     # same workload (Qwen3-30B final/ dir, 90 GiB), so "auto" is a safe default.
     uploader: Literal["auto", "boto3", "s5cmd"] = "auto"
 
+    # Identifies the run in each checkpoint's upload manifest; --auto-resume
+    # restores only checkpoints with a matching one. Empty means a hash of the
+    # recipe, so a restart matches and a rerun with changes does not.
+    run_fingerprint: str = ""
+
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
 

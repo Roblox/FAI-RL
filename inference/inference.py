@@ -534,6 +534,7 @@ def _resolve_model_identifier(config):
     """
     import shutil
     import tempfile
+    from utils.checkpoint_utils import TRAINING_STATE_PATTERNS
     from utils.s3_utils import download_directory_from_s3
 
     # Support model_paths (local/S3) and model (HuggingFace hub)
@@ -557,6 +558,7 @@ def _resolve_model_identifier(config):
                 local_dir=s3_tmp_dir,
                 region=getattr(config, "s3_region", None),
                 endpoint_url=getattr(config, "s3_endpoint_url", None),
+                exclude=TRAINING_STATE_PATTERNS,
             )
         except Exception:
             shutil.rmtree(s3_tmp_dir, ignore_errors=True)

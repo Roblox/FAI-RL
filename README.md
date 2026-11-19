@@ -534,12 +534,40 @@ s3:
 | `upload_checkpoints` | bool | `true` | Upload each intermediate checkpoint saved at `save_steps` intervals |
 | `upload_final_model` | bool | `true` | Upload the final model directory at the end of training |
 | `delete_local_after_upload` | bool | `false` | Remove local checkpoint directory after a successful upload |
+| `run_fingerprint` | string | `""` | Run identity written into each checkpoint's upload manifest. Empty means a hash of the recipe; see [Resume After a Restart](#resume-after-a-restart) |
 
 ### How It Works
 
 1. **Intermediate checkpoints** -- When the trainer saves a checkpoint (every `training.save_steps` steps), the S3 callback writes `eval_metrics.json` (held-out `eval_loss` for that step) into the checkpoint directory, uploads a compact `checkpoint_eval.json` index next to the checkpoint dirs, then uploads the entire checkpoint directory to `s3://<bucket>/<prefix>/checkpoint-<step>/` in a background thread.
 2. **Final model** -- At the end of training, the output directory is uploaded to `s3://<bucket>/<prefix>/final/`.
 3. **Non-blocking** -- All uploads happen on daemon threads. Training continues while files are being transferred. At the end of training, the callback waits for any remaining uploads to finish before the process exits.
+4. **Upload manifest** -- When a resumable checkpoint (see below) finishes uploading, the callback writes `upload_manifest.json` last. It lists every uploaded file and its size, the step, the world size, and the run fingerprint. A checkpoint without one was model-only or did not finish uploading.
+
+### Resume After a Restart
+
+A job that is preempted or loses a node restarts on fresh disks, so its local checkpoints are gone. Run the same command again with `--auto-resume`, and FAI-RL downloads the newest checkpoint it can resume from `s3://<bucket>/<prefix>/` into `training.output_dir` before training starts:
+
+```bash
+fai-rl-train --recipe recipes/my_recipe.yaml --auto-resume
+```
+
+A checkpoint is restored only if:
+
+- it has an `upload_manifest.json` and every file it lists downloaded at the listed size;
+- the same recipe wrote it, ignoring `training.resume_from_checkpoint` and `training.deepspeed_config` (set `s3.run_fingerprint` to the same string in both recipes to resume after changing the recipe);
+- it was saved at the same world size as this run.
+
+Otherwise FAI-RL tries the next older checkpoint, and starts fresh if none qualifies. An explicit `training.resume_from_checkpoint` turns the S3 restore off. On a resumed run, `checkpoint_eval.json` keeps the eval losses of the checkpoints before the resumed step.
+
+With early stopping, the best checkpoint so far is restored too, because `load_best_model_at_end` reloads it after the last step. If it cannot be restored, the run ends with its last model instead of the best one.
+
+Requirements and limits:
+
+- Set `training.save_only_model: false`. Model-only checkpoints have no optimizer or scheduler state and are uploaded without a manifest.
+- A multi-node DeepSpeed run resumes only if `output_dir` is on a filesystem shared by every node. Otherwise rank 0 sees only its own node's optimizer shards, and those checkpoints get no manifest.
+- The native engine (`training.backend: native`, `algorithm: custom`) does not write manifests yet, so it resumes only from local checkpoints.
+
+Loading a checkpoint's weights from S3, for inference or as `model.base_model_name`, skips the optimizer, scheduler, RNG, and DeepSpeed state files.
 
 ### S3 Upload Structure
 
@@ -552,6 +580,7 @@ s3://your-s3-bucket/
     │   ├── adapter_config.json
     │   ├── adapter_model.safetensors
     │   ├── eval_metrics.json          # eval_loss at this step
+    │   ├── upload_manifest.json       # written last; resumable checkpoints only
     │   └── ...
     ├── checkpoint-200/
     │   └── ...
